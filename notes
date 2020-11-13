@@ -1,0 +1,65 @@
+Miscellaneous notes about a Homa plugin for gRPC:
+-------------------------------------------------
+
+* TODO list:
+  * Figure out synchronization
+  * Add proper channelz support
+
+* Add plugin to gRPC: grpc_register_plugin
+
+* ExecCtx: used to collect a bunch of work to do, which can then be done
+  later at a higher stack level in order to avoid locking issues if it's
+  done right away.
+
+* Endpoints: looks like they keep track of socket-like objects (perhaps
+  a portability layer)?
+
+* Basic client request:
+  * Invokes grpc::internal::BlockingUnaryCallImpl
+  * which invokes grpc::CompletionQueue::Pluck
+
+* What is the path on the client to actually opening a socket?
+  * socket_utils_common_posix.cc: create_socket (37 calls deep)
+  * invoked from tcp_connect
+  * invoked from grpc_completion_queue_pluck
+  * invoked from grpc_core::Chttp2Connector::Connect
+
+* Levels in creating server (top down; doesn't actually open socket):
+  * ServerBuilder::BuildAndStart                     [server_builder.cc:399]
+  * Server::AddListeningPort                         [server_cc.cc:1092]
+  * creds->AddPortToServer(grpc_server*)             [insecure_server_credentials:29]
+  * grpc_server_add_insecure_http2_port              [server_chttp2.cc:35]
+  * grpc_core::Chttp2ServerAddPort(Server*)          [chttp2_server.cc:478]
+  * grpc_core::Chttp2ServerListener::Create          [chttp2_server.cc:285]
+  * grpc_tcp_server_create(Server::ListenerInterface) simply dispatches
+  * tcp_server_create()                              [tcp_server_posix.cc:67]
+
+* Levels to open socket on server (top down):
+  * Server::AddListeningPort                         [server_cc.cc:1092]
+  * creds->AddPortToServer(grpc_server*)             [insecure_server_credentials:29]
+  * grpc_server_add_insecure_http2_port              [server_chttp2.cc:37]
+  * grpc_core::Chttp2ServerAddPort                   [chttp2_server.cc:478]
+    (just delegates)
+  * Chttp2ServerListener::Create                     [chttp2_server.cc:290]
+  * grpc_tcp_server_add_port                         [tcp_server.cc:40]
+    (just delegates)
+  * tcp_server_add_port                              [tcp_server_posix.cc:437]
+    (parses address)
+  * add_wildcard_addrs_to_server                     [tcp_server_posix.cc:306]
+  * grpc_tcp_server_add_addr                         [tcp_server_utils_posix_common.cc:134]
+  * grpc_create_dualstack_socket                     [socket_utils_common_posix.cc:452]
+  * create_socket                                    [socket_utils_common_posix.cc:460]
+
+* Levels to register for callbacks (top down):
+  * ServerBuilder::BuildAndStart                     [server_builder.cc:411]
+  * Server::Start                                    [server_cc.cc:1168]
+  * grpc_server_start   (pure dispatch)              [server.cc:1489]
+  * grpc_core::Server::Start                         [server.cc:574]
+  * Server::ListenerInterface::Start                 [chttp2_server.cc:387]
+    (takes std::vector<grpc_pollset*>*, just delegates)
+  * grpc_tcp_server_start (dispatches through vtable)
+  * tcp_server_start                                 [tcp_server_posix.cc:519]
+
+* Issues to resolve
+  * Poll sets
+  * Deadlines

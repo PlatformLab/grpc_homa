@@ -1,0 +1,8 @@
+#!/bin/sh
+
+# This script copies modified information from this directory to a
+# CloudLab machine.
+
+target=hp028.utah.cloudlab.us
+# rsync -rtv --exclude-from=rsync-exclude.txt ./ $target:/ouster/grpc/
+rsync -rtv --exclude-from=rsync_exclude.txt ./ $target:/ouster/grpc_homa/

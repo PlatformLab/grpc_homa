@@ -1,0 +1,18 @@
+// Protocol buffer definitions used for testing grpcHoma.
+
+syntax = "proto3";
+
+package test;
+
+service Test {
+    rpc Sum(SumArgs) returns (SumResult) {}
+}
+
+message SumArgs {
+    int32 op1 = 1;
+    int32 op2 = 2;
+}
+
+message SumResult {
+    int32 sum = 1;
+}

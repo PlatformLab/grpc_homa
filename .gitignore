@@ -1,0 +1,19 @@
+.*.swp
+\#*#
+*.pyc
+*.o
+*.hi
+*.dump
+*.log
+*.rej
+*.orig
+*.patch
+*.diff
+.tags*
+.deps
+*.pdf
+
+# Ignore IDE files
+/.idea/
+/nbproject/
+

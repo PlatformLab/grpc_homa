@@ -1,0 +1,5 @@
+# This file lists directories and files that should not be copied
+# to a remote machine by rsync.
+.git
+nbproject
+*.pb.h
