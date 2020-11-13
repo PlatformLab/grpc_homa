@@ -110,10 +110,29 @@ void HomaListener::Start(grpc_core::Server* server,
  * \param err
  *      Indicates whether the socket has an error condition.
  */
-void HomaListener::OnRead(void* arg, grpc_error* err)
+void HomaListener::OnRead(void* arg, grpc_error* error)
 {
-//    HomaListener *lis = static_cast<HomaListener*>(arg);
-    gpr_log(GPR_ERROR, "Got Homa request but don't know how to handle it");
+    char buffer[1000];
+    struct sockaddr_in source;
+    uint64_t id = 0;
+    HomaListener *lis = static_cast<HomaListener*>(arg);
+    
+    if (error != GRPC_ERROR_NONE) {
+        gpr_log(GPR_ERROR, "OnRead invoked with error: %s",
+                grpc_error_string(error));
+    }
+    
+    int length = homa_recv(lis->fd, buffer, sizeof(buffer),
+				HOMA_RECV_REQUEST, (struct sockaddr *) &source,
+				sizeof(source), &id);
+    if (length < 0) {
+        gpr_log(GPR_ERROR, "error in homa_recv: %s (fd %d)", strerror(errno),
+                lis->fd);
+    } else {
+        gpr_log(GPR_ERROR, "Homa discarding request: id %lu, length %d",
+                id, length);
+        grpc_fd_notify_on_read(lis->gfd, &lis->read_closure);
+    }
 }
 
 grpc_core::channelz::ListenSocketNode*

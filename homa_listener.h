@@ -25,7 +25,7 @@ public:
 protected:
 	HomaListener(int port);
     static void InitShared(void);
-    static void OnRead(void* arg, grpc_error* err);
+    static void OnRead(void* arg, grpc_error* error);
     
     /**
      * Information that is shared across all HomaListener objects.

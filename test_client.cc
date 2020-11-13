@@ -35,22 +35,27 @@ public:
 };
 
 int main(int argc, char** argv) {
-    struct addrinfo hints;
-    struct addrinfo *matching_addresses;
-    struct sockaddr *dest;
+//    struct addrinfo hints;
+//    struct addrinfo *matching_addresses;
+    struct sockaddr_in dest;
     uint64_t rpc_id;
+    int status;
     
-    memset(&hints, 0, sizeof(struct addrinfo));
-    hints.ai_family = AF_INET;
-    hints.ai_socktype = SOCK_DGRAM;
-    int status = getaddrinfo("localhost:4000", NULL, &hints,
-            &matching_addresses);
-    if (status != 0) {
-        fprintf(stderr, "Couldn't look up address for localhost:4000s: %s\n",
-                gai_strerror(status));
-        exit(1);
-    }
-    dest = matching_addresses->ai_addr;
+//    memset(&hints, 0, sizeof(struct addrinfo));
+//    hints.ai_family = AF_INET;
+//    hints.ai_socktype = SOCK_DGRAM;
+//    status = getaddrinfo("localhost:4000", NULL, &hints,
+//            &matching_addresses);
+//    if (status != 0) {
+//        fprintf(stderr, "Couldn't look up address for localhost:4000: %s\n",
+//                gai_strerror(status));
+//        exit(1);
+//    }
+//    dest = matching_addresses->ai_addr;
+    dest.sin_addr.s_addr = htonl((127<<24) + 1);
+    dest.sin_family = AF_INET;
+    dest.sin_port = htons(4000);
+    printf("IP address is 0x%x\n", dest.sin_addr.s_addr);
     
     int fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_HOMA);
 	if (fd < 0) {
@@ -59,15 +64,13 @@ int main(int argc, char** argv) {
 	}
     char buffer[100];
     buffer[0] = 'a';
-    int status = homa_send(fd, buffer, sizeof(buffer), dest,
-            sizeof(struct sockaddr_in), &rpc_id);
+    status = homa_send(fd, buffer, sizeof(buffer),
+            reinterpret_cast<struct sockaddr *>(&dest), sizeof(dest), &rpc_id);
     if (status < 0) {
-        log(NORMAL, "Error in homa_send: %s (request "
-                "length %d)\n", strerror(errno),
-                header->length);
+        fprintf(stderr, "Error in homa_send: %s\n", strerror(errno));
         exit(1);
     }
-    printf("Sent %d bytes to server\n");
+    printf("Sent %lu bytes to server\n", sizeof(buffer));
     exit(0);
     
     
