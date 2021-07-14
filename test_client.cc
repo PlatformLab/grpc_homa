@@ -9,6 +9,7 @@
 #include "test.grpc.pb.h"
 
 #include "homa.h"
+#include "homa_transport.h"
 
 class SumClient{
 public:
@@ -34,12 +35,36 @@ public:
     }
 };
 
+class InsecureHomaCredentials final : public grpc::ChannelCredentials {
+ public:
+    std::shared_ptr<grpc::Channel> CreateChannelImpl(
+            const std::string& target, const grpc::ChannelArguments& args)
+            override {
+        return CreateChannelWithInterceptors(target, args,
+                std::vector<std::unique_ptr<
+                grpc::experimental::ClientInterceptorFactoryInterface>>());
+    }
+
+    std::shared_ptr<grpc::Channel> CreateChannelWithInterceptors(
+            const std::string& target, const grpc:: ChannelArguments& args,
+            std::vector<std::unique_ptr<
+                    grpc::experimental::ClientInterceptorFactoryInterface>>
+                    interceptor_creators) override {
+        grpc_channel_args channel_args;
+        args.SetChannelArgs(&channel_args);
+        return ::grpc::CreateChannelInternal("",
+                HomaTransport::create_channel(target.c_str(), &channel_args),
+                std::move(interceptor_creators));
+    }
+
+    grpc::SecureChannelCredentials* AsSecureCredentials() override {
+        return nullptr;
+    }
+};
+
 int main(int argc, char** argv) {
 //    struct addrinfo hints;
 //    struct addrinfo *matching_addresses;
-    struct sockaddr_in dest;
-    uint64_t rpc_id;
-    int status;
     
 //    memset(&hints, 0, sizeof(struct addrinfo));
 //    hints.ai_family = AF_INET;
@@ -52,6 +77,10 @@ int main(int argc, char** argv) {
 //        exit(1);
 //    }
 //    dest = matching_addresses->ai_addr;
+#if 0
+    struct sockaddr_in dest;
+    uint64_t rpc_id;
+    int status;
     dest.sin_addr.s_addr = htonl((127<<24) + 1);
     dest.sin_family = AF_INET;
     dest.sin_port = htons(4000);
@@ -72,10 +101,12 @@ int main(int argc, char** argv) {
     }
     printf("Sent %lu bytes to server\n", sizeof(buffer));
     exit(0);
+#endif
     
-    
-    SumClient client(grpc::CreateChannel("localhost:50051",
-            grpc::InsecureChannelCredentials()));
+//    SumClient client(grpc::CreateChannel("localhost:50051",
+//            grpc::InsecureChannelCredentials()));
+    std::shared_ptr<InsecureHomaCredentials> creds(new InsecureHomaCredentials());
+    SumClient client(grpc::CreateChannel("node-1:4000", creds));
     int sum = client.Sum(22, 33);
     printf("Sum of 22 and 33 is %d\n", sum);
     return 0;

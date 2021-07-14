@@ -5,6 +5,71 @@ Miscellaneous notes about a Homa plugin for gRPC:
   * Figure out synchronization
   * Add proper channelz support
 
+* Questions for gRPC experts:
+  * Client side:
+    * How does the target host address find its way to the transport?
+      see grpc_cronet_secure_channel_create: target argument
+      Target passed to CreateChannelImpl!
+    * How to hook up pollsets to receive results?
+    * Role of arguments for channels?
+      * Key-value pairs (latency characteristics?)
+      * Channels with different arguments cannot share a single subchannel
+      * None may matter for me?
+    * What is metadata? Name-value pairs, like HTTP headers
+    * Which things do I have to serialize? Metadata isn't serialized, and
+      message body may also be in multiple chunks.
+  * Synchronization
+    * Can a stream have multiple active calls? Stream == RPC, not connection,
+      but can still have multiple calls.
+  * Server side:
+    * Do I need to create a channel for each incoming stream?
+      No: see set_accept_stream in the grpc_transport_op structure
+      passed to the perform_op transport callback.
+    * No channels on server
+    * What is the rendezvous mechanism between incoming request and
+      outgoing response?
+  * Access from languages other than C++? Do I have to create a library
+    for each language?)?
+    * Wrapped languages use the C API, and the C API is intended *only*
+      for wrapped languages. There is no official C interface.
+    * Surface API: *core* grpc.h
+  * Coding conventions: they recommend following the Google C++ style guide;
+    all gRPC C++ files attempt to follow this.
+  * What are the rules for storage allocation? Arenas?
+    C++ new is now fine.
+  * OK to use STL instead of gpr stuff (e.g. mutex)
+    STL is fine except for synchronization, where they prefer
+    grpc::internal::Mutex in C++ and grpc_core::Mutex in C.
+    There is a lock_guard equivalent (mutex_lock?)
+    lockguard -- grpc_core::MutexLock
+    unique_lock - grpc_core::ReleaseableMutexLock
+  * What is the role of combiners?
+    Collect a bunch of ops, do them all on a single thread, possibly merge writes
+    Not essential, just for performance
+  * Secure connections: how do these interact with transports?
+    * Just hook into the right places: grpc_secure_channel_create
+  * Compression: any impact on transports?
+    * 2 forms of compression: message compression and stream compression.
+      Message compression happens above the level of the transport; stream
+      compression happens in the transport (e.g., compress several messages
+      together) but it's unclear how much benefit this provides
+    * I can ignore compression for now
+    * See link in bookmarks for more information.
+  * Load balancing
+    * Forgot to ask about this
+    * What load is being balanced (server-side?)
+    * How does it interact with transports
+  * Channelz support
+
+Other notes from phone call on 12/8:
+  * There are two layers of channel: top channels and subchannel.
+  * A single subchannel can be shared among multiple top channels
+  * See end-to-end tests, such as grpc/test/core/end2end/tests/simple_request.cc
+  * YouTube video on gRPC internal structure:
+    https://www.youtube.com/watch?v=S7WIYLcPS1Y&feature=youtu.be
+  * The authority metadata should be target host name (no port?),
+    not "homa.authority"
+
 * Add plugin to gRPC: grpc_register_plugin
 
 * ExecCtx: used to collect a bunch of work to do, which can then be done
@@ -15,14 +80,84 @@ Miscellaneous notes about a Homa plugin for gRPC:
   a portability layer)?
 
 * Basic client request:
-  * Invokes grpc::internal::BlockingUnaryCallImpl
-  * which invokes grpc::CompletionQueue::Pluck
+  * client_unary_call.h: BlockingUnaryCallImpl
+  * creates a Call object
+  * invokes PerformOps on that Call
+    * call.cc: call_start_batch
+      * call.cc: execute_batch
+        * call_combiner.cc: CallCombiner::Start schedules a closure
+      * closure callback to call_combiner.cc: execute_batch_in_call_combiner
+        * client_channel.cc: CallData::StartTransportStreamOpBatch
+  * calls CompletionQueue::pluck to wait for results
 
-* What is the path on the client to actually opening a socket?
-  * socket_utils_common_posix.cc: create_socket (37 calls deep)
-  * invoked from tcp_connect
-  * invoked from grpc_completion_queue_pluck
-  * invoked from grpc_core::Chttp2Connector::Connect
+* Levels in creating a client-side channel:
+  * grpc::CreateChannel                              [create_channel.cc:33]
+  * grpc::CreateCustomChannel                        [create_channel.cc:50]
+  * InsecureChannelCredentialsImpl::CreateChannelImpl[insecure_credentials.cc:37]
+  * InsecureChannelCredentialsImpl::CreateChannelWithInterceptors
+                                                     [insecure_credentials.cc:50]
+  * grpc_insecure_channel_create                     [channel_create.cc:105]
+  * grpc_core::CreateChannel                         [channel_create.cc:66]
+  * grpc_channel_create                              [channel.cc:271]
+  * grpc_channel_create_with_builder                 [channel.cc:61]
+
+* Levels in creating client-side socket:
+  * BlockingUnaryCall                                [client_unary_call.h:40]
+  * BlockingUnaryCallImpl                            [client_unary_call.h:69]
+  * CoreCodegen::grpc_completion_queue_pluck         [core_codegen.cc:74]
+  * grpc_completion_queue_pluck                      [completion_queue.cc:1324]
+  * cq_pluck                                         [completion_queue.cc:1297]
+  * grpc_pollset_work                                [pollset.cc:48]
+  * pollset_work                                     [ev_posix.cc:323]
+  * pollset_work                                     [ev_epollex_linux.cc:1137]
+  * ExecCtx::Flush                                   [exec_ctx.cc:153]
+  * exec_ctx_run                                     [exec_ctx.cc:40]
+  * AresDnsResolver::OnResolved                      [dns_resolver_ares.cc:327]
+  * grpc_core::WorkSerializer::Run                   [work_serializer.cc:152]
+  * grpc_core::WorkSerializer::WorkSerializerImpl::Run
+                                                     [work_serializer.cc:67]
+  * std::function ...
+  * AresDnsResolver::<lambda()>::operator()          [dns_resolver_ares.cc:327]
+  * AresDnsResolver::OnResolvedLocked                [dns_resolver_ares.cc:365]
+  * ResolvingLoadBalancingPolicy::ResolverResultHandler::ReturnResult
+                                                     [resolving_lb_policy.cc:89]
+  * ResolvingLoadBalancingPolicy::OnResolverResultChangedLocked
+                                                     [resolving_lb_policy.cc:337]
+  * ResolvingLoadBalancingPolicy::CreateOrUpdateLbPolicyLocked
+                                                     [resolving_lb_policy.cc:251]
+  * ChildPolicyHandler::UpdateLocked                 [child_policy_handler.cc:238]
+  * PickFirst::UpdateLocked                          [pick_first.cc:281]
+  * PickFirst::AttemptToConnectUsingLatestUpdateArgsLocked
+                                                     [pick_first.cc:237]
+  * ChannelData::SubchannelWrapper::AttemptToConnect [client_channel.cc:979]
+  * Subchannel::AttemptToConnect                     [subchannel.cc:894]
+  * Subchannel::MaybeStartConnectingLocked           [subchannel.cc:1003]
+  * Subchannel::ContinueConnectingLocked             [subchannel.cc:1056]
+  * Chttp2Connector::Connect                         [chttp2_connector.cc:74]
+  * grpc_tcp_client_connect                          [tcp_client.cc:30]
+  * tcp_connect                                      [tcp_client_posix.cc:341]
+  * grpc_tcp_client_prepare_fd                       [tcp_client_posix.cc:258]
+  * grpc_create_dualstack_socket                     [socket_utils_common_posix.cc:452]
+  * grpc_create_dualstack_socket_using_factory       [socket_utils_common_posix.cc:470]
+
+* Levels in first client-side call to write:
+  * BlockingUnaryCall                                [client_unary_call.h:40]
+  * BlockingUnaryCallImpl                            [client_unary_call.h:69]
+  * CoreCodegen::grpc_completion_queue_pluck         [core_codegen.cc:74]
+  * grpc_completion_queue_pluck                      [completion_queue.cc:1324]
+  * cq_pluck                                         [completion_queue.cc:1297]
+  * grpc_pollset_work                                [pollset.cc:48]
+  * pollset_work                                     [ev_posix.cc:323]
+  * pollset_work                                     [ev_epollex_linux.cc:1137]
+  * ExecCtx::Flush                                   [exec_ctx.cc:156]
+  * grpc_combiner_continue_exec_ctx                  [combiner.cc:252]
+  * write_action_begin_locked                        [chttp2_transport.cc:952]
+  * write_action                                     [chttp2_transport.cc:978]
+  * grpc_endpoint_write                              [endpoint.cc:32]
+  * tcp_write                                        [tcp_posix.cc:1559]
+
+* Levels to invoke client perform_stream_op:
+  * 
 
 * Levels in creating server (top down; doesn't actually open socket):
   * ServerBuilder::BuildAndStart                     [server_builder.cc:399]

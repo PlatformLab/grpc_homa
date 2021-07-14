@@ -62,7 +62,8 @@ int main(int argc, char** argv) {
   std::shared_ptr<InsecureHomaCredentials> creds(new InsecureHomaCredentials());
 
   grpc::ServerBuilder builder;
-  builder.AddListeningPort(server_address, creds);
+//  builder.AddListeningPort(server_address, creds);
+  builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
   builder.RegisterService(&service);
   std::unique_ptr<grpc::Server> server(builder.BuildAndStart());
   if (server == nullptr)

@@ -5,7 +5,7 @@ INCLUDES = -I ../install/include \
            -I ../grpc \
            -I ../grpc/third_party/abseil-cpp
 CXXFLAGS += -g -std=c++11 -Wall -Werror -fno-strict-aliasing $(INCLUDES)
-CFLAGS = -Wall -Werror -fno-strict-aliasing -O3
+CFLAGS = -Wall -Werror -fno-strict-aliasing -g
 
 LDFLAGS += -L/usr/local/lib `pkg-config --libs protobuf grpc++`\
            -pthread\
@@ -20,7 +20,7 @@ export PKG_CONFIG_PATH
 
 all: test_client test_server
 	
-test_client: test_client.o homa_api.o test.grpc.pb.o test.pb.o
+test_client: test_client.o homa_transport.o homa_api.o test.grpc.pb.o test.pb.o
 	$(CXX) $^ $(LDFLAGS) -o $@
 	
 test_server: test_server.o homa_listener.o homa_api.o test.grpc.pb.o test.pb.o
@@ -30,7 +30,7 @@ homa_api.o: /users/ouster/homaModule/homa_api.c
 	cc -c $(CFLAGS) $< -o $@
 	
 clean:
-	rm testClient testServer *.o
+	rm -f test_client test_server *.o
 	
 %.o: %.cc
 	$(CXX) -c $(CXXFLAGS) -std=c++17 $< -o $@
