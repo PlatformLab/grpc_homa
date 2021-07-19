@@ -198,3 +198,6 @@ Other notes from phone call on 12/8:
 * Issues to resolve
   * Poll sets
   * Deadlines
+
+
+cmake -DgRPC_INSTALL=ON -DgRPC_BUILD_TESTS=OFF -DCMAKE_INSTALL_PREFIX=$MY_INSTALL_DIR ../..
