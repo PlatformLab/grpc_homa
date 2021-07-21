@@ -21,9 +21,7 @@ protected:
     HomaTransport();
     ~HomaTransport();
     /**
-     * Represents a byte stream for communication with a particular server;
-     * this has dubious value for Homa, since Homa is RPC-based, not
-     * stream-based.
+     * This structure holds the state for a single RPC.
      */
     struct Stream {
         Stream(HomaTransport *ht, grpc_stream_refcount* refs,

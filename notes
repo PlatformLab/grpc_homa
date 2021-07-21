@@ -5,6 +5,11 @@ Miscellaneous notes about a Homa plugin for gRPC:
   * Figure out synchronization
   * Add proper channelz support
 
+* Various notes about how gRPC works:
+  * A "stream" is the embodiment of a particular RPC.
+  * "Plucking" a completion queue means extracting a particular desired
+    event, rather than any available event.
+
 * Questions for gRPC experts:
   * Client side:
     * How does the target host address find its way to the transport?
