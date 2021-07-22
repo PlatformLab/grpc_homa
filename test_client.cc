@@ -53,7 +53,7 @@ class InsecureHomaCredentials final : public grpc::ChannelCredentials {
         grpc_channel_args channel_args;
         args.SetChannelArgs(&channel_args);
         return ::grpc::CreateChannelInternal("",
-                HomaTransport::create_channel(target.c_str(), &channel_args),
+                HomaClient::create_channel(target.c_str(), &channel_args),
                 std::move(interceptor_creators));
     }
 
