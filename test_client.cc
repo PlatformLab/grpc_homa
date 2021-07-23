@@ -28,7 +28,7 @@ public:
         args.set_op2(op2);
         grpc::Status status = stub->Sum(&context, args, &result);
         if (!status.ok()) {
-            printf("Sum RPC failed!\n");
+            printf("Sum RPC failed: %s\n", status.error_details().c_str());
             return -1;
         }
         return result.sum();

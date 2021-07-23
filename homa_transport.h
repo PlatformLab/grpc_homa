@@ -24,7 +24,6 @@ protected:
     HomaClient();
     ~HomaClient();
     static void init();
-    
 
     /**
      * This class is invoked by gRPC to create subchannels for a channel.
@@ -72,19 +71,22 @@ protected:
      * This structure holds the state for a single RPC.
      */
     struct Stream {
-        Stream(HomaClient *ht, grpc_stream_refcount* refs,
+        Stream(HomaClient::Peer* peer, grpc_stream_refcount* refs,
                 grpc_core::Arena* arena)
-            : hc(ht), refs(refs), arena(arena)
+            : peer(peer), refs(refs), arena(arena), error(GRPC_ERROR_NONE)
         { }
         
-        // Transport that the stream belongs to.
-        HomaClient *hc;
+        // Information about the target server for this RPC.
+        Peer *peer;
         
         // Reference count (owned externally).
         grpc_stream_refcount* refs;
         
         // Don't yet know what this is for (memory allocation?)
         grpc_core::Arena* arena;
+        
+        // Status of the operation so far.
+        grpc_error_handle error;
     };
     
     static int      init_stream(grpc_transport* gt, grpc_stream* gs,
@@ -111,8 +113,11 @@ protected:
     std::list<Stream *> streams;
     
     // File descriptor for Homa socket; used for all outgoing RPCs.
-    // < 0 means socket couldn't be opened.
+    // < 0 means socket isn't currently open.
     int fd;
+    
+    // Id to use for the next outgoing RPC.
+    int nextId;
     
     // Single shared transport used for all channels.  Nullptr means
     // not created yet.
