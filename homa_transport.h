@@ -1,3 +1,6 @@
+#ifndef HOMA_CLIENT_H
+#define HOMA_CLIENT_H
+
 #include <list>
 #include <mutex>
 
@@ -7,6 +10,7 @@
 
 #include "src/core/ext/filters/client_channel/client_channel.h"
 #include "src/core/ext/filters/client_channel/connector.h"
+#include "src/core/lib/iomgr/ev_posix.h"
 #include "src/core/lib/iomgr/resolve_address.h"
 #include "src/core/lib/transport/transport_impl.h"
 
@@ -88,20 +92,21 @@ protected:
         // Status of the operation so far.
         grpc_error_handle error;
     };
-    
+
+    static void     destroy(grpc_transport* gt);
+    static void     destroy_stream(grpc_transport* gt, grpc_stream* gs,
+                            grpc_closure* then_schedule_closure);
     static int      init_stream(grpc_transport* gt, grpc_stream* gs,
                             grpc_stream_refcount* refcount,
                             const void* server_data, grpc_core::Arena* arena);
+    static void     onRead(void* arg, grpc_error* error);
+    static void     perform_op(grpc_transport* gt, grpc_transport_op* op);
+    static void     perform_stream_op(grpc_transport* gt, grpc_stream* gs,
+                            grpc_transport_stream_op_batch* op);
     static void     set_pollset(grpc_transport* gt, grpc_stream* gs,
                             grpc_pollset* pollset);
     static void     set_pollset_set(grpc_transport* gt, grpc_stream* gs,
                             grpc_pollset_set* pollset_set);
-    static void     perform_stream_op(grpc_transport* gt, grpc_stream* gs,
-                            grpc_transport_stream_op_batch* op);
-    static void     perform_op(grpc_transport* gt, grpc_transport_op* op);
-    static void     destroy_stream(grpc_transport* gt, grpc_stream* gs,
-                            grpc_closure* then_schedule_closure);
-    static void     destroy(grpc_transport* gt);
     static grpc_endpoint*
                     get_endpoint(grpc_transport* gt);
     
@@ -116,6 +121,12 @@ protected:
     // < 0 means socket isn't currently open.
     int fd;
     
+    // Corresponds to fd.]
+    grpc_fd *gfd;
+        
+    // Used to call us back when fd is readable.
+    grpc_closure read_closure;
+    
     // Id to use for the next outgoing RPC.
     int nextId;
     
@@ -126,3 +137,5 @@ protected:
     // Used to create subchannels for all Homa channels.
     static SubchannelFactory* factory;
 };
+
+#endif // HOMA_CLIENT_H

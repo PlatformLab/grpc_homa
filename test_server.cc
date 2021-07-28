@@ -35,7 +35,7 @@ int InsecureHomaCredentials::AddPortToServer(const std::string& addr,
                 addr.c_str()+5, HOMA_MIN_CLIENT_PORT-1);
         return 0;
     }
-    HomaListener *listener = HomaListener::Get(port);
+    HomaListener *listener = HomaListener::Get(server, port);
     if (listener) {
         server->core_server->AddListener(grpc_core::OrphanablePtr
                 <grpc_core::Server::ListenerInterface>(listener));
@@ -57,19 +57,20 @@ int main(int argc, char** argv) {
         fprintf(stderr, "Usage: %s homa:port\n", argv[0]);
         exit(1);
     }
-  std::string server_address(argv[1]);
-  TestImpl service;
-  std::shared_ptr<InsecureHomaCredentials> creds(new InsecureHomaCredentials());
+    printf("sizeof(struct sockaddr_in6): %lu\n", sizeof(struct sockaddr_in6));
+    std::string server_address(argv[1]);
+    TestImpl service;
+    std::shared_ptr<InsecureHomaCredentials> creds(new InsecureHomaCredentials());
 
-  grpc::ServerBuilder builder;
-//  builder.AddListeningPort(server_address, creds);
-  builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
-  builder.RegisterService(&service);
-  std::unique_ptr<grpc::Server> server(builder.BuildAndStart());
-  if (server == nullptr)
-      exit(1);
-  std::cout << "Server listening on " << server_address << std::endl;
-  server->Wait();
+    grpc::ServerBuilder builder;
+    builder.AddListeningPort(server_address, creds);
+  //  builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
+    builder.RegisterService(&service);
+    std::unique_ptr<grpc::Server> server(builder.BuildAndStart());
+    if (server == nullptr)
+        exit(1);
+    std::cout << "Server listening on " << server_address << std::endl;
+    server->Wait();
 
-  return 0;
+    return 0;
 }

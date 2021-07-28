@@ -60,6 +60,7 @@ void HomaClient::Connector::Connect(const HomaClient::Connector::Args& args,
     grpc_resolved_address addr;
     grpc_core::Subchannel::GetAddressFromSubchannelAddressArg(
             args.channel_args, &addr);
+    printf("Address is %u bytes long\n", addr.len);
     result->Reset();
     result->transport = &(new HomaClient::Peer(HomaClient::sharedClient,
             &addr))->base;
@@ -99,10 +100,12 @@ HomaClient::HomaClient()
     : vtable()
     , streams()
     , fd(-1)
+    , gfd(nullptr)
+    , read_closure()
     , nextId(1)
 {
     vtable.sizeof_stream =       sizeof(Stream);
-    vtable.name =                "homa";
+    vtable.name =                "homa_client";
     vtable.init_stream =         init_stream;
     vtable.set_pollset =         set_pollset;
     vtable.set_pollset_set =     set_pollset_set;
@@ -115,7 +118,12 @@ HomaClient::HomaClient()
     fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_HOMA);
 	if (fd < 0) {
         gpr_log(GPR_ERROR, "Couldn't open Homa socket: %s", strerror(errno));
-	}
+	} else {
+        gfd = grpc_fd_create(fd, "homa-socket", true);
+        GRPC_CLOSURE_INIT(&read_closure, onRead, this,
+                grpc_schedule_on_exec_ctx);
+        grpc_fd_notify_on_read(gfd, &read_closure);
+    }
 }
 
 HomaClient::~HomaClient()
@@ -173,7 +181,7 @@ grpc_channel *HomaClient::create_channel(const char* target,
  * \param refcount
  *      Externally owned reference to associate with the stream.
  * \param server_data
- *      No idea what this is.
+ *      Not used.
  * \param arena
  *      No idea what this is.
  * 
@@ -189,21 +197,33 @@ int HomaClient::init_stream(grpc_transport* gt, grpc_stream* gs,
     Stream *stream = reinterpret_cast<Stream *>(gs);
     new (stream) Stream(peer, refcount, arena);
     hc->streams.push_back(stream);
-    gpr_log(GPR_INFO, "HomaTransport::init_stream invoked");
+    gpr_log(GPR_INFO, "HomaClient::init_stream invoked");
     return 0;
 }
 
 void HomaClient::set_pollset(grpc_transport* gt, grpc_stream* gs,
         grpc_pollset* pollset)
 {
-    gpr_log(GPR_INFO, "HomaTransport::set_pollset invoked");
+    Peer *peer = reinterpret_cast<Peer*>(gt);
+    HomaClient* hc = peer->hc;
+    
+    if (hc->gfd) {
+        grpc_pollset_add_fd(pollset, hc->gfd);
+    }
+    gpr_log(GPR_INFO, "HomaClient::set_pollset invoked");
     
 }
 
 void HomaClient::set_pollset_set(grpc_transport* gt, grpc_stream* gs,
         grpc_pollset_set* pollset_set)
 {
-    gpr_log(GPR_INFO, "HomaTransport::set_pollset_set invoked");
+    Peer *peer = reinterpret_cast<Peer*>(gt);
+    HomaClient* hc = peer->hc;
+    
+    if (hc->gfd) {
+        grpc_pollset_set_add_fd(pollset_set, hc->gfd);
+    }
+    gpr_log(GPR_INFO, "HomaClient::set_pollset_set invoked");
     
 }
 
@@ -214,17 +234,17 @@ void HomaClient::perform_stream_op(grpc_transport* gt, grpc_stream* gs,
     Stream *stream = reinterpret_cast<Stream*>(gs);
     HomaClient *hc = peer->hc;
     
-    gpr_log(GPR_INFO, "HomaTransport::perform_stream_op invoked");
+    gpr_log(GPR_INFO, "HomaClient::perform_stream_op invoked");
     if (op->send_initial_metadata) {
-        gpr_log(GPR_INFO, "HomaTransport::perform_stream_op: send "
+        gpr_log(GPR_INFO, "HomaClient::perform_stream_op: send "
                 "initial metadata");
         log_metadata(op->payload->send_initial_metadata.send_initial_metadata,
                 true, true);
     }
     if (op->send_message) {
-        gpr_log(GPR_INFO, "HomaTransport::perform_stream_op: send message");
+        gpr_log(GPR_INFO, "HomaClient::perform_stream_op: send message");
         HomaMessage msg;
-        msg.rpcId = htonl(hc->nextId);
+        msg.id = htonl(hc->nextId);
         hc->nextId++;
         uint32_t length = op->payload->send_message.send_message->length();
         msg.payloadLength = htonl(length);
@@ -249,27 +269,35 @@ void HomaClient::perform_stream_op(grpc_transport* gt, grpc_stream* gs,
                     GRPC_SLICE_LENGTH(slice));
         }
         if (hc->fd < 0) {
-            hc->fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_HOMA);
-            if (hc->fd < 0) {
-                gpr_log(GPR_ERROR, "Couldn't open Homa socket: %s",
-                        strerror(errno));
-                stream->error = GRPC_OS_ERROR(errno, "opening Homa socket");
-            }
+            stream->error = GRPC_ERROR_CREATE_FROM_STATIC_STRING(
+                    "Couldn't open Homa socket");
+            goto sendMessageDone;
         }
+        uint64_t homaId;
+        int status = homa_send(hc->fd, &msg, sizeof(msg) - (10000 - length),
+                reinterpret_cast<struct sockaddr *>(&peer->addr),
+                peer->addr.len, &homaId);
+        if (status < 0) {
+                stream->error = GRPC_OS_ERROR(errno,
+                        "Couldn't send Homa message");
+                goto sendMessageDone;
+        }
+        gpr_log(GPR_INFO, "Sent Homa message with %u payload bytes", length);
     }
+    sendMessageDone:
     if (op->send_trailing_metadata) {
-        gpr_log(GPR_INFO, "HomaTransport::perform_stream_op: send "
+        gpr_log(GPR_INFO, "HomaClient::perform_stream_op: send "
                 "trailing metadata");
         log_metadata(op->payload->send_trailing_metadata.send_trailing_metadata,
                 true, true);
     }
     if (op->cancel_stream) {
-        gpr_log(GPR_INFO, "HomaTransport::perform_stream_op: cancel "
+        gpr_log(GPR_INFO, "HomaClient::perform_stream_op: cancel "
                 "stream ((%s)", grpc_error_std_string(
                 op->payload->cancel_stream.cancel_error).c_str());
     }
     if (op->recv_initial_metadata) {
-        gpr_log(GPR_INFO, "HomaTransport::perform_stream_op: "
+        gpr_log(GPR_INFO, "HomaClient::perform_stream_op: "
                 "receive initial metadata");
         if (stream->error != GRPC_ERROR_NONE) {
             grpc_core::ExecCtx::Run(DEBUG_LOCATION, op->payload->
@@ -278,7 +306,7 @@ void HomaClient::perform_stream_op(grpc_transport* gt, grpc_stream* gs,
         }
     }
     if (op->recv_message) {
-        gpr_log(GPR_INFO, "HomaTransport::perform_stream_op: receive message");
+        gpr_log(GPR_INFO, "HomaClient::perform_stream_op: receive message");
         if (stream->error != GRPC_ERROR_NONE) {
             grpc_core::ExecCtx::Run(DEBUG_LOCATION,
                     op->payload->recv_message.recv_message_ready,
@@ -286,7 +314,7 @@ void HomaClient::perform_stream_op(grpc_transport* gt, grpc_stream* gs,
         }
     }
     if (op->recv_trailing_metadata) {
-        gpr_log(GPR_INFO, "HomaTransport::perform_stream_op: "
+        gpr_log(GPR_INFO, "HomaClient::perform_stream_op: "
                 "receive trailing metadata");
         if (stream->error != GRPC_ERROR_NONE) {
             grpc_core::ExecCtx::Run(DEBUG_LOCATION, op->payload->
@@ -302,8 +330,52 @@ void HomaClient::perform_stream_op(grpc_transport* gt, grpc_stream* gs,
 
 void HomaClient::perform_op(grpc_transport* gt, grpc_transport_op* op)
 {
-    gpr_log(GPR_INFO, "HomaTransport::perform_op invoked");
-    
+    gpr_log(GPR_INFO, "HomaClient::perform_op invoked");
+    if (op->start_connectivity_watch) {
+        gpr_log(GPR_INFO, "HomaClient::perform_op invoked with "
+                "start_connectivity_watch");
+    }
+    if (op->stop_connectivity_watch) {
+        gpr_log(GPR_INFO, "HomaClient::perform_op invoked with "
+                "stop_connectivity_watch");
+    }
+    if (op->disconnect_with_error != GRPC_ERROR_NONE) {
+        gpr_log(GPR_INFO, "HomaClient::perform_op got "
+                "disconnect_with_error: %s",
+                grpc_error_string(op->disconnect_with_error));
+        GRPC_ERROR_UNREF(op->disconnect_with_error);
+    }
+    if (op->goaway_error != GRPC_ERROR_NONE) {
+        gpr_log(GPR_INFO, "HomaClient::perform_op got goaway_error: %s",
+                grpc_error_string(op->goaway_error));
+        GRPC_ERROR_UNREF(op->goaway_error);
+    }
+    if (op->set_accept_stream) {
+        gpr_log(GPR_INFO, "HomaClient::perform_op invoked with "
+                "set_accept_stream");
+    }
+    if (op->bind_pollset) {
+        gpr_log(GPR_INFO, "HomaClient::perform_op invoked with "
+                "bind_pollset");
+    }
+    if (op->bind_pollset_set) {
+        gpr_log(GPR_INFO, "HomaClient::perform_op invoked with "
+                "bind_pollset_set");
+    }
+    if (op->send_ping.on_initiate) {
+        gpr_log(GPR_INFO, "HomaClient::perform_op invoked with "
+                "send_ping.on_initiate");
+    }
+    if (op->send_ping.on_ack) {
+        gpr_log(GPR_INFO, "HomaClient::perform_op invoked with "
+                "send_ping.on_ack");
+    }
+    if (op->reset_connect_backoff) {
+        gpr_log(GPR_INFO, "HomaClient::perform_op invoked with "
+                "reset_connect_backoff");
+    }
+
+    grpc_core::ExecCtx::Run(DEBUG_LOCATION, op->on_consumed, GRPC_ERROR_NONE);
 }
 
 void HomaClient::destroy_stream(grpc_transport* gt, grpc_stream* gs,
@@ -311,19 +383,54 @@ void HomaClient::destroy_stream(grpc_transport* gt, grpc_stream* gs,
 {
     Stream *stream = reinterpret_cast<Stream*>(gs);
     
-    gpr_log(GPR_INFO, "HomaTransport::destroy_stream invoked");
+    gpr_log(GPR_INFO, "HomaClient::destroy_stream invoked");
     GRPC_ERROR_UNREF(stream->error);
-    
 }
 
 void HomaClient::destroy(grpc_transport* gt)
 {
-    gpr_log(GPR_INFO, "HomaTransport::destroy invoked");
+    gpr_log(GPR_INFO, "HomaClient::destroy invoked");
     
 }
 
 grpc_endpoint* HomaClient::get_endpoint(grpc_transport* gt)
 {
-    gpr_log(GPR_INFO, "HomaTransport::get_endpoint invoked");
+    gpr_log(GPR_INFO, "HomaClient::get_endpoint invoked");
     return nullptr;
+}
+
+/**
+ * Used in a closure that is invoked whenever the Homa socket becomes
+ * readable.
+ * \param arg
+ *      Pointer to the HomaClient structure associated with the socket.
+ * \param error
+ *      Indicates whether the socket has an error condition.
+ * 
+ */
+void HomaClient::onRead(void* arg, grpc_error* error)
+{
+    HomaClient *hc = static_cast<HomaClient*>(arg);
+    gpr_log(GPR_INFO, "HomaClient::onRead invoked");
+    
+    if (error != GRPC_ERROR_NONE) {
+        gpr_log(GPR_ERROR, "HomaClient::onRead invoked with error: %s",
+                grpc_error_string(error));
+    }
+    char buffer[10000];
+    struct sockaddr peerAddr;
+    uint64_t homaId = 0;
+    ssize_t length = homa_recv(hc->fd, buffer, sizeof(buffer),
+            HOMA_RECV_RESPONSE|HOMA_RECV_NONBLOCKING, &peerAddr,
+            sizeof(peerAddr), &homaId);
+    if (length < 0) {
+        if (errno == EAGAIN) {
+            return;
+        }
+        gpr_log(GPR_ERROR, "Error in Homa recv for id %lu: %s",
+                homaId, strerror(errno));
+        return;
+    }
+    gpr_log(GPR_INFO, "HomaClient::onRead received message with %lu bytes",
+            length);
 }

@@ -79,11 +79,13 @@ int main(int argc, char** argv) {
         if (server == nullptr)
             exit(1);
         server->Wait();
+    } else {
+        goto usage;
     }
     exit(0);
 
 usage:
-    fprintf(stderr, "Usage: %s client port@server or %s server port\n",
+    fprintf(stderr, "Usage: %s client server:port or %s server port\n",
             argv[0], argv[0]);
     exit(1);
 }
