@@ -10,7 +10,9 @@ CFLAGS = -Wall -Werror -fno-strict-aliasing -g -MD
 OBJS =      homa_api.o \
 	    homa_listener.o \
 	    homa_transport.o \
-	    rpc_id.o
+	    rpc_id.o \
+	    util.o \
+	    wire.o
 
 LDFLAGS += -L/usr/local/lib `pkg-config --libs protobuf grpc++`\
            -pthread\

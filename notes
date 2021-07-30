@@ -11,6 +11,7 @@ Miscellaneous notes about a Homa plugin for gRPC:
   * A "stream" is the embodiment of a particular RPC.
   * "Plucking" a completion queue means extracting a particular desired
     event, rather than any available event.
+  * GRPC_ARG_MAX_METADATA_SIZE: channel argument type, defined in grpc_types.h
 
 * Questions for gRPC experts:
   * Client side:

@@ -102,7 +102,7 @@ protected:
     // treat this object as a transport.
     grpc_transport transport;
     
-    // base refers to this.
+    // @transport refers to this.
     struct grpc_transport_vtable vtable;
     
     // Associated gRPC server.

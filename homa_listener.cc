@@ -150,7 +150,7 @@ void HomaListener::onRead(void* arg, grpc_error* error)
 				sizeof(init.rpcId.addr), &init.homaId);
     grpc_fd_notify_on_read(lis->gfd, &lis->read_closure);
     init.rpcId.id = ntohl(msg.id);
-    uint32_t payloadLength = htonl(msg.payloadLength);
+    uint32_t payloadLength = htonl(msg.message_bytes);
     if (length < 0) {
         gpr_log(GPR_ERROR, "error in homa_recv: %s (fd %d)", strerror(errno),
                 lis->fd);
@@ -234,10 +234,55 @@ void HomaListener::set_pollset_set(grpc_transport* gt, grpc_stream* gs,
     gpr_log(GPR_INFO, "HomaListener::set_pollset_set invoked");
 }
 
+/**
+ * This method is invoked by gRPC to perform one or more operations
+ * on the stream associated with an RPC for which we are the server.
+ * \param gt
+ *      Points to the @transport field of a HomaListener.
+ * \param gs
+ *      Points to a HomaListener::Stream object.
+ * \param op
+ *      Describes the operation(s) to perform.
+ */
 void HomaListener::perform_stream_op(grpc_transport* gt, grpc_stream* gs,
         grpc_transport_stream_op_batch* op)
 {
     gpr_log(GPR_INFO, "HomaListener::perform_stream_op invoked");
+    if (op->send_initial_metadata) {
+        gpr_log(GPR_INFO, "HomaListener::perform_stream_op: send "
+                "initial metadata");
+        logMetadata(op->payload->send_initial_metadata.send_initial_metadata,
+                true, true);
+    }
+    if (op->send_message) {
+        gpr_log(GPR_INFO, "HomaListener::perform_stream_op: send message");
+    }
+    if (op->send_trailing_metadata) {
+        gpr_log(GPR_INFO, "HomaListener::perform_stream_op: send "
+                "trailing metadata");
+        logMetadata(op->payload->send_trailing_metadata.send_trailing_metadata,
+                true, true);
+    }
+    if (op->cancel_stream) {
+        gpr_log(GPR_INFO, "HomaListener::perform_stream_op: cancel "
+                "stream ((%s)", grpc_error_std_string(
+                op->payload->cancel_stream.cancel_error).c_str());
+    }
+    if (op->recv_initial_metadata) {
+        gpr_log(GPR_INFO, "HomaListener::perform_stream_op: "
+                "receive initial metadata");
+    }
+    if (op->recv_message) {
+        gpr_log(GPR_INFO, "HomaListener::perform_stream_op: receive message");
+    }
+    if (op->recv_trailing_metadata) {
+        gpr_log(GPR_INFO, "HomaListener::perform_stream_op: "
+                "receive trailing metadata");
+    }
+    if (op->on_complete) {
+        grpc_core::ExecCtx::Run(DEBUG_LOCATION, op->on_complete,
+                GRPC_ERROR_NONE);
+    }
 }
 
 /**

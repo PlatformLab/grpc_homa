@@ -1,6 +1,8 @@
 #ifndef UTIL_H
 #define UTIL_H
 
+#include "src/core/lib/surface/channel.h"
+
 // This file contains miscellaneous small facilities that are useful
 // in the Homa gRPC driver.
 
@@ -17,5 +19,7 @@ P* containerOf(M* ptr, const M P::*member)
             - offsetOf(member));
 }
 
+extern void logMetadata(const grpc_metadata_batch* mdBatch, bool isClient,
+        bool isInitial);
 
 #endif // UTIL_H

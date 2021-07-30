@@ -2,6 +2,7 @@
 
 #include "homa_transport.h"
 #include "homa.h"
+#include "util.h"
 #include "wire.h"
 
 #include <grpc/impl/codegen/slice.h>
@@ -12,20 +13,6 @@
 HomaClient *HomaClient::sharedClient = nullptr;
 HomaClient::SubchannelFactory* HomaClient::factory = nullptr;
 gpr_once homa_once = GPR_ONCE_INIT;
-
-static void log_metadata(const grpc_metadata_batch* md_batch, bool is_client,
-        bool is_initial)
-{
-    for (grpc_linked_mdelem* md = md_batch->list.head; md != nullptr;
-            md = md->next) {
-        char* key = grpc_slice_to_c_string(GRPC_MDKEY(md->md));
-        char* value = grpc_slice_to_c_string(GRPC_MDVALUE(md->md));
-        gpr_log(GPR_INFO, "%s:%s: %s: %s", is_initial ? "HDR" : "TRL",
-                is_client ? "CLI" : "SVR", key, value);
-        gpr_free(key);
-        gpr_free(value);
-    }
-}
 
 /**
  * Creates a new subchannel for an existing channel.
@@ -235,46 +222,21 @@ void HomaClient::perform_stream_op(grpc_transport* gt, grpc_stream* gs,
     HomaClient *hc = peer->hc;
     
     gpr_log(GPR_INFO, "HomaClient::perform_stream_op invoked");
-    if (op->send_initial_metadata) {
-        gpr_log(GPR_INFO, "HomaClient::perform_stream_op: send "
-                "initial metadata");
-        log_metadata(op->payload->send_initial_metadata.send_initial_metadata,
-                true, true);
-    }
-    if (op->send_message) {
-        gpr_log(GPR_INFO, "HomaClient::perform_stream_op: send message");
+    if (op->send_initial_metadata || op->send_message
+            || op->send_trailing_metadata) {
         HomaMessage msg;
-        msg.id = htonl(hc->nextId);
-        hc->nextId++;
-        uint32_t length = op->payload->send_message.send_message->length();
-        msg.payloadLength = htonl(length);
-        uint32_t offset = 0;
-        grpc_slice slice;
-        while (offset < length) {
-            if (!op->payload->send_message.send_message->Next(length,
-                    nullptr)) {
-                /* Should never reach here */
-                GPR_ASSERT(false);
-            }
-            if (op->payload->send_message.send_message->Pull(&slice)
-                    != GRPC_ERROR_NONE) {
-                /* Should never reach here */
-                GPR_ASSERT(false);
-            }
-            memcpy(msg.payload + offset, GRPC_SLICE_START_PTR(slice),
-                    GRPC_SLICE_LENGTH(slice));
-            offset += GRPC_SLICE_LENGTH(slice);
-            grpc_slice_unref(slice);
-            gpr_log(GPR_INFO, "Copied %lu bytes into message buffer",
-                    GRPC_SLICE_LENGTH(slice));
-        }
+        
         if (hc->fd < 0) {
             stream->error = GRPC_ERROR_CREATE_FROM_STATIC_STRING(
                     "Couldn't open Homa socket");
             goto sendMessageDone;
         }
+        msg.id = htonl(hc->nextId);
+        hc->nextId++;
+        size_t payloadLength = Wire::fillMessage(op, &msg);
         uint64_t homaId;
-        int status = homa_send(hc->fd, &msg, sizeof(msg) - (10000 - length),
+        int status = homa_send(hc->fd, &msg,
+                sizeof(msg) - (10000 - payloadLength),
                 reinterpret_cast<struct sockaddr *>(&peer->addr),
                 peer->addr.len, &homaId);
         if (status < 0) {
@@ -282,15 +244,13 @@ void HomaClient::perform_stream_op(grpc_transport* gt, grpc_stream* gs,
                         "Couldn't send Homa message");
                 goto sendMessageDone;
         }
-        gpr_log(GPR_INFO, "Sent Homa message with %u payload bytes", length);
+        gpr_log(GPR_INFO, "Sent Homa message with %d initial metadata bytes, "
+                "%d payload bytes, %d trailing metadata bytes",
+                ntohl(msg.init_md_bytes), ntohl(msg.message_bytes),
+                ntohl(msg.trailing_md_bytes));
     }
+
     sendMessageDone:
-    if (op->send_trailing_metadata) {
-        gpr_log(GPR_INFO, "HomaClient::perform_stream_op: send "
-                "trailing metadata");
-        log_metadata(op->payload->send_trailing_metadata.send_trailing_metadata,
-                true, true);
-    }
     if (op->cancel_stream) {
         gpr_log(GPR_INFO, "HomaClient::perform_stream_op: cancel "
                 "stream ((%s)", grpc_error_std_string(
