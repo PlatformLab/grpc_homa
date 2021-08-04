@@ -1,8 +1,9 @@
+#include "src/core/lib/transport/byte_stream.h"
+
 #include "homa_listener.h"
 #include "homa.h"
 #include "rpc_id.h"
 #include "util.h"
-#include "wire.h"
 
 std::optional<HomaListener::Shared> HomaListener::shared;
 gpr_once HomaListener::shared_once = GPR_ONCE_INIT;
@@ -54,6 +55,7 @@ HomaListener::~HomaListener()
 void HomaListener::InitShared(void)
 {
     shared.emplace();
+    Wire::init();
 }
 
 /**
@@ -134,7 +136,7 @@ void HomaListener::Start(grpc_core::Server* server,
  */
 void HomaListener::onRead(void* arg, grpc_error* error)
 {
-    struct HomaMessage msg;
+    std::unique_ptr<Wire::Message> msg(new Wire::Message);
     HomaListener *lis = static_cast<HomaListener*>(arg);
     StreamInit init;
     
@@ -145,20 +147,25 @@ void HomaListener::onRead(void* arg, grpc_error* error)
     
     init.rpcId.addr_size = sizeof(init.rpcId.addr);
     init.homaId = 0;
-    int length = homa_recv(lis->fd, &msg, sizeof(msg),
+    int length = homa_recv(lis->fd, msg.get(), sizeof(Wire::Message),
 				HOMA_RECV_REQUEST, (struct sockaddr *) &init.rpcId.addr,
 				sizeof(init.rpcId.addr), &init.homaId);
     grpc_fd_notify_on_read(lis->gfd, &lis->read_closure);
-    init.rpcId.id = ntohl(msg.id);
-    uint32_t payloadLength = htonl(msg.message_bytes);
+    init.rpcId.id = ntohl(msg->hdr.id);
+    uint32_t initMdLength = htonl(msg->hdr.initMdBytes);
+    uint32_t payloadLength = htonl(msg->hdr.messageBytes);
+    uint32_t trailingMdLength = htonl(msg->hdr.trailMdBytes);
+    int expected = static_cast<int>(sizeof(Wire::Message) - sizeof(msg->payload)
+            + initMdLength + payloadLength + trailingMdLength);
     if (length < 0) {
         gpr_log(GPR_ERROR, "error in homa_recv: %s (fd %d)", strerror(errno),
                 lis->fd);
         exit(1);
-    } else if ((length < 8) || (static_cast<size_t>(length)
-            != (sizeof(msg) - sizeof(msg.payload) + payloadLength))) {
-        gpr_log(GPR_ERROR, "Bad message length %d (payload length %u)",
-                length, payloadLength);
+    } else if ((length < static_cast<int>(
+            sizeof(Wire::Message) - sizeof(msg->payload)))
+            || (length != expected)) {
+        gpr_log(GPR_ERROR, "Bad message length %d (expected %d)",
+                length, expected);
         return;
     }
     gpr_log(GPR_INFO, "Received Homa request from host 0x%x, port %d with "
@@ -173,6 +180,11 @@ void HomaListener::onRead(void* arg, grpc_error* error)
     if (init.stream == nullptr) {
         gpr_log(GPR_INFO, "Stream doesn't appear to have been initialized.");
     }
+    
+    // Unpack the metadata and data and pass to gRPC.
+    Stream *stream = init.stream;
+    stream->request = std::move(msg);
+    stream->transferDataIn();
 }
 
 grpc_core::channelz::ListenSocketNode*
@@ -214,10 +226,7 @@ int HomaListener::init_stream(grpc_transport* gt, grpc_stream* gs,
     StreamInit *init = const_cast<StreamInit*>(
             reinterpret_cast<const StreamInit*>(init_info));
     gpr_log(GPR_INFO, "HomaListener::init_stream invoked");
-    stream->rpcId = init->rpcId;
-    stream->homaId = init->homaId;
-    stream->refs = refcount;
-    stream->arena = arena;
+    new (stream) Stream(init->rpcId, init->homaId, refcount, arena);
     init->stream = stream;
     return 0;
 }
@@ -247,6 +256,7 @@ void HomaListener::set_pollset_set(grpc_transport* gt, grpc_stream* gs,
 void HomaListener::perform_stream_op(grpc_transport* gt, grpc_stream* gs,
         grpc_transport_stream_op_batch* op)
 {
+    Stream *stream = reinterpret_cast<Stream*>(gs);
     gpr_log(GPR_INFO, "HomaListener::perform_stream_op invoked");
     if (op->send_initial_metadata) {
         gpr_log(GPR_INFO, "HomaListener::perform_stream_op: send "
@@ -268,16 +278,30 @@ void HomaListener::perform_stream_op(grpc_transport* gt, grpc_stream* gs,
                 "stream ((%s)", grpc_error_std_string(
                 op->payload->cancel_stream.cancel_error).c_str());
     }
-    if (op->recv_initial_metadata) {
-        gpr_log(GPR_INFO, "HomaListener::perform_stream_op: "
-                "receive initial metadata");
-    }
-    if (op->recv_message) {
-        gpr_log(GPR_INFO, "HomaListener::perform_stream_op: receive message");
-    }
-    if (op->recv_trailing_metadata) {
-        gpr_log(GPR_INFO, "HomaListener::perform_stream_op: "
-                "receive trailing metadata");
+    if (op->recv_initial_metadata || op->recv_message
+            || op->recv_trailing_metadata) {
+        if (op->recv_initial_metadata) {
+            gpr_log(GPR_INFO, "HomaListener::perform_stream_op: "
+                    "receive initial metadata");
+            stream->initMd =
+                    op->payload->recv_initial_metadata.recv_initial_metadata;
+            stream->initMdClosure =
+                    op->payload->recv_initial_metadata.recv_initial_metadata_ready;
+        }
+        if (op->recv_message) {
+            gpr_log(GPR_INFO, "HomaListener::perform_stream_op: receive message");
+            stream->messageStream = op->payload->recv_message.recv_message;
+            stream->messageClosure = op->payload->recv_message.recv_message_ready;
+        }
+        if (op->recv_trailing_metadata) {
+            gpr_log(GPR_INFO, "HomaListener::perform_stream_op: "
+                    "receive trailing metadata");
+            stream->trailMd =
+                    op->payload->recv_trailing_metadata.recv_trailing_metadata;
+            stream->trailMdClosure =
+                    op->payload->recv_trailing_metadata.recv_trailing_metadata_ready;
+        }
+        stream->transferDataIn();
     }
     if (op->on_complete) {
         grpc_core::ExecCtx::Run(DEBUG_LOCATION, op->on_complete,
@@ -348,8 +372,9 @@ void HomaListener::perform_op(grpc_transport* gt, grpc_transport_op* op)
 void HomaListener::destroy_stream(grpc_transport* gt, grpc_stream* gs,
         grpc_closure* then_schedule_closure)
 {
+    Stream *stream = reinterpret_cast<Stream*>(gs);
     gpr_log(GPR_INFO, "HomaListener::destroy_stream invoked");
-    
+    stream->~Stream();
 }
 
 void HomaListener::destroy(grpc_transport* gt)
@@ -361,4 +386,50 @@ grpc_endpoint* HomaListener::get_endpoint(grpc_transport* gt)
 {
     gpr_log(GPR_INFO, "HomaListener::get_endpoint invoked");
     return nullptr;
+}
+
+/**
+ * Transfer data and/or metadata from an incoming message into gRPC, if the
+ * relevant data and callbacks are both present.
+ * \param stream
+ *      Contains both message and callback information that will be
+ *      needed for the transfer
+ */
+void HomaListener::Stream::transferDataIn()
+{
+    if (!request) {
+        // No message data available.
+        return;
+    }
+    uint32_t initMdLength = htonl(request->hdr.initMdBytes);
+    uint32_t messageLength = htonl(request->hdr.messageBytes);
+    uint32_t trailMdLength = htonl(request->hdr.trailMdBytes);
+    uint8_t* src = request->payload;
+    if (initMdClosure) {
+        Wire::deserializeMetadata(src, initMdLength, initMd, arena);
+        logMetadata(initMd, false, true);
+        grpc_closure *c = initMdClosure;
+        initMdClosure = nullptr;
+        grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_NONE);
+    }
+    src += initMdLength;
+    if (messageClosure) {
+        grpc_slice_buffer sb;
+        grpc_slice_buffer_init(&sb);
+        grpc_slice_buffer_add(&sb, grpc_slice_from_static_buffer(
+                src, messageLength));
+        messageStream->reset(new grpc_core::SliceBufferByteStream(&sb, 0));
+        grpc_slice_buffer_destroy(&sb);
+        
+        grpc_closure *c = messageClosure;
+        messageClosure = nullptr;
+        grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_NONE);
+    }
+    src += messageLength;
+    if (trailMdClosure) {
+        Wire::deserializeMetadata(src, trailMdLength, trailMd, arena);
+        grpc_closure *c = trailMdClosure;
+        trailMdClosure = nullptr;
+        grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_NONE);
+    }
 }

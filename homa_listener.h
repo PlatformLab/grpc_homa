@@ -12,6 +12,7 @@
 #include "src/core/lib/transport/transport_impl.h"
 
 #include "rpc_id.h"
+#include "wire.h"
 
 /**
  * Stores all the state needed to serve Homa requests on a particular
@@ -65,7 +66,7 @@ protected:
     /**
      * This structure holds the state for a single RPC.
      */
-    struct Stream {        
+    struct Stream {
         // Uniquely identifies this RPC, and also provides info about
         // the client, used to send response(s).
         RpcId rpcId;
@@ -79,8 +80,38 @@ protected:
         // Reference count (owned externally).
         grpc_stream_refcount* refs;
         
-        // Don't yet know what this is for (memory allocation?)
+        // For fast memory allocation.
         grpc_core::Arena* arena;
+        
+        // The incoming message for this RPC.
+        std::unique_ptr<Wire::Message> request;
+        
+        // Information saved from "receive" stream ops, so that we can
+        // fill in message data/metadata and invoke callbacks.
+        grpc_metadata_batch* initMd;
+        grpc_closure* initMdClosure;
+        grpc_core::OrphanablePtr<grpc_core::ByteStream>* messageStream;
+        grpc_closure* messageClosure;
+        grpc_metadata_batch* trailMd;
+        grpc_closure* trailMdClosure;
+        
+        Stream(RpcId rpcId, uint64_t homaId, grpc_stream_refcount* refcount,
+                grpc_core::Arena* arena)
+            : rpcId(rpcId)
+            , homaId(homaId)
+            , refs(refcount)
+            , arena(arena)
+            , request()
+            , initMd(nullptr)
+            , initMdClosure(nullptr)
+            , messageStream(nullptr)
+            , messageClosure(nullptr)
+            , trailMd(nullptr)
+            , trailMdClosure(nullptr)
+        {}
+        
+        ~Stream() {}
+        void transferDataIn();
     };
 
     /**

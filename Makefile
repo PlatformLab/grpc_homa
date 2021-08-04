@@ -8,8 +8,8 @@ CXXFLAGS += -g -std=c++11 -Wall -Werror -fno-strict-aliasing $(INCLUDES) -MD
 CFLAGS = -Wall -Werror -fno-strict-aliasing -g -MD
 
 OBJS =      homa_api.o \
+	    homa_client.o \
 	    homa_listener.o \
-	    homa_transport.o \
 	    rpc_id.o \
 	    util.o \
 	    wire.o

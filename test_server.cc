@@ -47,6 +47,8 @@ class TestImpl : public test::Test::Service {
 public:    
     grpc::Status Sum(grpc::ServerContext*context, const test::SumArgs *args,
             test::SumResult *result) {
+        printf("Sum invoked with arguments %d and %d\n",
+                args->op1(), args->op2());
         result->set_sum(args->op1() + args->op2());
         return grpc::Status::OK;
     }

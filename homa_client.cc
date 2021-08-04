@@ -1,6 +1,6 @@
 #include <arpa/inet.h>
 
-#include "homa_transport.h"
+#include "homa_client.h"
 #include "homa.h"
 #include "util.h"
 #include "wire.h"
@@ -76,6 +76,7 @@ void HomaClient::Connector::Shutdown(grpc_error_handle error)
 void HomaClient::init() {
     sharedClient = new HomaClient();
     factory = new SubchannelFactory();
+    Wire::init();
 }
 
 /**
@@ -224,14 +225,14 @@ void HomaClient::perform_stream_op(grpc_transport* gt, grpc_stream* gs,
     gpr_log(GPR_INFO, "HomaClient::perform_stream_op invoked");
     if (op->send_initial_metadata || op->send_message
             || op->send_trailing_metadata) {
-        HomaMessage msg;
+        Wire::Message msg;
         
         if (hc->fd < 0) {
             stream->error = GRPC_ERROR_CREATE_FROM_STATIC_STRING(
                     "Couldn't open Homa socket");
             goto sendMessageDone;
         }
-        msg.id = htonl(hc->nextId);
+        msg.hdr.id = htonl(hc->nextId);
         hc->nextId++;
         size_t payloadLength = Wire::fillMessage(op, &msg);
         uint64_t homaId;
@@ -246,8 +247,8 @@ void HomaClient::perform_stream_op(grpc_transport* gt, grpc_stream* gs,
         }
         gpr_log(GPR_INFO, "Sent Homa message with %d initial metadata bytes, "
                 "%d payload bytes, %d trailing metadata bytes",
-                ntohl(msg.init_md_bytes), ntohl(msg.message_bytes),
-                ntohl(msg.trailing_md_bytes));
+                ntohl(msg.hdr.initMdBytes), ntohl(msg.hdr.messageBytes),
+                ntohl(msg.hdr.trailMdBytes));
     }
 
     sendMessageDone:

@@ -9,7 +9,7 @@
 #include "test.grpc.pb.h"
 
 #include "homa.h"
-#include "homa_transport.h"
+#include "homa_client.h"
 
 class SumClient{
 public:

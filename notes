@@ -6,6 +6,7 @@ Miscellaneous notes about a Homa plugin for gRPC:
   * Clean up messages after errors
   * Add proper channelz support
   * Change homa_recv to return actual size of sender address.
+  * Deal with recv_initial_metadata.recv_flags
 
 * Various notes about how gRPC works:
   * A "stream" is the embodiment of a particular RPC.
