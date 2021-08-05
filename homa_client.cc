@@ -364,10 +364,10 @@ void HomaClient::onRead(void* arg, grpc_error* error)
     Wire::Message msg;
     RpcId rpcId;
     uint64_t homaId = 0;
-    rpcId.addr_size = sizeof(struct sockaddr_in);
+    rpcId.addr_size = sizeof(rpcId.addr);
     ssize_t length = homa_recv(hc->fd, &msg, sizeof(msg),
             HOMA_RECV_RESPONSE|HOMA_RECV_NONBLOCKING, rpcId.sockaddr(),
-            sizeof(rpcId.addr), &homaId);
+            &rpcId.addr_size, &homaId);
     grpc_fd_notify_on_read(hc->gfd, &hc->read_closure);
     
     rpcId.id = ntohl(msg.hdr.id);

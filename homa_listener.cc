@@ -149,7 +149,7 @@ void HomaListener::onRead(void* arg, grpc_error* error)
     init.homaId = 0;
     int length = homa_recv(lis->fd, msg.get(), sizeof(Wire::Message),
 				HOMA_RECV_REQUEST, (struct sockaddr *) &init.rpcId.addr,
-				sizeof(init.rpcId.addr), &init.homaId);
+				&init.rpcId.addr_size, &init.homaId);
     grpc_fd_notify_on_read(lis->gfd, &lis->read_closure);
     init.rpcId.id = ntohl(msg->hdr.id);
     uint32_t initMdLength = htonl(msg->hdr.initMdBytes);
