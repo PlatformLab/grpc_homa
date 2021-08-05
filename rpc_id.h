@@ -26,6 +26,11 @@ struct RpcId {
     bool operator==(const RpcId& other) const;
     
     // Convenient accessors for part or all of addr.
+    struct sockaddr *sockaddr()
+    {
+        return reinterpret_cast<struct sockaddr*>(&addr);
+    }
+    
     struct sockaddr_in *inaddr()
     {
         return reinterpret_cast<struct sockaddr_in *>(&addr);

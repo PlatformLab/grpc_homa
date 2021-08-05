@@ -16,7 +16,7 @@ RpcId::RpcId(grpc_resolved_address *gaddr, uint32_t id)
     GPR_ASSERT(reinterpret_cast<struct sockaddr*>(gaddr)->sa_family == AF_INET);
     GPR_ASSERT(addr_size <= sizeof(addr));
     
-    bcopy(addr, gaddr->addr, addr_size);
+    bcopy(gaddr->addr, addr, addr_size);
 }
 
 /**

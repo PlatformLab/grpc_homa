@@ -96,13 +96,6 @@ void Wire::deserializeMetadata(uint8_t *src, size_t length,
                 *(static_cast<grpc_slice *>(&valueSlice)));
         lm->md = GRPC_MAKE_MDELEM(GRPC_MDELEM_DATA(lm->md),
                 GRPC_MDELEM_STORAGE_EXTERNAL);
-        grpc_mdelem_data *data = GRPC_MDELEM_DATA(lm->md);
-        gpr_log(GPR_INFO, "New md: key: %.*s, value %.*s, index %d",
-                static_cast<int>(data->key.data.refcounted.length),
-                data->key.data.refcounted.bytes,
-                static_cast<int>(data->value.data.refcounted.length),
-                data->value.data.refcounted.bytes,
-                GRPC_BATCH_INDEX_OF(data->key));
         grpc_error_handle error = grpc_metadata_batch_link_tail(batch, lm);
         if (error != GRPC_ERROR_NONE) {
             gpr_log(GPR_INFO, "Error creating metatata for %.*s: %s",
@@ -174,7 +167,6 @@ size_t Wire::fillMessage(grpc_transport_stream_op_batch* op, Wire::Message *msg)
                 op->payload->send_initial_metadata.send_initial_metadata,
                 msg->payload + offset);
         msg->hdr.initMdBytes = htonl(static_cast<uint32_t>(length));
-        dumpMetadata(msg->payload + offset, length);
         offset += length;
     }
 

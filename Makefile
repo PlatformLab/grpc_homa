@@ -10,6 +10,7 @@ CFLAGS = -Wall -Werror -fno-strict-aliasing -g -MD
 OBJS =      homa_api.o \
 	    homa_client.o \
 	    homa_listener.o \
+	    homa_stream.o \
 	    rpc_id.o \
 	    util.o \
 	    wire.o

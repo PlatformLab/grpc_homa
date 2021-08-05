@@ -51,7 +51,7 @@ void HomaClient::Connector::Connect(const HomaClient::Connector::Args& args,
     result->Reset();
     result->transport = &(new HomaClient::Peer(HomaClient::sharedClient,
             &addr))->base;
-    result->channel_args = args.channel_args;
+    result->channel_args = grpc_channel_args_copy(args.channel_args);
 
     // Notify immediately, since there's no connection to create.
     grpc_core::ExecCtx::Run(DEBUG_LOCATION, notify, GRPC_ERROR_NONE);
@@ -171,7 +171,8 @@ grpc_channel *HomaClient::create_channel(const char* target,
  * \param server_data
  *      Not used.
  * \param arena
- *      No idea what this is.
+ *      Use this for allocating storage for use by the stream (will
+ *      be freed when the stream is destroyed).
  * 
  * \return
  *      Zero means success, nonzero means failure.
@@ -183,8 +184,10 @@ int HomaClient::init_stream(grpc_transport* gt, grpc_stream* gs,
     Peer *peer = reinterpret_cast<Peer*>(gt);
     HomaClient* hc = peer->hc;
     Stream *stream = reinterpret_cast<Stream *>(gs);
-    new (stream) Stream(peer, refcount, arena);
-    hc->streams.push_back(stream);
+    uint32_t id = hc->nextId;
+    hc->nextId++;
+    new (stream) Stream(peer, id, refcount, arena);
+    hc->streams.emplace(stream->rpcId, stream);
     gpr_log(GPR_INFO, "HomaClient::init_stream invoked");
     return 0;
 }
@@ -232,14 +235,12 @@ void HomaClient::perform_stream_op(grpc_transport* gt, grpc_stream* gs,
                     "Couldn't open Homa socket");
             goto sendMessageDone;
         }
-        msg.hdr.id = htonl(hc->nextId);
-        hc->nextId++;
+        msg.hdr.id = htonl(stream->rpcId.id);
         size_t payloadLength = Wire::fillMessage(op, &msg);
-        uint64_t homaId;
         int status = homa_send(hc->fd, &msg,
                 sizeof(msg) - (10000 - payloadLength),
                 reinterpret_cast<struct sockaddr *>(&peer->addr),
-                peer->addr.len, &homaId);
+                peer->addr.len, &stream->homaId);
         if (status < 0) {
                 stream->error = GRPC_OS_ERROR(errno,
                         "Couldn't send Homa message");
@@ -257,31 +258,9 @@ void HomaClient::perform_stream_op(grpc_transport* gt, grpc_stream* gs,
                 "stream ((%s)", grpc_error_std_string(
                 op->payload->cancel_stream.cancel_error).c_str());
     }
-    if (op->recv_initial_metadata) {
-        gpr_log(GPR_INFO, "HomaClient::perform_stream_op: "
-                "receive initial metadata");
-        if (stream->error != GRPC_ERROR_NONE) {
-            grpc_core::ExecCtx::Run(DEBUG_LOCATION, op->payload->
-                    recv_initial_metadata.recv_initial_metadata_ready,
-                    GRPC_ERROR_REF(stream->error));
-        }
-    }
-    if (op->recv_message) {
-        gpr_log(GPR_INFO, "HomaClient::perform_stream_op: receive message");
-        if (stream->error != GRPC_ERROR_NONE) {
-            grpc_core::ExecCtx::Run(DEBUG_LOCATION,
-                    op->payload->recv_message.recv_message_ready,
-                    GRPC_ERROR_REF(stream->error));
-        }
-    }
-    if (op->recv_trailing_metadata) {
-        gpr_log(GPR_INFO, "HomaClient::perform_stream_op: "
-                "receive trailing metadata");
-        if (stream->error != GRPC_ERROR_NONE) {
-            grpc_core::ExecCtx::Run(DEBUG_LOCATION, op->payload->
-                    recv_trailing_metadata.recv_trailing_metadata_ready,
-                    GRPC_ERROR_REF(stream->error));
-        }
+    if (op->recv_initial_metadata || op->recv_message
+            || op->recv_trailing_metadata) {
+        stream->saveCallbacks(op);
     }
     if (op->on_complete) {
         grpc_core::ExecCtx::Run(DEBUG_LOCATION, op->on_complete,
@@ -340,12 +319,16 @@ void HomaClient::perform_op(grpc_transport* gt, grpc_transport_op* op)
 }
 
 void HomaClient::destroy_stream(grpc_transport* gt, grpc_stream* gs,
-        grpc_closure* then_schedule_closure)
+        grpc_closure* closure)
 {
+    Peer *peer = reinterpret_cast<Peer*>(gt);
+    HomaClient *hc = peer->hc;
     Stream *stream = reinterpret_cast<Stream*>(gs);
     
     gpr_log(GPR_INFO, "HomaClient::destroy_stream invoked");
+    hc->streams.erase(stream->rpcId);
     GRPC_ERROR_UNREF(stream->error);
+    grpc_core::ExecCtx::Run(DEBUG_LOCATION, closure, GRPC_ERROR_NONE);
 }
 
 void HomaClient::destroy(grpc_transport* gt)
@@ -378,12 +361,21 @@ void HomaClient::onRead(void* arg, grpc_error* error)
         gpr_log(GPR_ERROR, "HomaClient::onRead invoked with error: %s",
                 grpc_error_string(error));
     }
-    char buffer[10000];
-    struct sockaddr peerAddr;
+    Wire::Message msg;
+    RpcId rpcId;
     uint64_t homaId = 0;
-    ssize_t length = homa_recv(hc->fd, buffer, sizeof(buffer),
-            HOMA_RECV_RESPONSE|HOMA_RECV_NONBLOCKING, &peerAddr,
-            sizeof(peerAddr), &homaId);
+    rpcId.addr_size = sizeof(struct sockaddr_in);
+    ssize_t length = homa_recv(hc->fd, &msg, sizeof(msg),
+            HOMA_RECV_RESPONSE|HOMA_RECV_NONBLOCKING, rpcId.sockaddr(),
+            sizeof(rpcId.addr), &homaId);
+    grpc_fd_notify_on_read(hc->gfd, &hc->read_closure);
+    
+    rpcId.id = ntohl(msg.hdr.id);
+    uint32_t initMdLength = htonl(msg.hdr.initMdBytes);
+    uint32_t payloadLength = htonl(msg.hdr.messageBytes);
+    uint32_t trailingMdLength = htonl(msg.hdr.trailMdBytes);
+    int expected = static_cast<int>(sizeof(Wire::Message) - sizeof(msg.payload)
+            + initMdLength + payloadLength + trailingMdLength);
     if (length < 0) {
         if (errno == EAGAIN) {
             return;
@@ -391,7 +383,26 @@ void HomaClient::onRead(void* arg, grpc_error* error)
         gpr_log(GPR_ERROR, "Error in Homa recv for id %lu: %s",
                 homaId, strerror(errno));
         return;
+    } else if (length < static_cast<int>(sizeof(Wire::Header))) {
+        gpr_log(GPR_ERROR, "Response message contained only %lu bytes "
+                "(need %lu bytes for header)", length, sizeof(Wire::Header));
+        return;
+    } else if (length != expected) {
+        gpr_log(GPR_ERROR, "Bad response length %lu (expected %d)",
+                length, expected);
+        return;
     }
-    gpr_log(GPR_INFO, "HomaClient::onRead received message with %lu bytes",
-            length);
+    gpr_log(GPR_INFO, "Received Homa response from host 0x%x, port %d with "
+            "id %d, length %d, Homa id %lu, addr_size %lu",
+            rpcId.ipv4Addr(), rpcId.port(), rpcId.id, payloadLength,
+            homaId, rpcId.addr_size);
+    
+    Stream *stream;
+    try {
+        stream = hc->streams.at(rpcId);
+    } catch (std::out_of_range& e) {
+        gpr_log(GPR_ERROR, "Ignoring response for unknown RPC id %d", rpcId.id);
+        return;
+    }
+    stream->transferDataIn(&msg);
 }

@@ -3,16 +3,17 @@
 
 #include <list>
 #include <mutex>
+#include <unordered_map>
 
 #include <grpcpp/grpcpp.h>
-
-//#include <grpc/support/port_platform.h>
 
 #include "src/core/ext/filters/client_channel/client_channel.h"
 #include "src/core/ext/filters/client_channel/connector.h"
 #include "src/core/lib/iomgr/ev_posix.h"
 #include "src/core/lib/iomgr/resolve_address.h"
 #include "src/core/lib/transport/transport_impl.h"
+
+#include "homa_stream.h"
 
 /**
  * This structure stores all of the shared information for gRPC
@@ -74,20 +75,16 @@ protected:
     /**
      * This structure holds the state for a single RPC.
      */
-    struct Stream {
-        Stream(HomaClient::Peer* peer, grpc_stream_refcount* refs,
+    struct Stream : public HomaStream {
+        Stream(HomaClient::Peer* peer, uint32_t id, grpc_stream_refcount* refs,
                 grpc_core::Arena* arena)
-            : peer(peer), refs(refs), arena(arena), error(GRPC_ERROR_NONE)
+            : HomaStream(RpcId(&peer->addr, id), 0, refs, arena)
+            , peer(peer)
+            , error(GRPC_ERROR_NONE)
         { }
         
         // Information about the target server for this RPC.
         Peer *peer;
-        
-        // Reference count (owned externally).
-        grpc_stream_refcount* refs;
-        
-        // Don't yet know what this is for (memory allocation?)
-        grpc_core::Arena* arena;
         
         // Status of the operation so far.
         grpc_error_handle error;
@@ -114,14 +111,14 @@ protected:
     // HomaPeer objects associated with this HomaClient.
     struct grpc_transport_vtable vtable;
     
-    // Holds all existing streams owned by this transport.
-    std::list<Stream *> streams;
+    // Holds all streams with outstanding requests.
+    std::unordered_map<RpcId, Stream*, RpcId::Hasher> streams;
     
     // File descriptor for Homa socket; used for all outgoing RPCs.
     // < 0 means socket isn't currently open.
     int fd;
     
-    // Corresponds to fd.]
+    // Corresponds to fd.
     grpc_fd *gfd;
         
     // Used to call us back when fd is readable.

@@ -19,7 +19,6 @@ P* containerOf(M* ptr, const M P::*member)
             - offsetOf(member));
 }
 
-extern void logMetadata(const grpc_metadata_batch* mdBatch, bool isClient,
-        bool isInitial);
+extern void logMetadata(const grpc_metadata_batch* mdBatch, const char *info);
 
 #endif // UTIL_H
