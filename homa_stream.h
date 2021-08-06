@@ -14,6 +14,9 @@
  */
 class HomaStream {
 public:
+    // Must be held whenever accessing info in this structure.
+    grpc_core::Mutex mutex;
+    
     // Uniquely identifies this RPC, and also provides info about
     // the peer (e.g. for sending responses).
     RpcId rpcId;
@@ -40,7 +43,8 @@ public:
 
     HomaStream(RpcId rpcId, uint64_t homaId, grpc_stream_refcount* refcount,
             grpc_core::Arena* arena)
-        : rpcId(rpcId)
+        : mutex()
+        , rpcId(rpcId)
         , homaId(homaId)
         , refs(refcount)
         , arena(arena)

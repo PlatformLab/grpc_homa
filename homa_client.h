@@ -82,6 +82,10 @@ protected:
             , peer(peer)
             , error(GRPC_ERROR_NONE)
         { }
+        ~Stream()
+        {
+            GRPC_ERROR_UNREF(error);
+        }
         
         // Information about the target server for this RPC.
         Peer *peer;
@@ -114,6 +118,13 @@ protected:
     // Holds all streams with outstanding requests.
     std::unordered_map<RpcId, Stream*, RpcId::Hasher> streams;
     
+    // Id to use for the next outgoing RPC.
+    int nextId;
+    
+    // Must be held when accessing @streams or @nextId. Must not be
+    // acquired while holding a stream lock.
+    grpc_core::Mutex mutex;
+    
     // File descriptor for Homa socket; used for all outgoing RPCs.
     // < 0 means socket isn't currently open.
     int fd;
@@ -123,9 +134,6 @@ protected:
         
     // Used to call us back when fd is readable.
     grpc_closure read_closure;
-    
-    // Id to use for the next outgoing RPC.
-    int nextId;
     
     // Single shared transport used for all channels.  Nullptr means
     // not created yet.

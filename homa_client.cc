@@ -87,10 +87,11 @@ void HomaClient::init() {
 HomaClient::HomaClient()
     : vtable()
     , streams()
+    , nextId(1)
+    , mutex()
     , fd(-1)
     , gfd(nullptr)
     , read_closure()
-    , nextId(1)
 {
     vtable.sizeof_stream =       sizeof(Stream);
     vtable.name =                "homa_client";
@@ -184,6 +185,7 @@ int HomaClient::init_stream(grpc_transport* gt, grpc_stream* gs,
     Peer *peer = reinterpret_cast<Peer*>(gt);
     HomaClient* hc = peer->hc;
     Stream *stream = reinterpret_cast<Stream *>(gs);
+    grpc_core::MutexLock lock(&hc->mutex);
     uint32_t id = hc->nextId;
     hc->nextId++;
     new (stream) Stream(peer, id, refcount, arena);
@@ -224,6 +226,7 @@ void HomaClient::perform_stream_op(grpc_transport* gt, grpc_stream* gs,
     Peer *peer = reinterpret_cast<Peer*>(gt);
     Stream *stream = reinterpret_cast<Stream*>(gs);
     HomaClient *hc = peer->hc;
+    grpc_core::MutexLock lock(&stream->mutex);
     
     gpr_log(GPR_INFO, "HomaClient::perform_stream_op invoked");
     if (op->send_initial_metadata || op->send_message
@@ -326,8 +329,14 @@ void HomaClient::destroy_stream(grpc_transport* gt, grpc_stream* gs,
     Stream *stream = reinterpret_cast<Stream*>(gs);
     
     gpr_log(GPR_INFO, "HomaClient::destroy_stream invoked");
-    hc->streams.erase(stream->rpcId);
-    GRPC_ERROR_UNREF(stream->error);
+    {
+        grpc_core::MutexLock lock(&hc->mutex);
+        hc->streams.erase(stream->rpcId);
+    }
+    {
+        grpc_core::MutexLock lock(&stream->mutex);
+        stream->~Stream();
+    }
     grpc_core::ExecCtx::Run(DEBUG_LOCATION, closure, GRPC_ERROR_NONE);
 }
 
@@ -398,8 +407,11 @@ void HomaClient::onRead(void* arg, grpc_error* error)
             homaId, rpcId.addr_size);
     
     Stream *stream;
+    std::optional<grpc_core::MutexLock> streamLock;
     try {
+        grpc_core::MutexLock lock(&hc->mutex);
         stream = hc->streams.at(rpcId);
+        streamLock.emplace(&stream->mutex);
     } catch (std::out_of_range& e) {
         gpr_log(GPR_ERROR, "Ignoring response for unknown RPC id %d", rpcId.id);
         return;

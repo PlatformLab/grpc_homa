@@ -18,6 +18,8 @@ HomaListener::HomaListener(grpc_server* server, int port)
     : transport()
     , vtable()
     , server(server->core_server.get())
+    , activeRpcs()
+    , mutex()
     , port(port)
     , fd(-1)
     , gfd(nullptr)
@@ -183,6 +185,7 @@ void HomaListener::onRead(void* arg, grpc_error* error)
     
     // Unpack the metadata and data and pass to gRPC.
     Stream *stream = init.stream;
+    grpc_core::MutexLock lock(&stream->mutex);
     stream->request = std::move(msg);
     stream->transferDataIn(stream->request.get());
 }
@@ -259,6 +262,7 @@ void HomaListener::perform_stream_op(grpc_transport* gt, grpc_stream* gs,
 {
     HomaListener *lis = containerOf(gt, &HomaListener::transport);
     Stream *stream = reinterpret_cast<Stream*>(gs);
+    grpc_core::MutexLock lock(&stream->mutex);
     grpc_error_handle error = GRPC_ERROR_NONE;
     
     gpr_log(GPR_INFO, "HomaListener::perform_stream_op invoked");

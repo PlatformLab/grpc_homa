@@ -3,11 +3,12 @@ Miscellaneous notes about a Homa plugin for gRPC:
 
 * TODO list:
   * Figure out synchronization
+  * Handle large messages and metadata
   * Clean up messages after errors
   * Add proper channelz support
-  * Change homa_recv to return actual size of sender address.
   * Deal with recv_initial_metadata.recv_flags
   * Implement cancellation
+  * Fill in remaining stream/transport ops
 
 * Various notes about how gRPC works:
   * A "stream" is the embodiment of a particular RPC.

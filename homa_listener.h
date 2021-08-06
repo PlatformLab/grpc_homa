@@ -112,6 +112,10 @@ protected:
     // used to look up the Stream for an RPC based on its id.
     std::unordered_map<RpcId*, Stream*> activeRpcs;
     
+    // Must be held when accessing @streams. Must not be acquired while
+    // holding a stream lock.
+    grpc_core::Mutex mutex;
+    
     // Homa port number managed by this object.
     int port;
 	
