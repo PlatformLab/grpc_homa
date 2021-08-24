@@ -60,8 +60,8 @@ protected:
      */
     struct Peer {
         // Contains a virtual function table for use by the rest of gRPC.
-        // Must be the first member variable!!
-        grpc_transport base;
+        // gRPC uses this as a transport handle.
+        grpc_transport transport;
 
         // Shared client state.
         HomaClient *hc;

@@ -99,7 +99,8 @@ protected:
     };
     
     // Points to a virtual function table for use by the rest of gRPC to
-    // treat this object as a transport.
+    // treat this object as a transport. gRPC uses a pointer to this field
+    // as a generic handle for the object. 
     grpc_transport transport;
     
     // @transport refers to this.

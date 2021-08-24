@@ -31,7 +31,6 @@ HomaClient::SubchannelFactory::CreateSubchannel(const grpc_channel_args* args)
 
 /**
  * This method is invoked to create a connection to a specific peer.
- * Since Homa doesn't use connections, there's not much to do here.
  * \param args
  *      Various arguments for setting up the connection, such as
  *      the arguments for the associated subchannel.
@@ -43,6 +42,7 @@ HomaClient::SubchannelFactory::CreateSubchannel(const grpc_channel_args* args)
 void HomaClient::Connector::Connect(const HomaClient::Connector::Args& args,
         HomaClient::Connector::Result* result, grpc_closure* notify)
 {
+    // Homa doesn't use connections, so there isn't much to do here.
     gpr_log(GPR_INFO, "HomaConnector::Connect invoked");
     grpc_resolved_address addr;
     grpc_core::Subchannel::GetAddressFromSubchannelAddressArg(
@@ -50,7 +50,7 @@ void HomaClient::Connector::Connect(const HomaClient::Connector::Args& args,
     printf("Address is %u bytes long\n", addr.len);
     result->Reset();
     result->transport = &(new HomaClient::Peer(HomaClient::sharedClient,
-            &addr))->base;
+            &addr))->transport;
     result->channel_args = grpc_channel_args_copy(args.channel_args);
 
     // Notify immediately, since there's no connection to create.
@@ -58,16 +58,23 @@ void HomaClient::Connector::Connect(const HomaClient::Connector::Args& args,
 }
 
 HomaClient::Peer::Peer(HomaClient *hc, grpc_resolved_address *addr)
-        : base()
+        : transport()
         , hc(hc)
         , addr(*addr)
 {
-    base.vtable = &hc->vtable;
+    transport.vtable = &hc->vtable;
 }
 
+/**
+ * Invoked to cancel any in-flight connections and cleanup the connector.
+ * \param error
+ *      Describes the problem (if any) that led to the shutdown;
+ *      ownership passes to us.
+ */
 void HomaClient::Connector::Shutdown(grpc_error_handle error)
 {
-    gpr_log(GPR_INFO, "HomaConnector::Shutdown invoked");
+    // Nothing to do here.
+    GRPC_ERROR_UNREF(error);
 }
 
 /**
@@ -182,7 +189,7 @@ int HomaClient::init_stream(grpc_transport* gt, grpc_stream* gs,
         grpc_stream_refcount* refcount, const void* server_data,
         grpc_core::Arena* arena)
 {
-    Peer *peer = reinterpret_cast<Peer*>(gt);
+    Peer *peer = containerOf(gt, &HomaClient::Peer::transport);
     HomaClient* hc = peer->hc;
     Stream *stream = reinterpret_cast<Stream *>(gs);
     grpc_core::MutexLock lock(&hc->mutex);
@@ -194,10 +201,20 @@ int HomaClient::init_stream(grpc_transport* gt, grpc_stream* gs,
     return 0;
 }
 
+/**
+ * Invoked by gRPC to add any file descriptors for a transport to
+ * a pollset so that we'll get callbacks when messages arrive.
+ * \param gt
+ *      Identifies a particular Peer.
+ * \param gs
+ *      Info for a particular RPC.
+ * \param pollset
+ *      Where to add polling information.
+ */
 void HomaClient::set_pollset(grpc_transport* gt, grpc_stream* gs,
         grpc_pollset* pollset)
 {
-    Peer *peer = reinterpret_cast<Peer*>(gt);
+    Peer *peer = containerOf(gt, &HomaClient::Peer::transport);
     HomaClient* hc = peer->hc;
     
     if (hc->gfd) {
@@ -207,10 +224,20 @@ void HomaClient::set_pollset(grpc_transport* gt, grpc_stream* gs,
     
 }
 
+/**
+ * Invoked by gRPC to add any file descriptors for a transport to
+ * a pollset_set so that we'll get callbacks when messages arrive.
+ * \param gt
+ *      Identifies a particular Peer.
+ * \param gs
+ *      Info for a particular RPC.
+ * \param pollset_set
+ *      Where to add polling information.
+ */
 void HomaClient::set_pollset_set(grpc_transport* gt, grpc_stream* gs,
         grpc_pollset_set* pollset_set)
 {
-    Peer *peer = reinterpret_cast<Peer*>(gt);
+    Peer *peer = containerOf(gt, &HomaClient::Peer::transport);
     HomaClient* hc = peer->hc;
     
     if (hc->gfd) {
@@ -220,10 +247,20 @@ void HomaClient::set_pollset_set(grpc_transport* gt, grpc_stream* gs,
     
 }
 
+/**
+ * This is the main method invoked by gRPC while processing an RPC.
+ * Is invoked multiple times over the lifetime of the RPC.
+ * \param gt
+ *      Identifies the server for the RPC.
+ * \param gs
+ *      State info about the RPC.
+ * \param op
+ *      Describes one or more operations to perform on the stream.
+ */
 void HomaClient::perform_stream_op(grpc_transport* gt, grpc_stream* gs,
         grpc_transport_stream_op_batch* op)
 {
-    Peer *peer = reinterpret_cast<Peer*>(gt);
+    Peer *peer = containerOf(gt, &HomaClient::Peer::transport);
     Stream *stream = reinterpret_cast<Stream*>(gs);
     HomaClient *hc = peer->hc;
     grpc_core::MutexLock lock(&stream->mutex);
@@ -271,6 +308,13 @@ void HomaClient::perform_stream_op(grpc_transport* gt, grpc_stream* gs,
     }
 }
 
+/**
+ * Invoked by gRPC to perform various operations on a transport (i.e. Peer).
+ * \param gt
+ *      The peer to manipulate.
+ * \param op
+ *      What to do on the peer.
+ */
 void HomaClient::perform_op(grpc_transport* gt, grpc_transport_op* op)
 {
     gpr_log(GPR_INFO, "HomaClient::perform_op invoked");
@@ -321,10 +365,19 @@ void HomaClient::perform_op(grpc_transport* gt, grpc_transport_op* op)
     grpc_core::ExecCtx::Run(DEBUG_LOCATION, op->on_consumed, GRPC_ERROR_NONE);
 }
 
+/**
+ * Destructor for Streams.
+ * \param gt
+ *      Transport (Peer) associated with the stream.
+ * \param gs
+ *      Stream to destroy.
+ * \param closure
+ *      Invoke this once destruction is complete.
+ */
 void HomaClient::destroy_stream(grpc_transport* gt, grpc_stream* gs,
         grpc_closure* closure)
 {
-    Peer *peer = reinterpret_cast<Peer*>(gt);
+    Peer *peer = containerOf(gt, &HomaClient::Peer::transport);
     HomaClient *hc = peer->hc;
     Stream *stream = reinterpret_cast<Stream*>(gs);
     
@@ -340,6 +393,11 @@ void HomaClient::destroy_stream(grpc_transport* gt, grpc_stream* gs,
     grpc_core::ExecCtx::Run(DEBUG_LOCATION, closure, GRPC_ERROR_NONE);
 }
 
+/**
+ * Destructor for transports (Peers).
+ * \param gt
+ *      Transport to destroy.
+ */
 void HomaClient::destroy(grpc_transport* gt)
 {
     gpr_log(GPR_INFO, "HomaClient::destroy invoked");
@@ -376,7 +434,7 @@ void HomaClient::onRead(void* arg, grpc_error* error)
     rpcId.addr_size = sizeof(rpcId.addr);
     ssize_t length = homa_recv(hc->fd, &msg, sizeof(msg),
             HOMA_RECV_RESPONSE|HOMA_RECV_NONBLOCKING, rpcId.sockaddr(),
-            &rpcId.addr_size, &homaId);
+            &rpcId.addr_size, &homaId, NULL);
     grpc_fd_notify_on_read(hc->gfd, &hc->read_closure);
     
     rpcId.id = ntohl(msg.hdr.id);
