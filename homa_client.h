@@ -71,28 +71,6 @@ protected:
 
         Peer(HomaClient *hc, grpc_resolved_address *addr);
     };
-    
-    /**
-     * This structure holds the state for a single RPC.
-     */
-    struct Stream : public HomaStream {
-        Stream(HomaClient::Peer* peer, uint32_t id, grpc_stream_refcount* refs,
-                grpc_core::Arena* arena)
-            : HomaStream(RpcId(&peer->addr, id), 0, refs, arena)
-            , peer(peer)
-            , error(GRPC_ERROR_NONE)
-        { }
-        ~Stream()
-        {
-            GRPC_ERROR_UNREF(error);
-        }
-        
-        // Information about the target server for this RPC.
-        Peer *peer;
-        
-        // Status of the operation so far.
-        grpc_error_handle error;
-    };
 
     static void     destroy(grpc_transport* gt);
     static void     destroy_stream(grpc_transport* gt, grpc_stream* gs,
@@ -116,7 +94,7 @@ protected:
     struct grpc_transport_vtable vtable;
     
     // Holds all streams with outstanding requests.
-    std::unordered_map<RpcId, Stream*, RpcId::Hasher> streams;
+    std::unordered_map<RpcId, HomaStream*, RpcId::Hasher> streams;
     
     // Id to use for the next outgoing RPC.
     int nextId;
@@ -133,14 +111,20 @@ protected:
     grpc_fd *gfd;
         
     // Used to call us back when fd is readable.
-    grpc_closure read_closure;
+    grpc_closure readClosure;
     
-    // Single shared transport used for all channels.  Nullptr means
+    // Number of peers that exist for this object.
+    int numPeers;
+    
+    // Single shared HomaClient used for all channels.  Nullptr means
     // not created yet.
     static HomaClient *sharedClient;
     
+    // Held when creating or deleting sharedClient and when updating numPeers.
+    static grpc_core::Mutex refCountMutex;
+    
     // Used to create subchannels for all Homa channels.
-    static SubchannelFactory* factory;
+    static SubchannelFactory factory;
 };
 
 #endif // HOMA_CLIENT_H

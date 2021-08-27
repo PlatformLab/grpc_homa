@@ -16,7 +16,7 @@ struct RpcId {
     char addr[sizeof(struct sockaddr_in6)];
     
     // Number of bytes in addr that are actually used.
-    size_t addr_size;
+    size_t addrSize;
     
     // Unique id for this RPC among all those from its client.
     uint32_t id;
@@ -55,7 +55,7 @@ struct RpcId {
         {
             std::size_t hash = 0;
             const int *ints = reinterpret_cast<const int*>(rpcId.addr);
-            for (uint32_t i = 0; i+4 <= rpcId.addr_size; i = i+4, ints++) {
+            for (uint32_t i = 0; i+4 <= rpcId.addrSize; i = i+4, ints++) {
                 hash ^= std::hash<int>()(*ints);
             }
             return hash;

@@ -63,25 +63,6 @@ protected:
         
         Shared() : ports(), mutex() {}
     };
-    
-    /**
-     * This structure holds the state for a single RPC.
-     */
-    struct Stream : public HomaStream {
-        
-        // The incoming message for this RPC.
-        std::unique_ptr<Wire::Message> request;
-        
-        Stream(RpcId rpcId, uint64_t homaId, grpc_stream_refcount* refs,
-                grpc_core::Arena* arena)
-            : HomaStream(rpcId, 0, refs, arena)
-            , request()
-        {
-            this->homaId = homaId;
-        }
-        
-        ~Stream() {}
-    };
 
     /**
      * This structure is used to pass data down through callbacks to
@@ -94,8 +75,8 @@ protected:
         // Homa's id for the incoming RPC.
         uint64_t homaId;
 
-        // Used to return the Stream address back through callbacks.
-        Stream *stream;
+        // Used to return the HomaStream address back through callbacks.
+        HomaStream *stream;
     };
     
     // Points to a virtual function table for use by the rest of gRPC to
@@ -111,7 +92,7 @@ protected:
     
     // Keeps track of all RPCs currently in some stage of processing;
     // used to look up the Stream for an RPC based on its id.
-    std::unordered_map<RpcId*, Stream*> activeRpcs;
+    std::unordered_map<RpcId*, HomaStream*> activeRpcs;
     
     // Must be held when accessing @streams. Must not be acquired while
     // holding a stream lock.

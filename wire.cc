@@ -46,6 +46,9 @@ size_t Wire::serializeMetadata(grpc_metadata_batch* batch, uint8_t *dest)
         const grpc_slice& value = GRPC_MDVALUE(md->md);
         uint32_t valueLength = GRPC_SLICE_LENGTH(value);
         
+        gpr_log(GPR_INFO, "Outgoing metadata: index %d, key %.*s, value %.*s",
+                index, keyLength, GRPC_SLICE_START_PTR(key),
+                valueLength, GRPC_SLICE_START_PTR(value));
         msgMd->index = index;
         msgMd->keyLength = htonl(keyLength);
         msgMd->valueLength = htonl(valueLength);
@@ -84,6 +87,9 @@ void Wire::deserializeMetadata(uint8_t *src, size_t length,
         remaining -= sizeof(*msgMd);
         src += sizeof(*msgMd);
         GPR_ASSERT(remaining >= (keyLength + valueLength));
+        gpr_log(GPR_INFO, "Incoming metadata: index %d, key %.*s, value %.*s",
+                msgMd->index, keyLength, msgMd->data, valueLength,
+                msgMd->data+keyLength);
         
         grpc_linked_mdelem* lm = arena->New<grpc_linked_mdelem>();
         grpc_slice_refcount* ref = &grpc_core::kNoopRefcount;
@@ -98,7 +104,7 @@ void Wire::deserializeMetadata(uint8_t *src, size_t length,
                 GRPC_MDELEM_STORAGE_EXTERNAL);
         grpc_error_handle error = grpc_metadata_batch_link_tail(batch, lm);
         if (error != GRPC_ERROR_NONE) {
-            gpr_log(GPR_INFO, "Error creating metatata for %.*s: %s",
+            gpr_log(GPR_INFO, "Error creating metadata for %.*s: %s",
                     keyLength, src, grpc_error_string(error));
             GPR_ASSERT(error == GRPC_ERROR_NONE);
         }
@@ -169,6 +175,14 @@ size_t Wire::fillMessage(grpc_transport_stream_op_batch* op, Wire::Message *msg)
         msg->hdr.initMdBytes = htonl(static_cast<uint32_t>(length));
         offset += length;
     }
+    
+    if (op->send_trailing_metadata) {
+        size_t length = serializeMetadata(
+                op->payload->send_trailing_metadata.send_trailing_metadata,
+                msg->payload + offset);
+        msg->hdr.trailMdBytes = htonl(static_cast<uint32_t>(length));
+        offset += length;
+    }
 
     if (op->send_message) {
         uint32_t bytesLeft = op->payload->send_message.send_message->length();
@@ -193,14 +207,6 @@ size_t Wire::fillMessage(grpc_transport_stream_op_batch* op, Wire::Message *msg)
             gpr_log(GPR_INFO, "Copied %lu bytes into message buffer",
                     GRPC_SLICE_LENGTH(slice));
         }
-    }
-    
-    if (op->send_trailing_metadata) {
-        size_t length = serializeMetadata(
-                op->payload->send_trailing_metadata.send_trailing_metadata,
-                msg->payload + offset);
-        msg->hdr.trailMdBytes = htonl(static_cast<uint32_t>(length));
-        offset += length;
     }
     return offset;
 }

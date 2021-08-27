@@ -10,9 +10,9 @@
 #include "src/core/ext/filters/client_channel/resolver_registry.h"
 #include "src/core/lib/surface/channel.h"
 
+HomaClient::SubchannelFactory HomaClient::factory;
 HomaClient *HomaClient::sharedClient = nullptr;
-HomaClient::SubchannelFactory* HomaClient::factory = nullptr;
-gpr_once homa_once = GPR_ONCE_INIT;
+grpc_core::Mutex HomaClient::refCountMutex;
 
 /**
  * Creates a new subchannel for an existing channel.
@@ -49,6 +49,14 @@ void HomaClient::Connector::Connect(const HomaClient::Connector::Args& args,
             args.channel_args, &addr);
     printf("Address is %u bytes long\n", addr.len);
     result->Reset();
+    {
+        grpc_core::MutexLock lock(&refCountMutex);
+        if (sharedClient == nullptr) {
+            sharedClient = new HomaClient();
+            Wire::init();
+        }
+        sharedClient->numPeers++;
+    }
     result->transport = &(new HomaClient::Peer(HomaClient::sharedClient,
             &addr))->transport;
     result->channel_args = grpc_channel_args_copy(args.channel_args);
@@ -78,15 +86,6 @@ void HomaClient::Connector::Shutdown(grpc_error_handle error)
 }
 
 /**
- * Perform one-time initialization for client-side Homa code.
- */
-void HomaClient::init() {
-    sharedClient = new HomaClient();
-    factory = new SubchannelFactory();
-    Wire::init();
-}
-
-/**
  * Constructor for HomaTransports.
  * \param port
  *      The Homa port number that this object will manage.
@@ -98,9 +97,10 @@ HomaClient::HomaClient()
     , mutex()
     , fd(-1)
     , gfd(nullptr)
-    , read_closure()
+    , readClosure()
+    , numPeers(0)
 {
-    vtable.sizeof_stream =       sizeof(Stream);
+    vtable.sizeof_stream =       sizeof(HomaStream);
     vtable.name =                "homa_client";
     vtable.init_stream =         init_stream;
     vtable.set_pollset =         set_pollset;
@@ -116,14 +116,18 @@ HomaClient::HomaClient()
         gpr_log(GPR_ERROR, "Couldn't open Homa socket: %s", strerror(errno));
 	} else {
         gfd = grpc_fd_create(fd, "homa-socket", true);
-        GRPC_CLOSURE_INIT(&read_closure, onRead, this,
+        GRPC_CLOSURE_INIT(&readClosure, onRead, this,
                 grpc_schedule_on_exec_ctx);
-        grpc_fd_notify_on_read(gfd, &read_closure);
+        grpc_fd_notify_on_read(gfd, &readClosure);
     }
 }
 
 HomaClient::~HomaClient()
 {
+    gpr_log(GPR_INFO, "HomaClient destructor invoked");
+    grpc_fd_shutdown(gfd,
+            GRPC_ERROR_CREATE_FROM_STATIC_STRING("Destroying HomaClient"));
+    grpc_fd_orphan(gfd, nullptr, nullptr, "Destroying HomaClient");
 }
 
 /**
@@ -138,8 +142,6 @@ grpc_channel *HomaClient::create_channel(const char* target,
 {
     gpr_log(GPR_INFO, "Creating channel for %s", target);
     grpc_core::ExecCtx exec_ctx;
-    
-    gpr_once_init(&homa_once, init);
 
     // Add 3 channel arguments:
     // * Default authority channel argument (to keep gRPC happy)
@@ -155,7 +157,7 @@ grpc_channel *HomaClient::create_channel(const char* target,
     to_add[1] = grpc_channel_arg_string_create(
             const_cast<char*>(GRPC_ARG_SERVER_URI), canonical_target.get());
     
-    to_add[2] = grpc_core::ClientChannelFactory::CreateChannelArg(factory);
+    to_add[2] = grpc_core::ClientChannelFactory::CreateChannelArg(&factory);
     
     const char* to_remove[] = {GRPC_ARG_SERVER_URI, to_add[2].key};
     grpc_channel_args* new_args = grpc_channel_args_copy_and_add_and_remove(
@@ -191,11 +193,11 @@ int HomaClient::init_stream(grpc_transport* gt, grpc_stream* gs,
 {
     Peer *peer = containerOf(gt, &HomaClient::Peer::transport);
     HomaClient* hc = peer->hc;
-    Stream *stream = reinterpret_cast<Stream *>(gs);
+    HomaStream *stream = reinterpret_cast<HomaStream *>(gs);
     grpc_core::MutexLock lock(&hc->mutex);
     uint32_t id = hc->nextId;
     hc->nextId++;
-    new (stream) Stream(peer, id, refcount, arena);
+    new (stream) HomaStream(RpcId(&peer->addr, id), 0, hc->fd, refcount, arena);
     hc->streams.emplace(stream->rpcId, stream);
     gpr_log(GPR_INFO, "HomaClient::init_stream invoked");
     return 0;
@@ -260,39 +262,15 @@ void HomaClient::set_pollset_set(grpc_transport* gt, grpc_stream* gs,
 void HomaClient::perform_stream_op(grpc_transport* gt, grpc_stream* gs,
         grpc_transport_stream_op_batch* op)
 {
-    Peer *peer = containerOf(gt, &HomaClient::Peer::transport);
-    Stream *stream = reinterpret_cast<Stream*>(gs);
-    HomaClient *hc = peer->hc;
+    HomaStream *stream = reinterpret_cast<HomaStream*>(gs);
     grpc_core::MutexLock lock(&stream->mutex);
     
     gpr_log(GPR_INFO, "HomaClient::perform_stream_op invoked");
     if (op->send_initial_metadata || op->send_message
             || op->send_trailing_metadata) {
-        Wire::Message msg;
-        
-        if (hc->fd < 0) {
-            stream->error = GRPC_ERROR_CREATE_FROM_STATIC_STRING(
-                    "Couldn't open Homa socket");
-            goto sendMessageDone;
-        }
-        msg.hdr.id = htonl(stream->rpcId.id);
-        size_t payloadLength = Wire::fillMessage(op, &msg);
-        int status = homa_send(hc->fd, &msg,
-                sizeof(msg) - (10000 - payloadLength),
-                reinterpret_cast<struct sockaddr *>(&peer->addr),
-                peer->addr.len, &stream->homaId);
-        if (status < 0) {
-                stream->error = GRPC_OS_ERROR(errno,
-                        "Couldn't send Homa message");
-                goto sendMessageDone;
-        }
-        gpr_log(GPR_INFO, "Sent Homa message with %d initial metadata bytes, "
-                "%d payload bytes, %d trailing metadata bytes",
-                ntohl(msg.hdr.initMdBytes), ntohl(msg.hdr.messageBytes),
-                ntohl(msg.hdr.trailMdBytes));
+        stream->xmit(op);
     }
 
-    sendMessageDone:
     if (op->cancel_stream) {
         gpr_log(GPR_INFO, "HomaClient::perform_stream_op: cancel "
                 "stream ((%s)", grpc_error_std_string(
@@ -370,7 +348,7 @@ void HomaClient::perform_op(grpc_transport* gt, grpc_transport_op* op)
  * \param gt
  *      Transport (Peer) associated with the stream.
  * \param gs
- *      Stream to destroy.
+ *      HomaStream to destroy.
  * \param closure
  *      Invoke this once destruction is complete.
  */
@@ -379,7 +357,7 @@ void HomaClient::destroy_stream(grpc_transport* gt, grpc_stream* gs,
 {
     Peer *peer = containerOf(gt, &HomaClient::Peer::transport);
     HomaClient *hc = peer->hc;
-    Stream *stream = reinterpret_cast<Stream*>(gs);
+    HomaStream *stream = reinterpret_cast<HomaStream*>(gs);
     
     gpr_log(GPR_INFO, "HomaClient::destroy_stream invoked");
     {
@@ -388,7 +366,7 @@ void HomaClient::destroy_stream(grpc_transport* gt, grpc_stream* gs,
     }
     {
         grpc_core::MutexLock lock(&stream->mutex);
-        stream->~Stream();
+        stream->~HomaStream();
     }
     grpc_core::ExecCtx::Run(DEBUG_LOCATION, closure, GRPC_ERROR_NONE);
 }
@@ -401,6 +379,16 @@ void HomaClient::destroy_stream(grpc_transport* gt, grpc_stream* gs,
 void HomaClient::destroy(grpc_transport* gt)
 {
     gpr_log(GPR_INFO, "HomaClient::destroy invoked");
+    Peer *peer = containerOf(gt, &HomaClient::Peer::transport);
+    delete peer;
+    {
+        grpc_core::MutexLock lock(&refCountMutex);
+        sharedClient->numPeers--;
+        if (sharedClient->numPeers == 0) {
+            delete sharedClient;
+            sharedClient = nullptr;
+        }
+    }
     
 }
 
@@ -427,17 +415,18 @@ void HomaClient::onRead(void* arg, grpc_error* error)
     if (error != GRPC_ERROR_NONE) {
         gpr_log(GPR_ERROR, "HomaClient::onRead invoked with error: %s",
                 grpc_error_string(error));
+        return;
     }
     Wire::Message msg;
     RpcId rpcId;
     uint64_t homaId = 0;
-    rpcId.addr_size = sizeof(rpcId.addr);
+    rpcId.addrSize = sizeof(rpcId.addr);
     ssize_t length = homa_recv(hc->fd, &msg, sizeof(msg),
             HOMA_RECV_RESPONSE|HOMA_RECV_NONBLOCKING, rpcId.sockaddr(),
-            &rpcId.addr_size, &homaId, NULL);
-    grpc_fd_notify_on_read(hc->gfd, &hc->read_closure);
+            &rpcId.addrSize, &homaId, NULL);
+    grpc_fd_notify_on_read(hc->gfd, &hc->readClosure);
     
-    rpcId.id = ntohl(msg.hdr.id);
+    rpcId.id = ntohl(msg.hdr.streamId);
     uint32_t initMdLength = htonl(msg.hdr.initMdBytes);
     uint32_t payloadLength = htonl(msg.hdr.messageBytes);
     uint32_t trailingMdLength = htonl(msg.hdr.trailMdBytes);
@@ -462,9 +451,9 @@ void HomaClient::onRead(void* arg, grpc_error* error)
     gpr_log(GPR_INFO, "Received Homa response from host 0x%x, port %d with "
             "id %d, length %d, Homa id %lu, addr_size %lu",
             rpcId.ipv4Addr(), rpcId.port(), rpcId.id, payloadLength,
-            homaId, rpcId.addr_size);
+            homaId, rpcId.addrSize);
     
-    Stream *stream;
+    HomaStream *stream;
     std::optional<grpc_core::MutexLock> streamLock;
     try {
         grpc_core::MutexLock lock(&hc->mutex);

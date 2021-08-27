@@ -9,14 +9,14 @@
  */
 RpcId::RpcId(grpc_resolved_address *gaddr, uint32_t id)
     : addr()
-    , addr_size(gaddr->len)
+    , addrSize(gaddr->len)
     , id(id)
 {
     // Homa currently understands only ipv4 addresses.
     GPR_ASSERT(reinterpret_cast<struct sockaddr*>(gaddr)->sa_family == AF_INET);
-    GPR_ASSERT(addr_size <= sizeof(addr));
+    GPR_ASSERT(addrSize <= sizeof(addr));
     
-    bcopy(gaddr->addr, addr, addr_size);
+    bcopy(gaddr->addr, addr, addrSize);
 }
 
 /**
@@ -28,6 +28,6 @@ RpcId::RpcId(grpc_resolved_address *gaddr, uint32_t id)
  */
 bool RpcId::operator==(const RpcId& other) const
 {
-    return (id == other.id) && (addr_size == other.addr_size)
-            && (bcmp(addr, other.addr, addr_size) == 0);
+    return (id == other.id) && (addrSize == other.addrSize)
+            && (bcmp(addr, other.addr, addrSize) == 0);
 }

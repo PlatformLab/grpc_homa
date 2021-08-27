@@ -7,10 +7,21 @@
  * gRPC over Homa.
  */
 
-/* Values that are stored in network byte order ("big endian"). */
+// Values that are stored in network byte order ("big endian").
 typedef int16_t be16;
 typedef int32_t be32;
 typedef int64_t be64;
+
+// Valid flag bits for Wire::Header::flags:
+
+// 1 means that, as of this Homa RPC, all initial metadata has been sent.
+#define WIRE_INIT_MD_COMPLETE   1
+
+// 1 means that, as of this Homa RPC, the entire message has been sent.
+#define WIRE_MESSAGE_COMPLETE   2
+
+// 1 means that, as of this Homa RPC, all trailing metadata has been sent.
+#define WIRE_TRAIL_MD_COMPLETE  4
 
 /**
  * This class defines the on-the-wire format of messages used to implement
@@ -19,19 +30,53 @@ typedef int64_t be64;
  */
 class Wire {
 public:
-    /** Every request a response message starts with this information. */
+    /** 
+     * Every Homa RPC (whether request or response) starts with this
+     * information.
+     */
     struct Header {
-        // Unique identifier for this RPC (assigned by client).
-        be32 id;
+        // Unique identifier for this stream (all messages for this RPC
+        // will use the same identifier).
+        be32 streamId;
+        
+        // Position of this Homa messages among all of those sent on
+        // this stream. Used on the other end to make sure that messages
+        // are processed in order.
+        be32 sequenceNum;
 
-        // Number of bytes of initial metadata (may be zero).
+        // Number of bytes of initial metadata (may be zero), which
+        // follows this header in the Homa RPC.
         be32 initMdBytes;
 
-        // Number of bytes of message data (may be zero).
-        be32 messageBytes;
-
-        // Number of bytes of trailing metadata (may be zero).
+        // Number of bytes of trailing metadata (may be zero), which
+        // follows the initial metadata.
         be32 trailMdBytes;
+
+        // Number of bytes of gRPC message data (may be zero), which follows
+        // the trailing metadata.
+        be32 messageBytes;
+        
+        // ORed combination of one or more of the flag bits defined above.
+        uint8_t flags;
+        
+        Header(int streamId, int sequence)
+            : streamId(htonl(streamId))
+            , sequenceNum(htonl(sequence))
+            , initMdBytes(0)
+            , trailMdBytes(0)
+            , messageBytes(0)
+            , flags(0)
+        { }
+        
+        Header()
+            : streamId()
+            , sequenceNum()
+            , initMdBytes()
+            , trailMdBytes()
+            , messageBytes()
+            , flags()
+        { }
+                
     } __attribute__((packed));
     
     /** Each metadata value has the following format. */
