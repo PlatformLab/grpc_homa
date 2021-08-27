@@ -2,7 +2,6 @@
 
 #include "homa_listener.h"
 #include "homa.h"
-#include "rpc_id.h"
 #include "util.h"
 
 std::optional<HomaListener::Shared> HomaListener::shared;
@@ -148,13 +147,13 @@ void HomaListener::onRead(void* arg, grpc_error* error)
         return;
     }
     
-    init.rpcId.addrSize = sizeof(init.rpcId.addr);
+    init.streamId.addrSize = sizeof(init.streamId.addr);
     init.homaId = 0;
     int length = homa_recv(lis->fd, msg.get(), sizeof(Wire::Message),
-				HOMA_RECV_REQUEST, (struct sockaddr *) &init.rpcId.addr,
-				&init.rpcId.addrSize, &init.homaId, NULL);
+				HOMA_RECV_REQUEST, (struct sockaddr *) &init.streamId.addr,
+				&init.streamId.addrSize, &init.homaId, NULL);
     grpc_fd_notify_on_read(lis->gfd, &lis->read_closure);
-    init.rpcId.id = ntohl(msg->hdr.streamId);
+    init.streamId.id = ntohl(msg->hdr.streamId);
     uint32_t initMdLength = htonl(msg->hdr.initMdBytes);
     uint32_t payloadLength = htonl(msg->hdr.messageBytes);
     uint32_t trailingMdLength = htonl(msg->hdr.trailMdBytes);
@@ -173,8 +172,8 @@ void HomaListener::onRead(void* arg, grpc_error* error)
     }
     gpr_log(GPR_INFO, "Received Homa request from host 0x%x, port %d with "
             "id %d, length %d, Homa id %lu, addr_size %lu",
-            init.rpcId.ipv4Addr(), init.rpcId.port(),
-            init.rpcId.id, payloadLength, init.homaId, init.rpcId.addrSize);
+            init.streamId.ipv4Addr(), init.streamId.port(),
+            init.streamId.id, payloadLength, init.homaId, init.streamId.addrSize);
     init.stream = nullptr;
     
     if (lis->accept_stream_cb) {
@@ -189,6 +188,7 @@ void HomaListener::onRead(void* arg, grpc_error* error)
     grpc_core::MutexLock lock(&stream->mutex);
     stream->incoming = std::move(msg);
     stream->transferDataIn(stream->incoming.get());
+    gpr_log(GPR_INFO, "HomaListener::onRead done");
 }
 
 grpc_core::channelz::ListenSocketNode*
@@ -232,7 +232,7 @@ int HomaListener::init_stream(grpc_transport* gt, grpc_stream* gs,
     StreamInit *init = const_cast<StreamInit*>(
             reinterpret_cast<const StreamInit*>(init_info));
     gpr_log(GPR_INFO, "HomaListener::init_stream invoked");
-    new (stream) HomaStream(init->rpcId, init->homaId, lis->fd, refcount,
+    new (stream) HomaStream(init->streamId, init->homaId, lis->fd, refcount,
             arena);
     init->stream = stream;
     return 0;

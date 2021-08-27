@@ -197,8 +197,8 @@ int HomaClient::init_stream(grpc_transport* gt, grpc_stream* gs,
     grpc_core::MutexLock lock(&hc->mutex);
     uint32_t id = hc->nextId;
     hc->nextId++;
-    new (stream) HomaStream(RpcId(&peer->addr, id), 0, hc->fd, refcount, arena);
-    hc->streams.emplace(stream->rpcId, stream);
+    new (stream) HomaStream(StreamId(&peer->addr, id), 0, hc->fd, refcount, arena);
+    hc->streams.emplace(stream->streamId, stream);
     gpr_log(GPR_INFO, "HomaClient::init_stream invoked");
     return 0;
 }
@@ -362,7 +362,7 @@ void HomaClient::destroy_stream(grpc_transport* gt, grpc_stream* gs,
     gpr_log(GPR_INFO, "HomaClient::destroy_stream invoked");
     {
         grpc_core::MutexLock lock(&hc->mutex);
-        hc->streams.erase(stream->rpcId);
+        hc->streams.erase(stream->streamId);
     }
     {
         grpc_core::MutexLock lock(&stream->mutex);
@@ -418,15 +418,15 @@ void HomaClient::onRead(void* arg, grpc_error* error)
         return;
     }
     Wire::Message msg;
-    RpcId rpcId;
+    StreamId streamId;
     uint64_t homaId = 0;
-    rpcId.addrSize = sizeof(rpcId.addr);
+    streamId.addrSize = sizeof(streamId.addr);
     ssize_t length = homa_recv(hc->fd, &msg, sizeof(msg),
-            HOMA_RECV_RESPONSE|HOMA_RECV_NONBLOCKING, rpcId.sockaddr(),
-            &rpcId.addrSize, &homaId, NULL);
+            HOMA_RECV_RESPONSE|HOMA_RECV_NONBLOCKING, streamId.sockaddr(),
+            &streamId.addrSize, &homaId, NULL);
     grpc_fd_notify_on_read(hc->gfd, &hc->readClosure);
     
-    rpcId.id = ntohl(msg.hdr.streamId);
+    streamId.id = ntohl(msg.hdr.streamId);
     uint32_t initMdLength = htonl(msg.hdr.initMdBytes);
     uint32_t payloadLength = htonl(msg.hdr.messageBytes);
     uint32_t trailingMdLength = htonl(msg.hdr.trailMdBytes);
@@ -450,18 +450,20 @@ void HomaClient::onRead(void* arg, grpc_error* error)
     }
     gpr_log(GPR_INFO, "Received Homa response from host 0x%x, port %d with "
             "id %d, length %d, Homa id %lu, addr_size %lu",
-            rpcId.ipv4Addr(), rpcId.port(), rpcId.id, payloadLength,
-            homaId, rpcId.addrSize);
+            streamId.ipv4Addr(), streamId.port(), streamId.id, payloadLength,
+            homaId, streamId.addrSize);
     
     HomaStream *stream;
     std::optional<grpc_core::MutexLock> streamLock;
     try {
         grpc_core::MutexLock lock(&hc->mutex);
-        stream = hc->streams.at(rpcId);
+        stream = hc->streams.at(streamId);
         streamLock.emplace(&stream->mutex);
     } catch (std::out_of_range& e) {
-        gpr_log(GPR_ERROR, "Ignoring response for unknown RPC id %d", rpcId.id);
+        gpr_log(GPR_ERROR, "Ignoring response for unknown RPC id %d",
+                streamId.id);
         return;
     }
     stream->transferDataIn(&msg);
+    gpr_log(GPR_INFO, "HomaClient::onRead done");
 }

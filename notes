@@ -8,6 +8,11 @@ Miscellaneous notes about a Homa plugin for gRPC:
     * Define an OpRequests class that holds one or more Homa
       messages that represent all of the data in one set of stream ops?
       Or, maybe just use the Stream?
+  * Incoming messages:
+    * Don't know a message's stream until after receiving it.
+    * Use small buffer for initial reception, get remainder later
+      if needed.
+    * Use sequence numbers to process incoming messages in order
   * How can server send multiple messages? Only 1 RPC is open!
     * After receiving an intermediate response, the client immediately issues
       another RPC for the next response. However, this doesn't allow

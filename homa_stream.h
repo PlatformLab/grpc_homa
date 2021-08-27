@@ -7,7 +7,7 @@
 
 #include "src/core/lib/transport/transport_impl.h"
 
-#include "rpc_id.h"
+#include "stream_id.h"
 #include "wire.h"
 
 /**
@@ -25,9 +25,9 @@ public:
     // File descriptor for the Homa socket to use for I/O.
     int fd;
     
-    // Uniquely identifies this RPC, and also provides info about
+    // Uniquely identifies this gRPC RPC, and also provides info about
     // the peer (e.g. for sending responses).
-    RpcId rpcId;
+    StreamId streamId;
 
     // On servers, this contains the identifier for the original Homa
     // request (which is also used for the final response). On clients,
@@ -81,7 +81,7 @@ public:
     // Error that has occurred on this stream, if any.
     grpc_error_handle error;
 
-    HomaStream(RpcId rpcId, uint64_t homaId, int fd,
+    HomaStream(StreamId streamId, uint64_t homaId, int fd,
             grpc_stream_refcount* refcount, grpc_core::Arena* arena);
 
     virtual ~HomaStream();

@@ -11,7 +11,7 @@ OBJS =      homa_api.o \
 	    homa_client.o \
 	    homa_listener.o \
 	    homa_stream.o \
-	    rpc_id.o \
+	    stream_id.o \
 	    util.o \
 	    wire.o
 

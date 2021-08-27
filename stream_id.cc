@@ -1,13 +1,13 @@
-#include "rpc_id.h"
+#include "stream_id.h"
 
 /**
- * Construct an RpcId from a gRPC address.
+ * Construct an StreamId from a gRPC address.
  * \param gaddr
  *      The address of the peer for the RPC.
  * \param id
  *      Unique id assigned to this RPC by the client.
  */
-RpcId::RpcId(grpc_resolved_address *gaddr, uint32_t id)
+StreamId::StreamId(grpc_resolved_address *gaddr, uint32_t id)
     : addr()
     , addrSize(gaddr->len)
     , id(id)
@@ -20,13 +20,13 @@ RpcId::RpcId(grpc_resolved_address *gaddr, uint32_t id)
 }
 
 /**
- * Comparison operator for RpcIds.
+ * Comparison operator for StreamIds.
  * \param other
- *      RpcID to compare against
+ *      StreamId to compare against
  * \return
- *      True means the RpcIds match, false means they don't.
+ *      True means the StreamIds match, false means they don't.
  */
-bool RpcId::operator==(const RpcId& other) const
+bool StreamId::operator==(const StreamId& other) const
 {
     return (id == other.id) && (addrSize == other.addrSize)
             && (bcmp(addr, other.addr, addrSize) == 0);

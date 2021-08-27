@@ -12,7 +12,6 @@
 #include "src/core/lib/transport/transport_impl.h"
 
 #include "homa_stream.h"
-#include "rpc_id.h"
 #include "wire.h"
 
 /**
@@ -70,7 +69,7 @@ protected:
      */
     struct StreamInit {
         // Identifying information from incoming RPC.
-        RpcId rpcId;
+        StreamId streamId;
 
         // Homa's id for the incoming RPC.
         uint64_t homaId;
@@ -92,7 +91,7 @@ protected:
     
     // Keeps track of all RPCs currently in some stage of processing;
     // used to look up the Stream for an RPC based on its id.
-    std::unordered_map<RpcId*, HomaStream*> activeRpcs;
+    std::unordered_map<StreamId*, HomaStream*> activeRpcs;
     
     // Must be held when accessing @streams. Must not be acquired while
     // holding a stream lock.

@@ -7,10 +7,10 @@
 #include "src/core/lib/iomgr/resolve_address.h"
 
 /**
- * Holds information identifying an RPC in a form that can be used as
- * a key in std::unordered_map.
+ * Holds information identifying a stream (which represents a gRPC RPC)
+ * in a form that can be used as a key in std::unordered_map.
  */
-struct RpcId {
+struct StreamId {
     // Holds a struct sockaddr specifying the address and port of the
     // other machine. Large enough to hold either an IPV4 or IPV6 address.
     char addr[sizeof(struct sockaddr_in6)];
@@ -21,9 +21,9 @@ struct RpcId {
     // Unique id for this RPC among all those from its client.
     uint32_t id;
 
-    RpcId() {}
-    RpcId(grpc_resolved_address *gaddr, uint32_t id);
-    bool operator==(const RpcId& other) const;
+    StreamId() {}
+    StreamId(grpc_resolved_address *gaddr, uint32_t id);
+    bool operator==(const StreamId& other) const;
     
     // Convenient accessors for part or all of addr.
     struct sockaddr *sockaddr()
@@ -47,15 +47,15 @@ struct RpcId {
     }
 
     /**
-     * This class computes a hash of an RpcId, so that RpcIds can
+     * This class computes a hash of an StreamId, so that StreamIds can
      * be used as keys in unordered_maps.
      */
     struct Hasher {
-        std::size_t operator()(const RpcId& rpcId) const
+        std::size_t operator()(const StreamId& streamId) const
         {
             std::size_t hash = 0;
-            const int *ints = reinterpret_cast<const int*>(rpcId.addr);
-            for (uint32_t i = 0; i+4 <= rpcId.addrSize; i = i+4, ints++) {
+            const int *ints = reinterpret_cast<const int*>(streamId.addr);
+            for (uint32_t i = 0; i+4 <= streamId.addrSize; i = i+4, ints++) {
                 hash ^= std::hash<int>()(*ints);
             }
             return hash;

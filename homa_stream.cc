@@ -4,12 +4,11 @@
 
 /**
  * Constructor for HomaStreams.
- * \param rpcId
+ * \param streamId
+ *      Identifies a particular gRPC RPC.
+ * \param homaId
  *      On servers, the Homa identifier for the first message; on clients,
  *      zero.
- * \param homaId
- *      Identifier for the Homa RPC that carries the initial request
- *      and final result.
  * \param fd
  *      Use this file descriptor to send and receive Homa messages.
  * \param refcount
@@ -19,11 +18,11 @@
  *      allocated here will persist for the life of the stream and be
  *      automatically garbage collected when the stream is destroyed.
  */
-HomaStream::HomaStream(RpcId rpcId, uint64_t homaId, int fd,
+HomaStream::HomaStream(StreamId streamId, uint64_t homaId, int fd,
         grpc_stream_refcount* refcount, grpc_core::Arena* arena)
     : mutex()
     , fd(fd)
-    , rpcId(rpcId)
+    , streamId(streamId)
     , homaId(homaId)
     , refs(refcount)
     , arena(arena)
@@ -59,12 +58,12 @@ void HomaStream::flush()
     }
     if (homaId == 0) {
         status = homa_sendv(fd, vecs.data(), vecs.size(),
-                reinterpret_cast<struct sockaddr *>(rpcId.addr),
-                rpcId.addrSize, nullptr);
+                reinterpret_cast<struct sockaddr *>(streamId.addr),
+                streamId.addrSize, nullptr);
     } else {
         status = homa_replyv(fd, vecs.data(), vecs.size(),
-                reinterpret_cast<struct sockaddr *>(rpcId.addr),
-                rpcId.addrSize, homaId);
+                reinterpret_cast<struct sockaddr *>(streamId.addr),
+                streamId.addrSize, homaId);
     }
     if (status < 0) {
         gpr_log(GPR_ERROR, "Couldn't send Homa %s: %s",
@@ -91,7 +90,7 @@ void HomaStream::flush()
  */
 void HomaStream::newXmit()
 {
-    new(&xmitMsg.hdr) Wire::Header(rpcId.id, nextSequence);
+    new(&xmitMsg.hdr) Wire::Header(streamId.id, nextSequence);
     nextSequence++;
     vecs.clear();
     vecs.push_back({&xmitMsg, sizeof(xmitMsg.hdr)});

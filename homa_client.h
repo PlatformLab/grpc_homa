@@ -94,7 +94,7 @@ protected:
     struct grpc_transport_vtable vtable;
     
     // Holds all streams with outstanding requests.
-    std::unordered_map<RpcId, HomaStream*, RpcId::Hasher> streams;
+    std::unordered_map<StreamId, HomaStream*, StreamId::Hasher> streams;
     
     // Id to use for the next outgoing RPC.
     int nextId;
