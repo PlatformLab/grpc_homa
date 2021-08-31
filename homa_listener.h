@@ -69,7 +69,7 @@ protected:
      */
     struct StreamInit {
         // Identifying information from incoming RPC.
-        StreamId streamId;
+        StreamId *streamId;
 
         // Homa's id for the incoming RPC.
         uint64_t homaId;

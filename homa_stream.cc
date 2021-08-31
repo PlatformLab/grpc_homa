@@ -1,3 +1,5 @@
+#include <memory>
+
 #include "homa.h"
 #include "homa_stream.h"
 #include "util.h"
@@ -31,7 +33,10 @@ HomaStream::HomaStream(StreamId streamId, uint64_t homaId, int fd,
     , vecs()
     , lastVecAvail(0)
     , xmitSize(0)
-    , nextSequence(0)
+    , nextXmitSequence(1)
+    , incoming()
+    , nextIncomingSequence(1)
+    , messageData()
     , initMd(nullptr)
     , initMdClosure(nullptr)
     , messageStream(nullptr)
@@ -39,10 +44,13 @@ HomaStream::HomaStream(StreamId streamId, uint64_t homaId, int fd,
     , trailMd(nullptr)
     , trailMdClosure(nullptr)
     , error(GRPC_ERROR_NONE)
-{}
+{
+    grpc_slice_buffer_init(&messageData);
+}
     
 HomaStream::~HomaStream()
 {
+    grpc_slice_buffer_destroy(&messageData);
     GRPC_ERROR_UNREF(error);
 }
 
@@ -90,8 +98,8 @@ void HomaStream::flush()
  */
 void HomaStream::newXmit()
 {
-    new(&xmitMsg.hdr) Wire::Header(streamId.id, nextSequence);
-    nextSequence++;
+    new(&xmitMsg.hdr) Wire::Header(streamId.id, nextXmitSequence);
+    nextXmitSequence++;
     vecs.clear();
     vecs.push_back({&xmitMsg, sizeof(xmitMsg.hdr)});
     xmitSize = sizeof(xmitMsg.hdr);
@@ -239,7 +247,8 @@ void HomaStream::appendMessage(grpc_transport_stream_op_batch* op)
 
 /**
  * Transmit the initial metadata, message, and trailing metadata that is
- * present in a batch of stream ops.
+ * present in a batch of stream ops. May leave error information in
+ * the stream's @error variable.
  * \param op
  *      Describes operations to perform on the stream.
  */
@@ -252,71 +261,222 @@ void HomaStream::xmit(grpc_transport_stream_op_batch* op)
         serializeMetadata(
                 op->payload->send_initial_metadata.send_initial_metadata);
         xmitMsg.hdr.initMdBytes = htonl(xmitSize - oldLength);
-        xmitMsg.hdr.flags |= WIRE_INIT_MD_COMPLETE;
+        xmitMsg.hdr.flags |= Wire::Header::initMdPresent;
+        if (xmitSize > HOMA_MAX_MESSAGE_LENGTH) {
+            gpr_log(GPR_ERROR, "Too much initial metadata (%lu bytes): "
+                    "limit is %lu bytes", xmitSize - sizeof(xmitMsg.hdr),
+                    HOMA_MAX_MESSAGE_LENGTH - sizeof(xmitMsg.hdr));
+            error = GRPC_ERROR_CREATE_FROM_STATIC_STRING(
+                    "Too much initial metadata");
+            return;
+        }
+    }
+    
+    size_t trailMdLength = 0;
+    if (op->send_trailing_metadata) {
+        trailMdLength = Wire::metadataLength(
+                op->payload->send_trailing_metadata.send_trailing_metadata);
+    }
+    if (trailMdLength > (HOMA_MAX_MESSAGE_LENGTH - sizeof(xmitMsg.hdr))) {
+        gpr_log(GPR_ERROR, "Too much trailing metadata (%lu bytes): "
+                "limit is %lu bytes", trailMdLength,
+                HOMA_MAX_MESSAGE_LENGTH - sizeof(xmitMsg.hdr));
+        error = GRPC_ERROR_CREATE_FROM_STATIC_STRING(
+                "Too much trailing metadata");
+        return;
+    }
+    size_t msgDataLeft = 0;
+    size_t bytesInSlice = 0;
+    size_t sliceOffset = 0;
+    if (op->send_message) {
+        msgDataLeft = op->payload->send_message.send_message->length();
+    }
+    
+    // Handling the trailing metadata and message is a bit tricky: if they
+    // don't all fit in the initial Homa message, we first fill one or more
+    // Homa messages with just message data. Then, in the final message, we
+    // append the metadata *before* any final chunk of data (so it can use
+    // the same iovec as the header).
+    while ((trailMdLength + msgDataLeft) > 0) {
+        if ((xmitSize == HOMA_MAX_MESSAGE_LENGTH)
+                || ((msgDataLeft == 0)
+                && ((xmitSize + trailMdLength) > HOMA_MAX_MESSAGE_LENGTH))) {
+            flush();
+            newXmit();
+        }
+        if ((xmitSize + trailMdLength + msgDataLeft) < HOMA_MAX_MESSAGE_LENGTH) {
+            // This will be the last Homa message, so output trailing metadata.
+            serializeMetadata(
+                    op->payload->send_trailing_metadata.send_trailing_metadata);
+            xmitMsg.hdr.trailMdBytes = htonl(trailMdLength);
+            trailMdLength = 0;
+        }
+        if (bytesInSlice == 0) {
+            if (!op->payload->send_message.send_message->Next(msgDataLeft,
+                    nullptr)) {
+                /* Should never reach here */
+                GPR_ASSERT(false);
+            }
+            slices.resize(slices.size()+1);
+            if (op->payload->send_message.send_message->Pull(&slices.back())
+                    != GRPC_ERROR_NONE) {
+                /* Should never reach here */
+                GPR_ASSERT(false);
+            }
+            bytesInSlice = GRPC_SLICE_LENGTH(slices.back());
+            sliceOffset = 0;
+        }
+        size_t chunkSize = HOMA_MAX_MESSAGE_LENGTH - xmitSize;
+        if (chunkSize >= bytesInSlice) {
+            chunkSize = bytesInSlice;
+        }
+        vecs.push_back({GRPC_SLICE_START_PTR(slices.back()) + sliceOffset,
+                chunkSize});
+        lastVecAvail = 0;
+        bytesInSlice -= chunkSize;
+        sliceOffset += chunkSize;
+        msgDataLeft -= chunkSize;
+        xmitMsg.hdr.messageBytes = htonl(ntohl(xmitMsg.hdr.messageBytes)
+                + chunkSize);
+        xmitSize += chunkSize;
+    }
+    
+    if (op->send_message) {
+        xmitMsg.hdr.flags |= Wire::Header::messageComplete;
     }
     
     if (op->send_trailing_metadata) {
-        size_t oldLength = xmitSize;
-        serializeMetadata(
-                op->payload->send_trailing_metadata.send_trailing_metadata);
-        xmitMsg.hdr.trailMdBytes = htonl(xmitSize - oldLength);
-        xmitMsg.hdr.flags |= WIRE_TRAIL_MD_COMPLETE;
-    }
-    
-    if (xmitSize > HOMA_MAX_MESSAGE_LENGTH) {
-        error = GRPC_ERROR_CREATE_FROM_STATIC_STRING(
-                "Metadata exceeded maximum Homa message size");
-        return;
-    }
-
-    if (op->send_message) {
-        appendMessage(op);
-        if (error != GRPC_ERROR_NONE) {
-            return;
-        }
+        xmitMsg.hdr.flags |= Wire::Header::trailMdPresent;
     }
     flush();
 }
 
 /**
- * Transfer data and/or metadata from an incoming message into gRPC, if the
- * callbacks are present.
- * \param msg
- *      Incoming message.
+ * See if there is any information in accumulated incoming messages that
+ * can now be passed off to gRPC. If so, pass it off.
  */
-void HomaStream::transferDataIn(Wire::Message* msg)
+void HomaStream::transferData()
 {
-    uint32_t initMdLength = htonl(msg->hdr.initMdBytes);
-    uint32_t messageLength = htonl(msg->hdr.messageBytes);
-    uint32_t trailMdLength = htonl(msg->hdr.trailMdBytes);
-    uint8_t* src = msg->payload;
-    gpr_log(GPR_INFO, "Incoming message: initMdLength %d msgLength %d "
-            "trailingMdLength %d", initMdLength, messageLength, trailMdLength);
-    if (initMdClosure) {
-        Wire::deserializeMetadata(src, initMdLength, initMd, arena);
-        logMetadata(initMd, "server initial metadata");
-        grpc_closure *c = initMdClosure;
-        initMdClosure = nullptr;
-        grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_NONE);
-    }
-    src += initMdLength;
-    if (messageClosure) {
-        grpc_slice_buffer sb;
-        grpc_slice_buffer_init(&sb);
-        grpc_slice_buffer_add(&sb, grpc_slice_from_static_buffer(
-                src+trailMdLength, messageLength));
-        messageStream->reset(new grpc_core::SliceBufferByteStream(&sb, 0));
-        grpc_slice_buffer_destroy(&sb);
+    /* A gRPC message consists of one or more Homa messages. The first
+     * Homa message will contain all of the initial metadata,if
+     * any, and as much message data as will fit. If the gRPC message
+     * data is large, then there may be additional Homa messages with
+     * more data. The last Homa message will contain the trailing
+     * metadata.
+     */
+    while (incoming.size() > 0) {
+        HomaIncoming *msg = incoming[0].get();
+        if (msg->sequence > nextIncomingSequence) {
+            break;
+        }
         
-        grpc_closure *c = messageClosure;
-        messageClosure = nullptr;
-        grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_NONE);
+        // Transfer initial metadata, if possible.
+        if (initMdClosure) {
+            if (msg->hdr.flags & msg->hdr.initMdPresent) {
+                msg->deserializeMetadata(sizeof(msg->hdr), msg->initMdLength,
+                        initMd, arena);
+                gpr_log(GPR_INFO, "Accepted %u bytes of initial metadata",
+                        msg->initMdLength);
+                logMetadata(initMd, "incoming initial metadata");
+                grpc_closure *c = initMdClosure;
+                initMdClosure = nullptr;
+                msg->hdr.flags &= ~msg->hdr.initMdPresent;
+                grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_NONE);
+            }
+        } else if (msg->hdr.flags & msg->hdr.initMdPresent) {
+            // Can't do anything until we get a closure to accept
+            // initial metadata.
+            break;
+        }
+
+        // Transfer data, if possible.
+        if (messageClosure) {
+            if (msg->messageLength > 0) {
+                // Add a slice for any message data in the initial payload.
+                size_t msgOffset = sizeof(msg->hdr) + msg->initMdLength
+                        + msg->trailMdLength;
+                ssize_t initialLength = msg->baseLength - msgOffset;
+                if (initialLength > 0) {
+                    if (initialLength > msg->messageLength) {
+                        initialLength = msg->messageLength;
+                    }
+                    grpc_slice_buffer_add(&messageData, msg->getSlice(msgOffset,
+                            initialLength));
+                    msgOffset += initialLength;
+                } else {
+                    initialLength = 0;
+                }
+
+                // Add a slice for any message data in the tail.
+                if (initialLength < msg->messageLength) {
+                    grpc_slice_buffer_add(&messageData, msg->getSlice(msgOffset,
+                        msg->messageLength - initialLength));
+                }
+                msg->messageLength = 0;
+            }
+            
+            if (msg->hdr.flags & msg->hdr.messageComplete) {
+                messageStream->reset(new grpc_core::SliceBufferByteStream(
+                        &messageData, 0));
+                grpc_slice_buffer_destroy(&messageData);
+                grpc_slice_buffer_init(&messageData);
+
+                grpc_closure *c = messageClosure;
+                messageClosure = nullptr;
+                grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_NONE);
+            }
+        } else if ((msg->messageLength > 0)
+                || (msg->hdr.flags & msg->hdr.messageComplete)) {
+            // Can't do anything until we're given a closure for transferring
+            // message data.
+            break;
+        }
+
+        // Transfer trailing metadata, if possible.
+        if (trailMdClosure) {
+            if (msg->hdr.flags & msg->hdr.trailMdPresent) {
+                msg->deserializeMetadata(sizeof(msg->hdr) + msg->initMdLength,
+                        msg->trailMdLength, trailMd, arena);
+                gpr_log(GPR_INFO, "Accepted %u bytes of trailing metadata",
+                        msg->trailMdLength);
+                logMetadata(trailMd, "incoming trailing metadata");
+                grpc_closure *c = trailMdClosure;
+                trailMdClosure = nullptr;
+                msg->hdr.flags &= ~msg->hdr.trailMdPresent;
+                grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_NONE);
+            }
+        } else if (msg->hdr.flags & msg->hdr.trailMdPresent) {
+            // Can't do anything until we get a closure to accept
+            // trailing metadata.
+            break;
+        }
+        incoming.erase(incoming.begin());
     }
-    if (trailMdClosure) {
-        Wire::deserializeMetadata(src, trailMdLength, trailMd, arena);
-        grpc_closure *c = trailMdClosure;
-        trailMdClosure = nullptr;
-        grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_NONE);
+}
+
+/**
+ * Take ownership of an incoming message and ensure that (eventually)
+ * all of the information in it is passed to gRPC.
+ * \param msg
+ *      An incoming message previously returned by readIncoming. This method
+ *      takes ownership of the message (we may need to save part or all
+ *      of it for a while before the info can be passed to gRPC). If
+ *      msg doesn't contain the entire message, this module will eventually
+ *      read the remainder.
+ */
+void HomaStream::handleIncoming(HomaIncoming::UniquePtr msg)
+{
+    if (incoming.empty()) {
+        incoming.push_back(std::move(msg));
+    } else {
+        for (size_t i = incoming.size(); i > 0; i--) {
+            if (incoming[i-1]->sequence < msg->sequence) {
+                incoming.emplace(incoming.begin()+i, std::move(msg));
+                goto messageInserted;
+            }
+        }
+        incoming.emplace(incoming.begin(), std::move(msg));
     }
-    src += trailMdLength;
+messageInserted:
+    transferData();
 }

@@ -12,17 +12,6 @@ typedef int16_t be16;
 typedef int32_t be32;
 typedef int64_t be64;
 
-// Valid flag bits for Wire::Header::flags:
-
-// 1 means that, as of this Homa RPC, all initial metadata has been sent.
-#define WIRE_INIT_MD_COMPLETE   1
-
-// 1 means that, as of this Homa RPC, the entire message has been sent.
-#define WIRE_MESSAGE_COMPLETE   2
-
-// 1 means that, as of this Homa RPC, all trailing metadata has been sent.
-#define WIRE_TRAIL_MD_COMPLETE  4
-
 /**
  * This class defines the on-the-wire format of messages used to implement
  * gRPC over Homa, and also provides methods for serializing and
@@ -56,8 +45,21 @@ public:
         // the trailing metadata.
         be32 messageBytes;
         
-        // ORed combination of one or more of the flag bits defined above.
+        // ORed combination of one or more flag bits defined below.
         uint8_t flags;
+        
+        // Flag bit indicating that this message contains all available
+        // initial metadata (possibly none).
+        static const int initMdPresent = 1;
+        
+        // Flag bit indicating that, as of this Homa RPC, all message
+        // data has been sent. If the message data is too long to fit
+        // in a single message, only the last message has this bit set.
+        static const int messageComplete = 2;
+        
+        // Flag bit indicating that this message contains all available
+        // trailing metadata (possibly none).
+        static const int trailMdPresent = 4;
         
         Header(int streamId, int sequence)
             : streamId(htonl(streamId))
@@ -109,16 +111,10 @@ public:
     // elements; element i contains a hidden value (same as i) that identifies
     // the location of its metadata value in grpc_metadata_batch_callouts.
     static grpc_core::StaticSliceRefcount *calloutRefs[GRPC_BATCH_CALLOUTS_COUNT];
-    
-    static void       deserializeMetadata(uint8_t *src, size_t length,
-                            grpc_metadata_batch* batch,
-                            grpc_core::Arena* arena);
+
     static void       dumpMetadata(uint8_t *buffer, size_t length);
-    static size_t     fillMessage(grpc_transport_stream_op_batch* op,
-                            Message *msg);
     static void       init();
-    static size_t     serializeMetadata(grpc_metadata_batch* batch,
-                            uint8_t *dest);
+    static size_t     metadataLength(grpc_metadata_batch* batch);
 };
 
 #endif // WIRE_H

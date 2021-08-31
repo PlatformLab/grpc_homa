@@ -7,6 +7,7 @@
 
 #include "src/core/lib/transport/transport_impl.h"
 
+#include "homa_incoming.h"
 #include "stream_id.h"
 #include "wire.h"
 
@@ -19,6 +20,7 @@
  */
 class HomaStream {
 public:
+
     // Must be held whenever accessing info in this structure.
     grpc_core::Mutex mutex;
     
@@ -64,10 +66,19 @@ public:
     size_t xmitSize;
     
     // Sequence number to use for the next outgoing message.
-    int nextSequence;
+    int nextXmitSequence;
     
-    // Holds an incoming request or response for this RPC, if any.
-    std::unique_ptr<Wire::Message> incoming;
+    // Incoming Homa messages that have not been fully processed.
+    // Entries are sorted in increasing order of sequence number.
+    std::vector<HomaIncoming::UniquePtr> incoming;
+    
+    // All incoming Homa messages with sequence numbers less than this one
+    // have already been processed.
+    int nextIncomingSequence;
+    
+    // Accumulates slices of incoming message data (potentially from
+    // multiple Homa messages) until they can be passed to gRPC.
+    grpc_slice_buffer messageData;
 
     // Information saved from "receive" stream ops, so that we can
     // fill in message data/metadata and invoke callbacks.
@@ -85,13 +96,14 @@ public:
             grpc_stream_refcount* refcount, grpc_core::Arena* arena);
 
     virtual ~HomaStream();
-    void appendMessage(grpc_transport_stream_op_batch* op);
-    void flush();
-    void newXmit();
-    void saveCallbacks(grpc_transport_stream_op_batch* op);
-    void serializeMetadata(grpc_metadata_batch* batch);
-    void transferDataIn(Wire::Message* msg);
-    void xmit(grpc_transport_stream_op_batch* op);
+    void    appendMessage(grpc_transport_stream_op_batch* op);
+    void    flush();
+    void    handleIncoming(HomaIncoming::UniquePtr msg);
+    void    newXmit();
+    void    saveCallbacks(grpc_transport_stream_op_batch* op);
+    void    serializeMetadata(grpc_metadata_batch* batch);
+    void    transferData();
+    void    xmit(grpc_transport_stream_op_batch* op);
 };
 
 #endif // HOMA_STREAM_H
