@@ -61,6 +61,16 @@ public:
         // trailing metadata (possibly none).
         static const int trailMdPresent = 4;
         
+        Header(int streamId, int sequence, int initMdBytes, int trailMdBytes,
+                int messageBytes)
+            : streamId(htonl(streamId))
+            , sequenceNum(htonl(sequence))
+            , initMdBytes(htonl(initMdBytes))
+            , trailMdBytes(htonl(trailMdBytes))
+            , messageBytes(htonl(messageBytes))
+            , flags(0)
+        { }
+        
         Header(int streamId, int sequence)
             : streamId(htonl(streamId))
             , sequenceNum(htonl(sequence))
@@ -114,7 +124,6 @@ public:
 
     static void       dumpMetadata(uint8_t *buffer, size_t length);
     static void       init();
-    static size_t     metadataLength(grpc_metadata_batch* batch);
 };
 
 #endif // WIRE_H

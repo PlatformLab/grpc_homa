@@ -59,21 +59,3 @@ void Wire::dumpMetadata(uint8_t *buffer, size_t length)
         src += keyLength + valueLength;
     }
 }
-
-/**
- * Return the number of bytes required to serialize a batch of metadata
- * into a Homa message.
- * \param batch
- *      Metadata of interest.
- */
-size_t Wire::metadataLength(grpc_metadata_batch* batch)
-{
-    size_t length = 0;
-    for (grpc_linked_mdelem* md = batch->list.head; md != nullptr;
-            md = md->next) {
-        uint32_t keyLength = GRPC_SLICE_LENGTH(GRPC_MDKEY(md->md));
-        uint32_t valueLength = GRPC_SLICE_LENGTH(GRPC_MDVALUE(md->md));
-        length += keyLength + valueLength + sizeof(Mdata);
-    }
-    return length;
-}

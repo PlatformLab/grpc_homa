@@ -104,6 +104,8 @@ public:
     void    serializeMetadata(grpc_metadata_batch* batch);
     void    transferData();
     void    xmit(grpc_transport_stream_op_batch* op);
+    
+    static size_t metadataLength(grpc_metadata_batch* batch);
 };
 
 #endif // HOMA_STREAM_H

@@ -27,9 +27,14 @@ public:
     typedef std::unique_ptr<HomaIncoming, UnrefIncoming> UniquePtr;
     
     explicit   HomaIncoming();
+               ~HomaIncoming();
+    size_t     addMetadata(size_t offset, size_t staticLength, ...);
+    void       copyOut(void *dst, size_t offset, size_t length);
     void       deserializeMetadata(size_t offset, size_t length,
                     grpc_metadata_batch* batch, grpc_core::Arena* arena);
     grpc_slice getSlice(size_t offset, size_t length);
+    grpc_slice getStaticSlice(size_t offset, size_t length,
+                    grpc_core::Arena *arena);
     
     static UniquePtr read(int fd, int flags);
     
@@ -66,8 +71,7 @@ public:
         uint8_t *p = reinterpret_cast<uint8_t *>(buffer);
         size_t baseBytes = baseLength - offset;
         memcpy(p, base() + offset, baseBytes);
-        memcpy(p + baseBytes, tail.data() + baseBytes,
-                sizeof(T) - baseBytes);
+        memcpy(p + baseBytes, tail.data(), sizeof(T) - baseBytes);
         return buffer;
     }
 
@@ -113,14 +117,21 @@ public:
     // Bytes of trailing metadata in the message (extracted from hdr).
     uint32_t trailMdLength;
 
+    // The first part of the message is stored in these two instance variables.
+    Wire::Header hdr;
+    uint8_t initialPayload[10000 - sizeof(hdr)];
+
     // If the entire message doesn't fit in hdr and initialPayload, the
     // remainder will be read here.
     std::vector<uint8_t> tail;
-
-    // The first part of the message is stored in these two
-    // instance variables.
-    Wire::Header hdr;
-    uint8_t initialPayload[10000 - sizeof(hdr)];
+    
+    // If non-null, the target is incremented when this object is destroyed.
+    int *destroyCounter;
+    
+    // If the value for a metadata item is longer than this, it will be
+    // stored as a refcounted pointer into the message, rather than a
+    // static slice. This is a variable so it can be modified for testing.
+    size_t maxStaticMdLength;
 
     static void destroyer(void* arg);
 

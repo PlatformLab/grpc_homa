@@ -137,6 +137,24 @@ void HomaStream::saveCallbacks(grpc_transport_stream_op_batch* op)
 }
 
 /**
+ * Return the number of bytes required to serialize a batch of metadata
+ * into a Homa message.
+ * \param batch
+ *      Metadata of interest.
+ */
+size_t HomaStream::metadataLength(grpc_metadata_batch* batch)
+{
+    size_t length = 0;
+    for (grpc_linked_mdelem* md = batch->list.head; md != nullptr;
+            md = md->next) {
+        uint32_t keyLength = GRPC_SLICE_LENGTH(GRPC_MDKEY(md->md));
+        uint32_t valueLength = GRPC_SLICE_LENGTH(GRPC_MDVALUE(md->md));
+        length += keyLength + valueLength + sizeof(Wire::Mdata);
+    }
+    return length;
+}
+
+/**
  * Serialize a batch of metadata and append it to the output message
  * currently being formed.
  * \param batch
@@ -274,7 +292,7 @@ void HomaStream::xmit(grpc_transport_stream_op_batch* op)
     
     size_t trailMdLength = 0;
     if (op->send_trailing_metadata) {
-        trailMdLength = Wire::metadataLength(
+        trailMdLength = metadataLength(
                 op->payload->send_trailing_metadata.send_trailing_metadata);
     }
     if (trailMdLength > (HOMA_MAX_MESSAGE_LENGTH - sizeof(xmitMsg.hdr))) {

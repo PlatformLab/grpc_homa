@@ -1,11 +1,9 @@
+#include <cstdarg>
 #include <memory>
 
 #include "homa.h"
 #include "homa_incoming.h"
 
-/**
- * Constructor for Incoming.
- */
 HomaIncoming::HomaIncoming()
     : refs()
     , sliceRefs(grpc_slice_refcount::Type::REGULAR, &refs,
@@ -18,10 +16,19 @@ HomaIncoming::HomaIncoming()
     , initMdLength()
     , messageLength()
     , trailMdLength()
-    , tail()
     , hdr()
     , initialPayload()
+    , tail()
+    , destroyCounter(nullptr)
+    , maxStaticMdLength(200)
 {
+}
+
+HomaIncoming::~HomaIncoming()
+{
+    if (destroyCounter) {
+        (*destroyCounter)++;
+    }
 }
 
 /**
@@ -49,11 +56,23 @@ HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags)
 {
     UniquePtr msg(new HomaIncoming);
     msg->streamId.addrSize = sizeof(streamId.addr);
-    msg->baseLength = homa_recv(fd, &msg->hdr,
+    ssize_t result = homa_recv(fd, &msg->hdr,
             sizeof(msg->hdr) + sizeof(msg->initialPayload),
             flags | HOMA_RECV_PARTIAL, msg->streamId.sockaddr(),
             &msg->streamId.addrSize, &msg->homaId, &msg->length);
-    
+    if (result < 0) {
+        if (errno != EAGAIN) {
+            gpr_log(GPR_ERROR, "Error in homa_recv: %s", strerror(errno));
+        }
+        return nullptr;
+    }
+    msg->baseLength = result;
+    if (msg->baseLength < sizeof(msg->hdr)) {
+        gpr_log(GPR_ERROR, "Homa message contained only %lu bytes "
+                "(need %lu bytes for header)",
+                msg->baseLength, sizeof(msg->hdr));
+        return nullptr;
+    }
     msg->streamId.id = ntohl(msg->hdr.streamId);
     msg->sequence = ntohl(msg->hdr.sequenceNum);
     msg->initMdLength = htonl(msg->hdr.initMdBytes);
@@ -61,17 +80,7 @@ HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags)
     msg->trailMdLength = htonl(msg->hdr.trailMdBytes);
     uint32_t expected = sizeof(msg->hdr) + msg->initMdLength
             + msg->messageLength + msg->trailMdLength;
-    if (msg->baseLength < 0) {
-        if (errno != EAGAIN) {
-            gpr_log(GPR_ERROR, "Error in homa_recv for id %lu: %s",
-                    msg->homaId, strerror(errno));
-        }
-        return nullptr;
-    } else if (msg->baseLength < static_cast<int>(sizeof(msg->hdr))) {
-        gpr_log(GPR_ERROR, "Homa message contained only %lu bytes "
-                "(need %lu bytes for header)", msg->baseLength, sizeof(msg->hdr));
-        return nullptr;
-    } else if (msg->length != expected) {
+    if (msg->length != expected) {
         gpr_log(GPR_ERROR, "Bad message length %lu (expected %u)",
                 msg->length, expected);
         return nullptr;
@@ -88,9 +97,9 @@ HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags)
             return nullptr;
         }
         if ((msg->baseLength + tail_length) != msg->length) {
-            gpr_log(GPR_ERROR, "Tail of Homa message too short: expected "
-                    "%lu bytes, got %lu bytes", msg->length - msg->baseLength,
-                    tail_length);
+            gpr_log(GPR_ERROR, "Tail of Homa message has wrong length: "
+                    "expected %lu bytes, got %lu bytes",
+                    msg->length - msg->baseLength,  tail_length);
             return nullptr;
         }
     }
@@ -103,12 +112,84 @@ HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags)
 }
 
 /**
+ * Copy a range of bytes from an incoming message to a contiguous
+ * external block.
+ * \param dst
+ *      Where to copy the data.
+ * \param offset
+ *      Offset within the message of the first byte of data to copy.
+ * \param length
+ *      Number of bytes to copy.
+ */
+void HomaIncoming::copyOut(void *dst, size_t offset, size_t length)
+{
+    size_t chunk2Length = length;
+    size_t offset2;
+    uint8_t *dst2 = static_cast<uint8_t *>(dst);
+    if (baseLength > offset) {
+        size_t chunk1Length = baseLength - offset;
+        if (chunk1Length > length) {
+            chunk1Length = length;
+        }
+        memcpy(dst, base() + offset, chunk1Length);
+        dst2 += chunk1Length;
+        chunk2Length -= chunk1Length;
+        offset2 = 0;
+    } else {
+        offset2 = offset - baseLength;
+    }
+    
+    if (chunk2Length > 0) {
+        memcpy(dst2, tail.data() + offset2, chunk2Length);
+    }
+}
+
+/**
  * Extract part a message as a gRPC slice.
  * \param offset
  *      Offset within the message of the first byte of the slice.
  * \param length
  *      Length of the slice (caller must ensure that offset and length
  *      are within the range of the message).
+ * \param arena
+ *      Used to allocate storage for data that can't be stored internally
+ *      in the slice.
+ * \return
+ *      A slice containing the desired data, which uses memory that need
+ *      not be freed explicitly (data will either be internal to the slice
+ *      or in an arena).
+ */
+grpc_slice HomaIncoming::getStaticSlice(size_t offset, size_t length,
+        grpc_core::Arena *arena)
+{
+    grpc_slice slice;
+    
+    if (length < sizeof(slice.data.inlined.bytes)) {
+        slice.refcount = nullptr;
+        slice.data.inlined.length = length;
+        copyOut(GRPC_SLICE_START_PTR(slice), offset, length);
+        return slice;
+    }
+    
+    slice.refcount = &grpc_core::kNoopRefcount;
+    slice.data.refcounted.length = length;
+    slice.data.refcounted.bytes =
+            static_cast<uint8_t*>(arena->Alloc(length));
+    copyOut(slice.data.refcounted.bytes, offset, length);
+    return slice;
+}
+
+/**
+ * Extract part a message as a gRPC slice.
+ * \param offset
+ *      Offset within the message of the first byte of the slice.
+ * \param length
+ *      Length of the slice (caller must ensure that offset and length
+ *      are within the range of the message).
+ * \result
+ *      A slice containing the desired data. The slice is managed (e.g.
+ *      it has a non-null reference count that must be used to eventually
+ *      release the slice's data).
  */
 grpc_slice HomaIncoming::getSlice(size_t offset, size_t length)
 {
@@ -138,8 +219,8 @@ grpc_slice HomaIncoming::getSlice(size_t offset, size_t length)
 
     slice = grpc_slice_malloc(length);
     size_t baseBytes = baseLength - offset;
-    memcpy(slice.data.inlined.bytes, base() + offset, baseBytes);
-    memcpy(slice.data.inlined.bytes + baseBytes, tail.data() + baseBytes,
+    memcpy(slice.data.refcounted.bytes, base() + offset, baseBytes);
+    memcpy(slice.data.refcounted.bytes + baseBytes, tail.data(),
             length - baseBytes);
     return slice;
 }
@@ -178,25 +259,36 @@ void HomaIncoming::deserializeMetadata(size_t offset, size_t length,
                     keyLength, valueLength, remaining);
             return;
         }
-        gpr_log(GPR_INFO, "Incoming metadata: index %d, key %.*s, value %.*s",
-                msgMd->index, keyLength, msgMd->data, valueLength,
-                msgMd->data+keyLength);
         
-        grpc_slice keySlice;
-        if (index < GRPC_BATCH_CALLOUTS_COUNT) {
-            keySlice = grpc_static_slice_table()[index];
-        } else {
-            keySlice = getSlice(offset, keyLength);
-        }
+        // This must be byte-compatible with grpc_mdelem_data. Need this
+        // hack in order to avoid high overheads (e.g. extra memory allocation)
+        // of the builtin mechanisms for creating metadata.
+        struct ElemData {
+            grpc_slice key;
+            grpc_slice value;
+            ElemData() : key(), value() {}
+        };
+        
+        ElemData *elemData = arena->New<ElemData>();
         grpc_linked_mdelem* lm = arena->New<grpc_linked_mdelem>();
-        lm->md = grpc_mdelem_from_slices(keySlice,
-                getSlice(offset + keyLength, valueLength));
-        lm->md = GRPC_MAKE_MDELEM(GRPC_MDELEM_DATA(lm->md),
-                GRPC_MDELEM_STORAGE_EXTERNAL);
+        if (index < GRPC_BATCH_CALLOUTS_COUNT) {
+            elemData->key = grpc_static_slice_table()[index];
+        } else {
+            elemData->key = getStaticSlice(offset, keyLength, arena);
+        }
+        if (valueLength <= maxStaticMdLength) {
+            elemData->value = getStaticSlice(offset+keyLength, valueLength,
+                    arena);
+            lm->md = GRPC_MAKE_MDELEM(elemData, GRPC_MDELEM_STORAGE_EXTERNAL);
+        } else {
+            lm->md = grpc_mdelem_from_slices(elemData->key,
+                    getSlice(offset + keyLength, valueLength));
+        }
         grpc_error_handle error = grpc_metadata_batch_link_tail(batch, lm);
         if (error != GRPC_ERROR_NONE) {
-            gpr_log(GPR_INFO, "Error creating metadata for %.*s: %s",
-                    keyLength, keySlice.data.inlined.bytes,
+            gpr_log(GPR_ERROR, "Error creating metadata for %.*s: %s",
+                    static_cast<int>(GRPC_SLICE_LENGTH(elemData->key)),
+                    GRPC_SLICE_START_PTR(elemData->key),
                     grpc_error_string(error));
             GPR_ASSERT(error == GRPC_ERROR_NONE);
         }
@@ -208,4 +300,71 @@ void HomaIncoming::deserializeMetadata(size_t offset, size_t length,
                 "metadata descriptor, but only %lu bytes available",
                 sizeof(Wire::Mdata), remaining);
     }
+}
+
+/**
+ * Add metadata information to the message; this method is intended
+ * primarily for unit testing.
+ * \param offset
+ *      Offset within the message at which to start writing metadata.
+ * \param staticLength
+ *      How many bytes of metadata to store in @payload; the remainder
+ *      will go in the tail (an entry may be split across the boundary).
+ * \param ...
+ *      The remaining arguments come in groups of three, consisting of a
+ *      char* key, a char* value, and an int callout index. The list is
+ *      terminated by a nullptr key value.
+ * \return
+ *      The total number of bytes of new metadata added.
+ */
+size_t HomaIncoming::addMetadata(size_t offset, size_t staticLength, ...)
+{
+    va_list ap;
+    va_start(ap, staticLength);
+    std::vector<uint8_t> buffer;
+    size_t newData = 0;
+    baseLength = staticLength;
+    while (true) {
+        // First, create a metadata element in contiguous memory.
+        char *key = va_arg(ap, char*);
+        if (key == nullptr) {
+            break;
+        }
+        char *value = va_arg(ap, char*);
+        int index = va_arg(ap, int);
+        size_t keyLength = strlen(key);
+        size_t valueLength = strlen(value);
+        size_t length = keyLength + valueLength + sizeof(Wire::Mdata);
+        buffer.resize(length);
+        Wire::Mdata *md = reinterpret_cast<Wire::Mdata*>(buffer.data());
+        md->index = index;
+        md->keyLength = htonl(keyLength);
+        md->valueLength = htonl(valueLength);
+        memcpy(md->data, key, keyLength);
+        memcpy(md->data+keyLength, value, valueLength);
+        newData += length;
+        
+        // Now copy the element into the message (possibly in 2 chunks).
+        uint8_t *src = buffer.data();
+        size_t tailOffset = 0;
+        size_t tailLength = length;
+        if (offset < staticLength) {
+            size_t chunkSize = staticLength - offset;
+            if (chunkSize > length) {
+                chunkSize = length;
+            }
+            memcpy(base() + offset, src, chunkSize);
+            tailLength -= chunkSize;
+            src += chunkSize;
+        } else {
+            tailOffset = offset - staticLength;
+        }
+        if (tailLength > 0) {
+            tail.resize(tailOffset + tailLength);
+            memcpy(tail.data() + tailOffset, src, tailLength);
+        }
+        offset += length;
+    }
+	va_end(ap);
+    return newData;
 }
