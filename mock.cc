@@ -4,6 +4,7 @@
 
 #include "homa.h"
 #include "mock.h"
+#include "util.h"
 
 /* This file provides simplified substitutes for various features, in
  * order to enable better unit testing.
@@ -13,10 +14,11 @@ int Mock::homaRecvErrors = 0;
 int Mock::homaReplyvErrors = 0;
 int Mock::homaSendvErrors = 0;
 
-std::deque<Wire::Header>    Mock::homaRecvHeaders;
-std::deque<ssize_t>         Mock::homaRecvMsgLengths;
-std::deque<ssize_t>         Mock::homaRecvReturns;
-std::string                 Mock::log;
+std::deque<std::vector<uint8_t>> Mock::homaMessages;
+std::deque<Wire::Header>         Mock::homaRecvHeaders;
+std::deque<ssize_t>              Mock::homaRecvMsgLengths;
+std::deque<ssize_t>              Mock::homaRecvReturns;
+std::string                      Mock::log;
 
 /**
  * Determines whether a method should simulate an error return.
@@ -36,28 +38,19 @@ int Mock::checkError(int *errorMask)
 }
 
 /**
- * Fill in a block of memory with predictable values that can be checked
- * later by unit_log_data.
- * \param data
- *      Address of first byte of data.
+ * Returns a slice containing well-known data.
  * \param length
- *      Total amount of data, in bytes.
+ *      Total number of bytes of data in the new slice
  * \param firstValue
- *      Value to store in first 4 bytes of data. Each successive 4 bytes
- *      of data will have a value 4 greater than the previous.
+ *      Used as a parameter to fillData to determine the contents of the slice.
+ * \return
+ *      The new slice (now owned by caller).
  */
-void Mock::fillData(void *data, int length, int firstValue)
-{ 
-	int i;
-    uint8_t *p = static_cast<uint8_t *>(data);
-	for (i = 0; i <= length-4; i += 4) {
-		*reinterpret_cast<int32_t *>(p + i) = firstValue + i;
-	}
-	
-	/* Fill in extra bytes with a special value. */
-	for ( ; i < length; i += 1) {
-		p[i] = 0xaa;
-	}
+grpc_slice Mock::dataSlice(size_t length, int firstValue)
+{
+    grpc_slice slice = grpc_slice_malloc(length);
+    fillData(GRPC_SLICE_START_PTR(slice), length, firstValue);
+    return slice;
 }
 
 /**
@@ -69,6 +62,35 @@ void Mock::fillData(void *data, int length, int firstValue)
 void Mock::gprLog(gpr_log_func_args* args)
 {
     logPrintf("; ", "gpr_log: %s", args->message);
+}
+
+/**
+ * Log information about the data in a byte stream.
+ * \param separator
+ *      Initial separator in the log.
+ * \param stream
+ *      Stream containing the data to log.
+ */
+void Mock::logByteStream(const char *separator,
+        grpc_core::ByteStream *byteStream)
+{
+    size_t dataLeft = byteStream->length();
+    grpc_slice slice;
+    
+    while (dataLeft > 0) {
+        if (!byteStream->Next(dataLeft, nullptr)) {
+            logPrintf(";", "byteStream->Next failed");
+            return;
+        }
+        if (byteStream->Pull(&slice) != GRPC_ERROR_NONE) {
+            logPrintf(";", "byteStream->Pull failed");
+            return;
+        }
+        logData(separator, GRPC_SLICE_START_PTR(slice),
+                GRPC_SLICE_LENGTH(slice));
+        dataLeft -= GRPC_SLICE_LENGTH(slice);
+        grpc_slice_unref(slice);
+    }
 }
 
 /**
@@ -168,6 +190,41 @@ void Mock::logPrintf(const char *separator, const char* format, ...)
 }
 
 /**
+ * Add a new element to an existing batch of metadata.
+ * \param batch
+ *      The new element will be added to this batch.
+ * \param key
+ *       Key for the new element
+ * \param value
+ *       Value for the new element
+ * \param arena
+ *       Storage for the new element is allocated from here.
+ */
+void Mock::metadataBatchAppend(grpc_metadata_batch* batch, const char *key,
+        const char *value, grpc_core::Arena *arena)
+{
+    // This must be byte-compatible with grpc_mdelem_data. Need this
+    // hack in order to avoid high overheads (e.g. extra memory allocation)
+    // of the builtin mechanisms for creating metadata.
+    struct ElemData {
+        grpc_slice key;
+        grpc_slice value;
+        ElemData() : key(), value() {}
+    };
+
+    ElemData *elemData = arena->New<ElemData>();
+    grpc_linked_mdelem* lm = arena->New<grpc_linked_mdelem>();
+    elemData->key = grpc_slice_from_static_string(key);
+    elemData->value = grpc_slice_from_static_string(value);
+    lm->md = GRPC_MAKE_MDELEM(elemData, GRPC_MDELEM_STORAGE_EXTERNAL);
+    grpc_error_handle error = grpc_metadata_batch_link_tail(batch, lm);
+    if (error != GRPC_ERROR_NONE) {
+        logPrintf("; ", "grpc_metadata_batch_link_tail returned error: %s",
+                grpc_error_string(error));
+    }
+}
+
+/**
  * Invoked at the start of each unit test to reset all mocking information.
  */
 void Mock::setUp(void)
@@ -179,6 +236,8 @@ void Mock::setUp(void)
     homaRecvErrors = 0;
     homaReplyvErrors = 0;
     homaSendvErrors = 0;
+    
+    homaMessages.clear();
     
     homaRecvHeaders.clear();
     homaRecvMsgLengths.clear();
@@ -253,6 +312,15 @@ ssize_t homa_replyv(int sockfd, const struct iovec *iov, int iovcnt,
     }
     Mock::logPrintf("; ", "homa_replyv: %d iovecs, %lu bytes", iovcnt,
             totalLength);
+    
+    Mock::homaMessages.emplace_back();
+    Mock::homaMessages.back().resize(totalLength);
+    uint8_t *dst = Mock::homaMessages.back().data();
+    for (int i = 0; i < iovcnt; i++) {
+        memcpy(dst, iov[i].iov_base, iov[i].iov_len);
+        dst += iov[i].iov_len;
+    }
+    
     if (Mock::checkError(&Mock::homaReplyvErrors)) {
         errno = EIO;
         return -1;
@@ -269,6 +337,15 @@ int homa_sendv(int sockfd, const struct iovec *iov, int iovcnt,
     }
     Mock::logPrintf("; ", "homa_sendv: %d iovecs, %lu bytes", iovcnt,
             totalLength);
+    
+    Mock::homaMessages.emplace_back();
+    Mock::homaMessages.back().resize(totalLength);
+    uint8_t *dst = Mock::homaMessages.back().data();
+    for (int i = 0; i < iovcnt; i++) {
+        memcpy(dst, iov[i].iov_base, iov[i].iov_len);
+        dst += iov[i].iov_len;
+    }
+    
     if (Mock::checkError(&Mock::homaSendvErrors)) {
         errno = EIO;
         return -1;

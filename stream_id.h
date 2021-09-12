@@ -22,6 +22,7 @@ struct StreamId {
     uint32_t id;
 
     StreamId() {}
+    StreamId(uint32_t id);
     StreamId(grpc_resolved_address *gaddr, uint32_t id);
     bool operator==(const StreamId& other) const;
     

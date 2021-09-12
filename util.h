@@ -19,6 +19,8 @@ P* containerOf(M* ptr, const M P::*member)
             - offsetOf(member));
 }
 
-extern void logMetadata(const grpc_metadata_batch* mdBatch, const char *info);
+extern void     fillData(void *data, int length, int firstValue);
+extern void     logMetadata(const grpc_metadata_batch* mdBatch,
+                    const char *info);
 
 #endif // UTIL_H

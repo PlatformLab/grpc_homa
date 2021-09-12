@@ -3,6 +3,7 @@
 
 #include "homa.h"
 #include "homa_incoming.h"
+#include "util.h"
 
 HomaIncoming::HomaIncoming()
     : refs()
@@ -16,12 +17,92 @@ HomaIncoming::HomaIncoming()
     , initMdLength()
     , messageLength()
     , trailMdLength()
-    , hdr()
     , initialPayload()
     , tail()
     , destroyCounter(nullptr)
     , maxStaticMdLength(200)
 {
+}
+
+/**
+ * This constructor is intended primarily for testing. It generates a
+ * message that includes dummy metadata and message data as specified
+ * by the arguments. This constructor assumes that the message fits
+ * entirely within initialPayload.
+ * \param sequence
+ *      Sequence number for the message.
+ * \param initMd
+ *      If true, some initial metadata will be present in the message.
+ * \param messageLength
+ *      Indicates how much dummy message data to include in the @initialPayload
+ *      part of the message.
+ * \param tailLength
+ *      How much dummy data to store in the message tail.
+ * \param firstValue
+ *      Passed to Mock:fillData to determine the contents of message data.
+ * \param messageComplete
+ *      Value for the messageComplete flag in the message header.
+ * \param trailMd
+ *      If true, some trailing metadata will be present in the message.
+ */
+HomaIncoming::HomaIncoming(int sequence, bool initMd, size_t messageLength,
+        size_t tailLength, int firstValue, bool messageComplete,
+        bool trailMd)
+    : refs()
+    , sliceRefs(grpc_slice_refcount::Type::REGULAR, &refs,
+            HomaIncoming::destroyer, this, nullptr)
+    , homaId(123)
+    , streamId(999)
+    , length()
+    , baseLength(sizeof(Wire::Header))
+    , sequence(sequence)
+    , initMdLength(0)
+    , messageLength(messageLength)
+    , trailMdLength(0)
+    , initialPayload()
+    , tail()
+    , destroyCounter(nullptr)
+    , maxStaticMdLength(200)
+{
+    size_t offset = sizeof(Wire::Header);
+    size_t length;
+    
+    if (initMd) {
+        length = addMetadata(offset, sizeof(initialPayload),
+                "initMd1", "value1", 100, ":path", "/x/y", GRPC_BATCH_PATH,
+                nullptr);
+        initMdLength = length;
+        hdr()->initMdBytes = htonl(length);
+        hdr()->flags |= Wire::Header::initMdPresent;
+        offset += length;
+        baseLength += length;
+    }
+    
+    if (trailMd) {
+        length = addMetadata(offset, sizeof(initialPayload),
+                "k2", "0123456789", 100, nullptr);
+        trailMdLength = length;
+        hdr()->trailMdBytes = htonl(length);
+        hdr()->flags |= Wire::Header::trailMdPresent;
+        offset += length;
+        baseLength += length;
+    }
+    
+    if (messageLength > 0) {
+        fillData(initialPayload + offset, messageLength, firstValue);
+        hdr()->messageBytes = htonl(messageLength);
+        baseLength += messageLength;
+    }
+    if (tailLength > 0) {
+        tail.resize(tailLength);
+        fillData(tail.data(), tailLength, firstValue + messageLength);
+    }
+    hdr()->sequenceNum = htonl(sequence);
+    hdr()->messageBytes = htonl(messageLength + tailLength);
+    this->messageLength = messageLength + tailLength;
+    if (messageComplete) {
+        hdr()->flags |= Wire::Header::messageComplete;
+    }
 }
 
 HomaIncoming::~HomaIncoming()
@@ -56,8 +137,8 @@ HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags)
 {
     UniquePtr msg(new HomaIncoming);
     msg->streamId.addrSize = sizeof(streamId.addr);
-    ssize_t result = homa_recv(fd, &msg->hdr,
-            sizeof(msg->hdr) + sizeof(msg->initialPayload),
+    ssize_t result = homa_recv(fd, &msg->initialPayload,
+            sizeof(msg->initialPayload),
             flags | HOMA_RECV_PARTIAL, msg->streamId.sockaddr(),
             &msg->streamId.addrSize, &msg->homaId, &msg->length);
     if (result < 0) {
@@ -67,18 +148,18 @@ HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags)
         return nullptr;
     }
     msg->baseLength = result;
-    if (msg->baseLength < sizeof(msg->hdr)) {
+    if (msg->baseLength < sizeof(Wire::Header)) {
         gpr_log(GPR_ERROR, "Homa message contained only %lu bytes "
                 "(need %lu bytes for header)",
-                msg->baseLength, sizeof(msg->hdr));
+                msg->baseLength, sizeof(Wire::Header));
         return nullptr;
     }
-    msg->streamId.id = ntohl(msg->hdr.streamId);
-    msg->sequence = ntohl(msg->hdr.sequenceNum);
-    msg->initMdLength = htonl(msg->hdr.initMdBytes);
-    msg->messageLength = htonl(msg->hdr.messageBytes);
-    msg->trailMdLength = htonl(msg->hdr.trailMdBytes);
-    uint32_t expected = sizeof(msg->hdr) + msg->initMdLength
+    msg->streamId.id = ntohl(msg->hdr()->streamId);
+    msg->sequence = ntohl(msg->hdr()->sequenceNum);
+    msg->initMdLength = htonl(msg->hdr()->initMdBytes);
+    msg->messageLength = htonl(msg->hdr()->messageBytes);
+    msg->trailMdLength = htonl(msg->hdr()->trailMdBytes);
+    uint32_t expected = sizeof(Wire::Header) + msg->initMdLength
             + msg->messageLength + msg->trailMdLength;
     if (msg->length != expected) {
         gpr_log(GPR_ERROR, "Bad message length %lu (expected %u)",
@@ -106,7 +187,7 @@ HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags)
     gpr_log(GPR_INFO, "Received Homa message from host 0x%x, port %d with "
             "id %d, sequence %d, Homa id %lu, length %lu, addr_size %lu",
             msg->streamId.ipv4Addr(), msg->streamId.port(), msg->streamId.id,
-            htonl(msg->hdr.sequenceNum), msg->homaId, msg->length,
+            htonl(msg->hdr()->sequenceNum), msg->homaId, msg->length,
             msg->streamId.addrSize);
     return msg;
 }
@@ -131,7 +212,7 @@ void HomaIncoming::copyOut(void *dst, size_t offset, size_t length)
         if (chunk1Length > length) {
             chunk1Length = length;
         }
-        memcpy(dst, base() + offset, chunk1Length);
+        memcpy(dst, initialPayload + offset, chunk1Length);
         dst2 += chunk1Length;
         chunk2Length -= chunk1Length;
         offset2 = 0;
@@ -198,7 +279,7 @@ grpc_slice HomaIncoming::getSlice(size_t offset, size_t length)
     // See if the desired range lies entirely within the first part
     // of the message.
     if ((offset + length) <= baseLength) {
-        slice.data.refcounted.bytes = base() + offset;
+        slice.data.refcounted.bytes = initialPayload + offset;
         slice.data.refcounted.length = length;
         slice.refcount = &sliceRefs;
         slice.refcount->Ref();
@@ -219,7 +300,7 @@ grpc_slice HomaIncoming::getSlice(size_t offset, size_t length)
 
     slice = grpc_slice_malloc(length);
     size_t baseBytes = baseLength - offset;
-    memcpy(slice.data.refcounted.bytes, base() + offset, baseBytes);
+    memcpy(slice.data.refcounted.bytes, initialPayload + offset, baseBytes);
     memcpy(slice.data.refcounted.bytes + baseBytes, tail.data(),
             length - baseBytes);
     return slice;
@@ -353,7 +434,7 @@ size_t HomaIncoming::addMetadata(size_t offset, size_t staticLength, ...)
             if (chunkSize > length) {
                 chunkSize = length;
             }
-            memcpy(base() + offset, src, chunkSize);
+            memcpy(initialPayload + offset, src, chunkSize);
             tailLength -= chunkSize;
             src += chunkSize;
         } else {

@@ -44,12 +44,16 @@ public:
     
     // Small statically allocated buffer for outgoing messages; holds
     // header plus initial and trailing metadata, if they fit.
-    Wire::Message xmitMsg;
+    uint8_t xmitBuffer[10000];
     
     // If the metadata didn't completely fit in xmit_msg, extra chunks
     // are allocated dynamically; this vector keeps track of them all
     // so they can be freed.
     std::vector<uint8_t *> xmitOverflows;
+    
+    // How many bytes to allocate for each element of @xmitOverflows.
+    // This is a variable so it can be changed for unit testing.
+    size_t overflowChunkSize;
     
     // Contains all of the slices (of message data) referred to by vecs;
     // keeps them alive and stable until the Homa request is sent.
@@ -91,12 +95,20 @@ public:
     
     // Error that has occurred on this stream, if any.
     grpc_error_handle error;
+    
+    // Maximum number of bytes to allow in a single Homa message (this
+    // is a variable so it can be modified for unit testing).
+    size_t maxMessageLength;
 
     HomaStream(StreamId streamId, uint64_t homaId, int fd,
             grpc_stream_refcount* refcount, grpc_core::Arena* arena);
+    
+    Wire::Header *hdr()
+    {
+        return reinterpret_cast<Wire::Header*>(xmitBuffer);
+    }
 
     virtual ~HomaStream();
-    void    appendMessage(grpc_transport_stream_op_batch* op);
     void    flush();
     void    handleIncoming(HomaIncoming::UniquePtr msg);
     void    newXmit();

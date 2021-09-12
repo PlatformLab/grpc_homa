@@ -23,6 +23,9 @@ public:
     static int homaReplyvErrors;
     static int homaSendvErrors;
     
+    // Holds all messages sent by homa_sendv and homa_replyv.
+    static std::deque<std::vector<uint8_t>> homaMessages;
+    
     // Return info for upcoming invocations of homa_recv.
     static std::deque<Wire::Header> homaRecvHeaders;
     static std::deque<ssize_t> homaRecvMsgLengths;
@@ -32,16 +35,22 @@ public:
     // can then be queried.
     static std::string log;
     
-    static int     checkError(int *errorMask);
-    static void    fillData(void *data, int length, int firstValue);
-    static void    gprLog(gpr_log_func_args* args);
-    static void    logData(const char *separator, void *data, int length);
-    static void    logMetadata(const char *separator,
+    static int        checkError(int *errorMask);
+    static grpc_slice dataSlice(size_t length, int firstValue);
+    static void       gprLog(gpr_log_func_args* args);
+    static void       logByteStream(const char *separator,
+                        grpc_core::ByteStream *byteStream);
+    static void       logData(const char *separator, void *data, int length);
+    static void       logMetadata(const char *separator,
                         const grpc_metadata_batch *batch);
-    static void    logPrintf(const char *separator, const char* format, ...);
-    static void    setUp(void);
+    static void       logPrintf(const char *separator, const char* format, ...);
+    static void       metadataBatchAppend(grpc_metadata_batch* batch,
+                        const char *key, const char *value,
+                        grpc_core::Arena *arena);
+    static void       setUp(void);
     static ::testing::AssertionResult
-                   substr(const std::string& s, const std::string& substring);
+                        substr(const std::string& s,
+                        const std::string& substring);
     
 };
 

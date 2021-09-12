@@ -20,6 +20,22 @@ StreamId::StreamId(grpc_resolved_address *gaddr, uint32_t id)
 }
 
 /**
+ * Constructor for testing.
+ * \param id
+ *      Identifier for this particular RPC.
+ */
+StreamId::StreamId(uint32_t id)
+    : addr()
+    , addrSize()
+    , id(id)
+{
+    inaddr()->sin_family = AF_INET;
+    inaddr()->sin_addr.s_addr = 0x01020304;
+    inaddr()->sin_port = htons(40);
+    addrSize = sizeof(struct sockaddr_in);
+}
+
+/**
  * Comparison operator for StreamIds.
  * \param other
  *      StreamId to compare against

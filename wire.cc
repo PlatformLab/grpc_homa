@@ -29,18 +29,21 @@ void Wire::init()
  *      First byte of serialized data.
  * \param length
  *      Total amount of serialized data.
+ * \param severity
+ *      Log severity level to use for messages.
  */
-void Wire::dumpMetadata(uint8_t *buffer, size_t length)
+void Wire::dumpMetadata(void *buffer, size_t length, gpr_log_severity severity)
 {
     size_t remaining = length;
-    uint8_t *src = buffer;
+    uint8_t *src = static_cast<uint8_t *>(buffer);
     
-    // Each iteration prints on metadata value
+    // Each iteration prints one metadata value
     while (remaining > 0) {
         Wire::Mdata* msgMd = reinterpret_cast<Wire::Mdata*>(src);
         if (remaining < sizeof(*msgMd)) {
-             gpr_log(GPR_INFO, "Not enough bytes for meatadata header: "
-                    "need %lu, have %lu", sizeof(*msgMd), remaining);
+             gpr_log(__FILE__, __LINE__, severity, "Not enough bytes for "
+                    "metadata header: need %lu, have %lu",
+                    sizeof(*msgMd), remaining);
              return;
         }
         int index = msgMd->index;
@@ -49,13 +52,59 @@ void Wire::dumpMetadata(uint8_t *buffer, size_t length)
         remaining -= sizeof(*msgMd);
         src += sizeof(*msgMd);
         if (remaining < (keyLength + valueLength)) {
-             gpr_log(GPR_INFO, "Not enough bytes for key and value: need %u, "
-                    "have %lu",keyLength + valueLength, remaining);
+             gpr_log(__FILE__, __LINE__, severity, "Not enough bytes for "
+                    "key and value: need %u, have %lu",
+                    keyLength + valueLength, remaining);
              return;
         }
-        gpr_log(GPR_INFO, "Key: %.*s, value: %.*s, index: %d", keyLength, src,
+        gpr_log(__FILE__, __LINE__, severity,
+                "Key: %.*s, value: %.*s, index: %d", keyLength, src,
                 valueLength, src+keyLength, index);
         remaining -= keyLength + valueLength;
         src += keyLength + valueLength;
     }
+}
+
+/**
+ * Log information about the contents of a Homa message header.
+ * \param msg
+ *      Address of the first byte of a Homa message (expected to contain
+ *      a valid header).
+ * \param severity
+ *      Log severity level to use for messages.
+ */
+void Wire::dumpHeader(void *msg, gpr_log_severity severity)
+{
+    Wire::Header *hdr = static_cast<Wire::Header *>(msg);
+    std::string s;
+    char buffer[100];
+    
+    snprintf(buffer, sizeof(buffer), "id: %u, sequence %u",
+            ntohl(hdr->streamId), ntohl(hdr->sequenceNum));
+    s.append(buffer);
+    if (hdr->initMdBytes) {
+        snprintf(buffer, sizeof(buffer), ", initMdBytes %u",
+                ntohl(hdr->initMdBytes));
+        s.append(buffer);
+    }
+    if (hdr->messageBytes) {
+        snprintf(buffer, sizeof(buffer), ", messageBytes %u",
+                ntohl(hdr->messageBytes));
+        s.append(buffer);
+    }
+    if (hdr->trailMdBytes) {
+        snprintf(buffer, sizeof(buffer), ", trailMdBytes %u",
+                ntohl(hdr->trailMdBytes));
+        s.append(buffer);
+    }
+    if (hdr->flags & Header::initMdPresent) {
+        s.append(", initMdPresent");
+    }
+    if (hdr->flags & Header::messageComplete) {
+        s.append(", messageComplete");
+    }
+    if (hdr->flags & Header::trailMdPresent) {
+        s.append(", trailMdPresent");
+    }
+    gpr_log(__FILE__, __LINE__, severity, "Header: %s", s.c_str());
 }

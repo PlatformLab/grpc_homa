@@ -1,5 +1,6 @@
 #include "homa_incoming.h"
 #include "mock.h"
+#include "util.h"
 
 class TestIncoming : public ::testing::Test {
 public:   
@@ -67,8 +68,8 @@ TEST_F(TestIncoming, copyOut) {
     msg->destroyCounter = &destroyCounter;
     msg->baseLength = 500;
     msg->tail.resize(1000);
-    Mock::fillData(&msg->hdr, 500, 0);
-    Mock::fillData(msg->tail.data(), 1000, 1000);
+    fillData(msg->initialPayload, 500, 0);
+    fillData(msg->tail.data(), 1000, 1000);
     
     // First block is in the static part of the message.
     char buffer[40];
@@ -93,7 +94,7 @@ TEST_F(TestIncoming, getStaticSlice) {
     grpc_core::Arena *arena = grpc_core::Arena::Create(2000);
     HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5);
     msg->baseLength = 500;
-    Mock::fillData(&msg->hdr, 500, 0);
+    fillData(msg->initialPayload, 500, 0);
     
     // First slice is small enough to be stored internally.
     grpc_slice slice1 = msg->getStaticSlice(60, 8, arena);
@@ -117,8 +118,8 @@ TEST_F(TestIncoming, getSlice) {
     msg->destroyCounter = &destroyCounter;
     msg->baseLength = 500;
     msg->tail.resize(1000);
-    Mock::fillData(&msg->hdr, 500, 0);
-    Mock::fillData(msg->tail.data(), 1000, 1000);
+    fillData(msg->initialPayload, 500, 0);
+    fillData(msg->tail.data(), 1000, 1000);
     
     // First slice is in the static part of the message.
     grpc_slice slice1 = msg->getSlice(440, 60);
@@ -249,8 +250,8 @@ TEST_F(TestIncoming, getBytes) {
     HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5);
     msg->baseLength = 500;
     msg->tail.resize(1000);
-    Mock::fillData(&msg->hdr, 500, 0);
-    Mock::fillData(msg->tail.data(), 1000, 1000);
+    fillData(msg->initialPayload, 500, 0);
+    fillData(msg->tail.data(), 1000, 1000);
     
     // First extraction fits in initial data.
     Bytes16 *p = msg->getBytes<Bytes16>(484, &buffer);

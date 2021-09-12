@@ -27,6 +27,9 @@ public:
     typedef std::unique_ptr<HomaIncoming, UnrefIncoming> UniquePtr;
     
     explicit   HomaIncoming();
+    explicit   HomaIncoming(int sequence, bool initMd, size_t messageLength,
+                    size_t tailLength, int firstValue,
+                    bool messageComplete, bool trailMd);
                ~HomaIncoming();
     size_t     addMetadata(size_t offset, size_t staticLength, ...);
     void       copyOut(void *dst, size_t offset, size_t length);
@@ -58,7 +61,7 @@ public:
         // See if the object is already contiguous in the first part of the
         // message.
         if ((offset + sizeof(T)) <= baseLength) {
-            return reinterpret_cast<T *>(base() + offset);
+            return reinterpret_cast<T *>(initialPayload + offset);
         }
 
         // See if the offset is already contiguous in the tail.
@@ -70,7 +73,7 @@ public:
         // Must copy the object to make it contiguous.
         uint8_t *p = reinterpret_cast<uint8_t *>(buffer);
         size_t baseBytes = baseLength - offset;
-        memcpy(p, base() + offset, baseBytes);
+        memcpy(p, initialPayload + offset, baseBytes);
         memcpy(p + baseBytes, tail.data(), sizeof(T) - baseBytes);
         return buffer;
     }
@@ -117,9 +120,8 @@ public:
     // Bytes of trailing metadata in the message (extracted from hdr).
     uint32_t trailMdLength;
 
-    // The first part of the message is stored in these two instance variables.
-    Wire::Header hdr;
-    uint8_t initialPayload[10000 - sizeof(hdr)];
+    // The first part of the message, enough to hold short messages.
+    uint8_t initialPayload[10000];
 
     // If the entire message doesn't fit in hdr and initialPayload, the
     // remainder will be read here.
@@ -134,13 +136,10 @@ public:
     size_t maxStaticMdLength;
 
     static void destroyer(void* arg);
-
-    /**
-     * Returns a generic pointer to the initial part of the message.
-     */
-    uint8_t *base()
+    
+    Wire::Header *hdr()
     {
-        return reinterpret_cast<uint8_t *>(&hdr);
+        return reinterpret_cast<Wire::Header*>(initialPayload);
     }
 };
 

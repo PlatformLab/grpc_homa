@@ -108,21 +108,14 @@ public:
         char data[0];
     } __attribute__((packed));
     
-    /** Temporary structure describing an entire message (fixed size). */
-    struct Message {
-        Header hdr;
-        
-        // Contains initial metadata followed by message data followed by
-        // trailing metadata. Any of these may be absent.
-        uint8_t payload[10000];
-    } __attribute__((packed));
-    
     // An array of special reference counts used for callout metadata
     // elements; element i contains a hidden value (same as i) that identifies
     // the location of its metadata value in grpc_metadata_batch_callouts.
     static grpc_core::StaticSliceRefcount *calloutRefs[GRPC_BATCH_CALLOUTS_COUNT];
 
-    static void       dumpMetadata(uint8_t *buffer, size_t length);
+    static void       dumpHeader(void *msg, gpr_log_severity severity);
+    static void       dumpMetadata(void *buffer, size_t length,
+                            gpr_log_severity severity = GPR_LOG_SEVERITY_INFO);
     static void       init();
 };
 
