@@ -22,13 +22,29 @@
  */
 class HomaClient {
 public:
-    static grpc_channel *create_channel(const char* target,
-            const grpc_channel_args* args);
+    static std::shared_ptr<grpc::Channel> createInsecureChannel(
+            const char* target);
     
 protected:
     HomaClient();
     ~HomaClient();
     static void init();
+    static grpc_channel *createChannel(const char* target,
+            const grpc_channel_args* args);
+    
+    /**
+     * This class provides credentials used to create Homa channels.
+     */
+    class InsecureCredentials final : public grpc::ChannelCredentials {
+     public:
+        std::shared_ptr<grpc::Channel> CreateChannelImpl(
+                const std::string& target, const grpc::ChannelArguments& args)
+                override;
+        grpc::SecureChannelCredentials* AsSecureCredentials() override
+        {
+            return nullptr;
+        }
+    };
 
     /**
      * This class is invoked by gRPC to create subchannels for a channel.

@@ -35,7 +35,7 @@ PROTOS_PATH = .
 PKG_CONFIG_PATH = /ouster/install/lib/pkgconfig
 export PKG_CONFIG_PATH
 
-all: test_client test_server tcp_test unit
+all: test_client test_server tcp_test
 	
 test_client: test.grpc.pb.o test.pb.o test_client.o $(OBJS) $(HOMA_OBJS)
 	$(CXX) $^ $(LDFLAGS) -o $@

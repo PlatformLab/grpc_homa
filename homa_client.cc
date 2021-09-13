@@ -16,6 +16,21 @@ HomaClient *HomaClient::sharedClient = nullptr;
 grpc_core::Mutex HomaClient::refCountMutex;
 
 /**
+ * This method is invoked indirectly by HomaClient::createSecureChannel;
+ * It does all the work of creating a channel.
+ */
+std::shared_ptr<grpc::Channel> HomaClient::InsecureCredentials::CreateChannelImpl(
+        const std::string& target, const grpc::ChannelArguments& args) {
+    grpc_channel_args channel_args;
+    args.SetChannelArgs(&channel_args);
+    std::vector<std::unique_ptr<grpc::experimental::
+            ClientInterceptorFactoryInterface>> interceptorCreators;
+    return ::grpc::CreateChannelInternal("",
+            createChannel(target.c_str(), &channel_args),
+            std::move(interceptorCreators));
+}
+
+/**
  * Creates a new subchannel for an existing channel.
  * \param args
  *      Arguments associated with the channel.
@@ -132,13 +147,14 @@ HomaClient::~HomaClient()
 }
 
 /**
- * Create a new Homa channel.
+ * Create a new Homa channel. This method is intended for internal
+ * use only.
  * \param target
  *      Describes the peer this channel should connect to.
  * \param args
  *      Various arguments for the new channel.
  */
-grpc_channel *HomaClient::create_channel(const char* target,
+grpc_channel *HomaClient::createChannel(const char* target,
             const grpc_channel_args* args)
 {
     gpr_log(GPR_INFO, "Creating channel for %s", target);
@@ -169,6 +185,22 @@ grpc_channel *HomaClient::create_channel(const char* target,
     grpc_channel_args_destroy(new_args);
     
     return channel;
+}
+
+/**
+ * Create an insecure client channel. This is the primary exported
+ * API for this class.
+ * \param target
+ *      hostName:port for the server that will handle requests on this
+ *      channel.
+ * \return
+ *      A new channel.
+ */
+std::shared_ptr<grpc::Channel> HomaClient::createInsecureChannel(
+        const char* target)
+{
+    std::shared_ptr<InsecureCredentials> creds(new InsecureCredentials());
+    return grpc::CreateChannel(target, creds);
 }
 
 /**

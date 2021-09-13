@@ -35,33 +35,6 @@ public:
     }
 };
 
-class InsecureHomaCredentials final : public grpc::ChannelCredentials {
- public:
-    std::shared_ptr<grpc::Channel> CreateChannelImpl(
-            const std::string& target, const grpc::ChannelArguments& args)
-            override {
-        return CreateChannelWithInterceptors(target, args,
-                std::vector<std::unique_ptr<
-                grpc::experimental::ClientInterceptorFactoryInterface>>());
-    }
-
-    std::shared_ptr<grpc::Channel> CreateChannelWithInterceptors(
-            const std::string& target, const grpc:: ChannelArguments& args,
-            std::vector<std::unique_ptr<
-                    grpc::experimental::ClientInterceptorFactoryInterface>>
-                    interceptor_creators) override {
-        grpc_channel_args channel_args;
-        args.SetChannelArgs(&channel_args);
-        return ::grpc::CreateChannelInternal("",
-                HomaClient::create_channel(target.c_str(), &channel_args),
-                std::move(interceptor_creators));
-    }
-
-    grpc::SecureChannelCredentials* AsSecureCredentials() override {
-        return nullptr;
-    }
-};
-
 int main(int argc, char** argv) {
     const char *server;
     
@@ -73,25 +46,7 @@ int main(int argc, char** argv) {
         fprintf(stderr, "Usage: test_client [host:port]\n");
         return 1;
     }
-//    struct addrinfo hints;
-//    struct addrinfo *matching_addresses;
-    
-//    memset(&hints, 0, sizeof(struct addrinfo));
-//    hints.ai_family = AF_INET;
-//    hints.ai_socktype = SOCK_DGRAM;
-//    status = getaddrinfo("localhost:4000", NULL, &hints,
-//            &matching_addresses);
-//    if (status != 0) {
-//        fprintf(stderr, "Couldn't look up address for localhost:4000: %s\n",
-//                gai_strerror(status));
-//        exit(1);
-//    }
-//    dest = matching_addresses->ai_addr;
-    
-//    SumClient client(grpc::CreateChannel("localhost:50051",
-//            grpc::InsecureChannelCredentials()));
-    std::shared_ptr<InsecureHomaCredentials> creds(new InsecureHomaCredentials());
-    SumClient client(grpc::CreateChannel(server, creds));
+    SumClient client(HomaClient::createInsecureChannel(server));
     int sum = client.Sum(22, 33);
     printf("Sum of 22 and 33 is %d\n", sum);
     return 0;
