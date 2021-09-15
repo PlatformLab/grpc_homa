@@ -38,7 +38,6 @@ std::shared_ptr<grpc::Channel> HomaClient::InsecureCredentials::CreateChannelImp
 grpc_core::RefCountedPtr<grpc_core::Subchannel>
 HomaClient::SubchannelFactory::CreateSubchannel(const grpc_channel_args* args)
 {
-    gpr_log(GPR_INFO, "HomaSubchannelFactory::CreateSubchannel invoked");
     grpc_core::RefCountedPtr<grpc_core::Subchannel> s =
             grpc_core::Subchannel::Create(
             grpc_core::MakeOrphanable<HomaClient::Connector>(), args);
@@ -59,11 +58,9 @@ void HomaClient::Connector::Connect(const HomaClient::Connector::Args& args,
         HomaClient::Connector::Result* result, grpc_closure* notify)
 {
     // Homa doesn't use connections, so there isn't much to do here.
-    gpr_log(GPR_INFO, "HomaConnector::Connect invoked");
     grpc_resolved_address addr;
     grpc_core::Subchannel::GetAddressFromSubchannelAddressArg(
             args.channel_args, &addr);
-    printf("Address is %u bytes long\n", addr.len);
     result->Reset();
     {
         grpc_core::MutexLock lock(&refCountMutex);
@@ -157,7 +154,6 @@ HomaClient::~HomaClient()
 grpc_channel *HomaClient::createChannel(const char* target,
             const grpc_channel_args* args)
 {
-    gpr_log(GPR_INFO, "Creating channel for %s", target);
     grpc_core::ExecCtx exec_ctx;
 
     // Add 3 channel arguments:
@@ -232,7 +228,6 @@ int HomaClient::init_stream(grpc_transport* gt, grpc_stream* gs,
     hc->nextId++;
     new (stream) HomaStream(StreamId(&peer->addr, id), 0, hc->fd, refcount, arena);
     hc->streams.emplace(stream->streamId, stream);
-    gpr_log(GPR_INFO, "HomaClient::init_stream invoked");
     return 0;
 }
 
@@ -255,7 +250,6 @@ void HomaClient::set_pollset(grpc_transport* gt, grpc_stream* gs,
     if (hc->gfd) {
         grpc_pollset_add_fd(pollset, hc->gfd);
     }
-    gpr_log(GPR_INFO, "HomaClient::set_pollset invoked");
     
 }
 
@@ -298,7 +292,6 @@ void HomaClient::perform_stream_op(grpc_transport* gt, grpc_stream* gs,
     HomaStream *stream = reinterpret_cast<HomaStream*>(gs);
     grpc_core::MutexLock lock(&stream->mutex);
     
-    gpr_log(GPR_INFO, "HomaClient::perform_stream_op invoked");
     if (op->send_initial_metadata || op->send_message
             || op->send_trailing_metadata) {
         stream->xmit(op);
@@ -436,23 +429,38 @@ grpc_endpoint* HomaClient::get_endpoint(grpc_transport* gt)
  * readable.
  * \param arg
  *      Pointer to the HomaClient structure associated with the socket.
- * \param error
+ * \param sockError
  *      Indicates whether the socket has an error condition.
  * 
  */
-void HomaClient::onRead(void* arg, grpc_error* error)
+void HomaClient::onRead(void* arg, grpc_error* sockError)
 {
     HomaClient *hc = static_cast<HomaClient*>(arg);
     HomaIncoming::UniquePtr msg;
+    grpc_error_handle error;
     
-    if (error != GRPC_ERROR_NONE) {
+    if (sockError != GRPC_ERROR_NONE) {
         gpr_log(GPR_ERROR, "HomaClient::onRead invoked with error: %s",
-                grpc_error_string(error));
+                grpc_error_string(sockError));
         return;
     }
-    msg = HomaIncoming::read(hc->fd, HOMA_RECV_RESPONSE|HOMA_RECV_NONBLOCKING);
+    msg = HomaIncoming::read(hc->fd, HOMA_RECV_RESPONSE|HOMA_RECV_NONBLOCKING,
+            &error);
     grpc_fd_notify_on_read(hc->gfd, &hc->readClosure);
-    if (!msg) {
+    if (error != GRPC_ERROR_NONE) {
+        if ((msg->homaId != 0) && !msg->isRequest) {
+            // An outgoing RPC failed. Find the stream for it and record
+            // the error on that stream.
+            for (std::pair<const StreamId, HomaStream *> p: hc->streams) {
+                HomaStream *stream = p.second;
+                if (stream->homaId == msg->homaId) {
+                    stream->notifyError(error);
+                    error = GRPC_ERROR_NONE;
+                    break;
+                }
+            }
+        }
+        GRPC_ERROR_UNREF(error);
         return;
     }
     

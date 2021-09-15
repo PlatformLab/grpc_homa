@@ -61,6 +61,7 @@ public:
     {
         grpc_metadata_batch_destroy(&batch);
         grpc_metadata_batch_destroy(&batch2);
+        arena->Destroy();
     }
 };
 
@@ -69,10 +70,20 @@ TEST_F(TestStream, flush_noMessage) {
     EXPECT_STREQ("", Mock::log.c_str());
 }
 TEST_F(TestStream, flush_sendRequest) {
-    stream.homaId = 0;
+    stream.isClient = true;
     stream.hdr()->flags |= Wire::Header::initMdPresent;
+    stream.homaId = 0;
     stream.flush();
     EXPECT_SUBSTR("homa_sendv: 1 iovecs", Mock::log.c_str());
+    EXPECT_EQ(123U, stream.homaId);
+}
+TEST_F(TestStream, flush_sendAdditionalRequest) {
+    stream.isClient = true;
+    stream.hdr()->flags |= Wire::Header::initMdPresent;
+    stream.homaId = 111;
+    stream.flush();
+    EXPECT_SUBSTR("homa_sendv: 1 iovecs", Mock::log.c_str());
+    EXPECT_EQ(111U, stream.homaId);
 }
 TEST_F(TestStream, flush_sendReply) {
     stream.hdr()->flags |= Wire::Header::trailMdPresent;
@@ -85,6 +96,61 @@ TEST_F(TestStream, flush_error) {
     stream.flush();
     EXPECT_SUBSTR("gpr_log: Couldn't send Homa response: Input/output error",
             Mock::log.c_str());
+}
+
+TEST_F(TestStream, saveCallbacks_basics) {
+    grpc_core::ExecCtx execCtx;
+    op.recv_initial_metadata = true;
+    op.payload->recv_initial_metadata.recv_initial_metadata = &batch;
+    op.payload->recv_initial_metadata.recv_initial_metadata_ready = &closure1;
+    
+    op.recv_message = true;
+    grpc_core::OrphanablePtr<grpc_core::ByteStream> message;
+    op.payload->recv_message.recv_message = &message;
+    grpc_closure closure3;
+    GRPC_CLOSURE_INIT(&closure3, closureFunc1,
+            reinterpret_cast<void *>(777), dummy);
+    op.payload->recv_message.recv_message_ready = &closure3;
+    
+    op.recv_trailing_metadata = true;
+    op.payload->recv_trailing_metadata.recv_trailing_metadata = &batch;
+    op.payload->recv_trailing_metadata.recv_trailing_metadata_ready = &closure2;
+    
+    stream.saveCallbacks(&op);
+    execCtx.Flush();
+    EXPECT_NE(nullptr, stream.initMdClosure);
+    EXPECT_NE(nullptr, stream.messageClosure);
+    EXPECT_NE(nullptr, stream.trailMdClosure);
+    EXPECT_STREQ("", Mock::log.c_str());
+}
+TEST_F(TestStream, saveCallbacks_notifyError) {
+    grpc_core::ExecCtx execCtx;
+    op.recv_initial_metadata = true;
+    op.payload->recv_initial_metadata.recv_initial_metadata = &batch;
+    op.payload->recv_initial_metadata.recv_initial_metadata_ready = &closure1;
+    
+    op.recv_message = true;
+    grpc_core::OrphanablePtr<grpc_core::ByteStream> message;
+    op.payload->recv_message.recv_message = &message;
+    grpc_closure closure3;
+    GRPC_CLOSURE_INIT(&closure3, closureFunc1,
+            reinterpret_cast<void *>(777), dummy);
+    op.payload->recv_message.recv_message_ready = &closure3;
+    
+    op.recv_trailing_metadata = true;
+    op.payload->recv_trailing_metadata.recv_trailing_metadata = &batch;
+    op.payload->recv_trailing_metadata.recv_trailing_metadata_ready = &closure2;
+    
+    stream.error = GRPC_ERROR_CREATE_FROM_STATIC_STRING("test error");
+    stream.saveCallbacks(&op);
+    execCtx.Flush();
+    EXPECT_EQ(nullptr, stream.initMdClosure);
+    EXPECT_EQ(nullptr, stream.messageClosure);
+    EXPECT_EQ(nullptr, stream.trailMdClosure);
+    EXPECT_SUBSTR("closure1 invoked with 123, error", Mock::log.c_str());
+    EXPECT_SUBSTR("closure1 invoked with 777, error", Mock::log.c_str());
+    EXPECT_SUBSTR("closure2 invoked with 456, error", Mock::log.c_str());
+    EXPECT_SUBSTR("test error", Mock::log.c_str());
 }
 
 TEST_F(TestStream, metadataLength) {
@@ -435,6 +501,7 @@ TEST_F(TestStream, transferData_trailingMetadata) {
     Mock::logMetadata("; ", &batch);
     EXPECT_STREQ("metadata k2: 0123456789 (24)", Mock::log.c_str());
     EXPECT_EQ(0U, stream.incoming.size());
+    EXPECT_TRUE(stream.eof);
 }
 TEST_F(TestStream, transferData_mustWaitForTrailingMetadataClosure) {
     stream.incoming.emplace_back(new HomaIncoming(1, false, 0, 0, 0, false,
@@ -471,6 +538,19 @@ TEST_F(TestStream, transferData_multipleMessages) {
     EXPECT_STREQ("metadata k2: 0123456789 (24)", Mock::log.c_str());
     EXPECT_EQ(0U, stream.incoming.size());
 }
+TEST_F(TestStream, transferData_eof) {
+    stream.messageClosure = &closure1;
+    grpc_core::OrphanablePtr<grpc_core::ByteStream> message;
+    stream.messageStream = &message;
+    stream.eof = true;
+    grpc_core::ExecCtx execCtx;
+    stream.transferData();
+    execCtx.Flush();
+    EXPECT_STREQ("closure1 invoked with 123", Mock::log.c_str());
+    EXPECT_EQ(nullptr, stream.messageClosure);
+    EXPECT_EQ(nullptr, message.get());
+}
+
 TEST_F(TestStream, handleIncoming) {
     stream.initMdClosure = &closure1;
     stream.initMd = &batch;
@@ -526,4 +606,38 @@ TEST_F(TestStream, handleIncoming) {
     Mock::log.clear();
     Mock::logMetadata("; ", &batch2);
     EXPECT_STREQ("metadata k2: 0123456789 (24)", Mock::log.c_str());
+}
+
+TEST_F(TestStream, notifyError) {
+    grpc_core::ExecCtx execCtx;
+    op.recv_initial_metadata = true;
+    op.payload->recv_initial_metadata.recv_initial_metadata = &batch;
+    op.payload->recv_initial_metadata.recv_initial_metadata_ready = &closure1;
+    
+    op.recv_message = true;
+    grpc_core::OrphanablePtr<grpc_core::ByteStream> message;
+    op.payload->recv_message.recv_message = &message;
+    grpc_closure closure3;
+    GRPC_CLOSURE_INIT(&closure3, closureFunc1,
+            reinterpret_cast<void *>(777), dummy);
+    op.payload->recv_message.recv_message_ready = &closure3;
+    
+    op.recv_trailing_metadata = true;
+    op.payload->recv_trailing_metadata.recv_trailing_metadata = &batch;
+    op.payload->recv_trailing_metadata.recv_trailing_metadata_ready = &closure2;
+    
+    stream.saveCallbacks(&op);
+    execCtx.Flush();
+    EXPECT_STREQ("", Mock::log.c_str());
+    
+    stream.notifyError(GRPC_ERROR_CREATE_FROM_STATIC_STRING(
+            "testing notifyError"));
+    execCtx.Flush();
+    EXPECT_EQ(nullptr, stream.initMdClosure);
+    EXPECT_EQ(nullptr, stream.messageClosure);
+    EXPECT_EQ(nullptr, stream.trailMdClosure);
+    EXPECT_SUBSTR("closure1 invoked with 123, error", Mock::log.c_str());
+    EXPECT_SUBSTR("closure1 invoked with 777, error", Mock::log.c_str());
+    EXPECT_SUBSTR("closure2 invoked with 456, error", Mock::log.c_str());
+    EXPECT_SUBSTR("testing notifyError", Mock::log.c_str());
 }

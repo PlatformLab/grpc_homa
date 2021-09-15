@@ -7,16 +7,65 @@
 std::optional<HomaListener::Shared> HomaListener::shared;
 gpr_once HomaListener::shared_once = GPR_ONCE_INIT;
 
+/**
+ * Adds a Homa listening port to a server.
+ * \param addr
+ *      Has the syntax "homa:<port>"; indicates the port on which to listen.
+ * \param server
+ *      Add the listening port to this server.
+ * \return
+ *      Returns nonzero on success, zero on failure.
+ */
+int HomaListener::InsecureCredentials::AddPortToServer(const std::string& addr,
+        grpc_server* server)
+{
+    int port;
+    char* end;
+    
+    if (strncmp("homa:", addr.c_str(), 5) != 0) {
+        gpr_log(GPR_ERROR, "bad Homa port specifier '%s', must be 'homa:port'",
+                addr.c_str());
+        return 0;
+    };
+    port = strtol(addr.c_str()+5, &end, 0);
+    if ((*end != '\0') || (port <= 0)) {
+        gpr_log(GPR_ERROR, "bad Homa port number '%s', must be between 1 and %d",
+                addr.c_str()+5, HOMA_MIN_CLIENT_PORT-1);
+        return 0;
+    }
+    HomaListener *listener = HomaListener::Get(server, port);
+    if (listener) {
+        server->core_server->AddListener(grpc_core::OrphanablePtr
+                <grpc_core::Server::ListenerInterface>(listener));
+    }
+    return 1;
+}
+
+/**
+ * Modifies a ServerBuilder so that Homa will listen on a given port.
+ * \param addr
+ *      Has the syntax "homa:<port>"; indicates the port on which to listen.
+ * \param builder
+ *      Add the listener to this ServerBuilder.
+ * \return 
+ */
+std::shared_ptr<grpc::ServerCredentials> HomaListener::insecureCredentials(void)
+{
+    return std::shared_ptr<grpc::ServerCredentials>(new InsecureCredentials());
+}
 
 /**
  * Constructor for HomaListeners.
+ * \param server
+ *      Server that this listener will be associated with (nullptr for
+ *      testing).
  * \param port
  *      The Homa port number that this object will manage.
  */
 HomaListener::HomaListener(grpc_server* server, int port)
     : transport()
     , vtable()
-    , server(server->core_server.get())
+    , server()
     , activeRpcs()
     , mutex()
     , port(port)
@@ -26,6 +75,9 @@ HomaListener::HomaListener(grpc_server* server, int port)
     , accept_stream_cb(nullptr)
     , accept_stream_data(nullptr)
 {
+    if (server) {
+        this->server.reset(server->core_server.get());
+    }
     transport.vtable = &vtable;
     vtable.sizeof_stream =       sizeof(HomaStream);
     vtable.name =                "homa_server";
@@ -45,8 +97,11 @@ HomaListener::~HomaListener()
 {
     std::lock_guard<std::mutex> guard(shared->mutex);
     shared->ports.erase(port);
-    grpc_fd_shutdown(gfd,
-            GRPC_ERROR_CREATE_FROM_STATIC_STRING("Homa listener destroyed"));
+    if (fd >= 0) {
+        grpc_fd_shutdown(gfd,
+                GRPC_ERROR_CREATE_FROM_STATIC_STRING(
+                "Homa listener destroyed"));
+    }
 }
 
 /**
@@ -127,6 +182,51 @@ void HomaListener::Start(grpc_core::Server* server,
     grpc_fd_notify_on_read(gfd, &read_closure);
     server->SetupTransport(&transport, NULL, server->channel_args(), nullptr);
 }
+
+/**
+ * Find the stream corresponding to an incoming message, or create a new
+ * stream if there is no existing one.
+ * \param msg
+ *      Incoming message for which a HomaStream is needed
+ * \param lock
+ *      This object will be constructed to lock the stream.
+ * \return
+ *      The stream that corresponds to @msg. The stream will be locked.
+ *      If there was an error creating the stream, then nullptr is returned
+ *      and streamLock isn't locked.
+ */
+HomaStream *HomaListener::getStream(HomaIncoming *msg,
+        std::optional<grpc_core::MutexLock>& streamLock)
+{
+    HomaStream *stream;
+    grpc_core::MutexLock lock(&mutex);
+    
+    ActiveIterator it = activeRpcs.find(msg->streamId);
+    if (it != activeRpcs.end()) {
+        stream = it->second;
+        goto done;
+    }
+    
+    // Must create a new HomaStream.
+    StreamInit init;
+    init.streamId = &msg->streamId;
+    init.homaId = msg->homaId;
+    init.stream = nullptr;
+    if (accept_stream_cb) {
+        accept_stream_cb(accept_stream_data, &transport, &init);
+    }
+    if (init.stream == nullptr) {
+        gpr_log(GPR_INFO, "Stream doesn't appear to have been initialized.");
+        return nullptr;
+    }
+    stream = init.stream;
+    activeRpcs[msg->streamId] = stream;
+        
+done:
+    streamLock.emplace(&stream->mutex);
+    return stream;    
+}
+
 /**
  * Callback invoked when a Homa socket becomes readable. Invokes
  * appropriate callbacks for the request.
@@ -138,37 +238,25 @@ void HomaListener::Start(grpc_core::Server* server,
 void HomaListener::onRead(void* arg, grpc_error* error)
 {
     HomaListener *lis = static_cast<HomaListener*>(arg);
-    StreamInit init;
-    HomaIncoming::UniquePtr msg;
     
     if (error != GRPC_ERROR_NONE) {
         gpr_log(GPR_ERROR, "OnRead invoked with error: %s",
                 grpc_error_string(error));
         return;
     }
-    msg = HomaIncoming::read(lis->fd, HOMA_RECV_REQUEST|HOMA_RECV_NONBLOCKING);
     grpc_fd_notify_on_read(lis->gfd, &lis->read_closure);
-    if (!msg) {
-        return;
-    }
+    while (true) {
+        std::optional<grpc_core::MutexLock> streamLock;
+        grpc_error_handle error;
+        HomaIncoming::UniquePtr msg = HomaIncoming::read(lis->fd,
+                HOMA_RECV_REQUEST|HOMA_RECV_NONBLOCKING, &error);
+        if ((error != GRPC_ERROR_NONE) || !msg) {
+            break;
+        }
 
-    init.streamId = &msg->streamId;
-    init.homaId = msg->homaId;
-    init.stream = nullptr;
-    
-    if (lis->accept_stream_cb) {
-        lis->accept_stream_cb(lis->accept_stream_data, &lis->transport, &init);
+        HomaStream *stream = lis->getStream(msg.get(), streamLock);
+        stream->handleIncoming(std::move(msg));
     }
-    if (init.stream == nullptr) {
-        gpr_log(GPR_INFO, "Stream doesn't appear to have been initialized.");
-        return;
-    }
-    
-    // Unpack the metadata and data and pass to gRPC.
-    HomaStream *stream = init.stream;
-    grpc_core::MutexLock lock(&stream->mutex);
-    stream->handleIncoming(std::move(msg));
-    gpr_log(GPR_INFO, "HomaListener::onRead done");
 }
 
 grpc_core::channelz::ListenSocketNode*
@@ -211,7 +299,6 @@ int HomaListener::init_stream(grpc_transport* gt, grpc_stream* gs,
     HomaStream *stream = reinterpret_cast<HomaStream *>(gs);
     StreamInit *init = const_cast<StreamInit*>(
             reinterpret_cast<const StreamInit*>(init_info));
-    gpr_log(GPR_INFO, "HomaListener::init_stream invoked");
     new (stream) HomaStream(*init->streamId, init->homaId, lis->fd, refcount,
             arena);
     init->stream = stream;
@@ -248,7 +335,6 @@ void HomaListener::perform_stream_op(grpc_transport* gt, grpc_stream* gs,
     grpc_core::MutexLock lock(&stream->mutex);
     grpc_error_handle error = GRPC_ERROR_NONE;
     
-    gpr_log(GPR_INFO, "HomaListener::perform_stream_op invoked");
     if (op->cancel_stream) {
         gpr_log(GPR_INFO, "HomaListener::perform_stream_op: cancel "
                 "stream ((%s)", grpc_error_std_string(
@@ -286,7 +372,6 @@ void HomaListener::perform_stream_op(grpc_transport* gt, grpc_stream* gs,
 void HomaListener::perform_op(grpc_transport* gt, grpc_transport_op* op)
 {
     HomaListener *lis = containerOf(gt, &HomaListener::transport);
-    gpr_log(GPR_INFO, "HomaListener::perform_op invoked");
     if (op->start_connectivity_watch) {
         gpr_log(GPR_INFO, "HomaListener::perform_op invoked with "
                 "start_connectivity_watch");
@@ -307,8 +392,6 @@ void HomaListener::perform_op(grpc_transport* gt, grpc_transport_op* op)
         GRPC_ERROR_UNREF(op->goaway_error);
     }
     if (op->set_accept_stream) {
-        gpr_log(GPR_INFO, "HomaListener::perform_op invoked with "
-                "set_accept_stream");
         lis->accept_stream_cb = op->set_accept_stream_fn;
         lis->accept_stream_data = op->set_accept_stream_user_data;
     }
@@ -339,9 +422,18 @@ void HomaListener::perform_op(grpc_transport* gt, grpc_transport_op* op)
 void HomaListener::destroy_stream(grpc_transport* gt, grpc_stream* gs,
         grpc_closure* closure)
 {
-    HomaStream *stream = reinterpret_cast<HomaStream*>(gs);
     gpr_log(GPR_INFO, "HomaListener::destroy_stream invoked");
-    stream->~HomaStream();
+    {
+        HomaListener *lis = containerOf(gt, &HomaListener::transport);
+        HomaStream *stream = reinterpret_cast<HomaStream*>(gs);
+        grpc_core::MutexLock lock(&lis->mutex);
+
+        // This ensures that no-one else is using the stream while we destroy it.
+        stream->mutex.Lock();
+        stream->mutex.Unlock();
+        lis->activeRpcs.erase(stream->streamId);
+        stream->~HomaStream();
+    }
     grpc_core::ExecCtx::Run(DEBUG_LOCATION, closure, GRPC_ERROR_NONE);
 }
 

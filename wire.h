@@ -30,7 +30,7 @@ public:
         
         // Position of this Homa messages among all of those sent on
         // this stream. Used on the other end to make sure that messages
-        // are processed in order.
+        // are processed in order. The first number for each stream is 1.
         be32 sequenceNum;
 
         // Number of bytes of initial metadata (may be zero), which

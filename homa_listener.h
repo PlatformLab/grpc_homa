@@ -25,19 +25,36 @@ public:
     void Start(grpc_core::Server* server,
             const std::vector<grpc_pollset*>* pollsets) override;
     static HomaListener *Get(grpc_server* server, int port);
+    static std::shared_ptr<grpc::ServerCredentials> insecureCredentials(void);
     void SetOnDestroyDone(grpc_closure* on_destroy_done) override;
     grpc_core::channelz::ListenSocketNode* channelz_listen_socket_node()
             const override;
     ~HomaListener();
     
-protected:
+// protected:
+    /**
+     * This class provides credentials to create Homa listeners.
+     */
+    class InsecureCredentials final : public grpc::ServerCredentials {
+    public:
+         int AddPortToServer(const std::string& addr, grpc_server* server);
+         void SetAuthMetadataProcessor(
+                  const std::shared_ptr<grpc::AuthMetadataProcessor>& processor)
+                 override {
+             (void)processor;
+             GPR_ASSERT(0);  // Should not be called on insecure credentials.
+         }
+    };
+   
 	HomaListener(grpc_server* server, int port);
+    HomaStream *    getStream(HomaIncoming *msg,
+                            std::optional<grpc_core::MutexLock>& streamLock);
     static void     InitShared(void);
     static void     destroy(grpc_transport* gt);
     static void     destroy_stream(grpc_transport* gt, grpc_stream* gs,
                             grpc_closure* then_schedule_closure);
     static grpc_endpoint*
-                    get_endpoint(grpc_transport* gt);
+                     get_endpoint(grpc_transport* gt);
     static int      init_stream(grpc_transport* gt, grpc_stream* gs,
                             grpc_stream_refcount* refcount,
                             const void* init_info, grpc_core::Arena* arena);
@@ -91,16 +108,19 @@ protected:
     
     // Keeps track of all RPCs currently in some stage of processing;
     // used to look up the Stream for an RPC based on its id.
-    std::unordered_map<StreamId*, HomaStream*> activeRpcs;
+    std::unordered_map<StreamId, HomaStream*, StreamId::Hasher> activeRpcs;
     
-    // Must be held when accessing @streams. Must not be acquired while
+    typedef std::unordered_map<StreamId, HomaStream*,
+            StreamId::Hasher>::iterator ActiveIterator;
+    
+    // Must be held when accessing @activeRpcs. Must not be acquired while
     // holding a stream lock.
     grpc_core::Mutex mutex;
     
     // Homa port number managed by this object.
     int port;
 	
-    // File descriptor for a Homa socket.
+    // File descriptor for a Homa socket; -1 means none.
     int fd;
     
     // Used by grpc to manage the socket in various ways, such as epoll.

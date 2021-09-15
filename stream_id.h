@@ -23,7 +23,9 @@ struct StreamId {
 
     StreamId() {}
     StreamId(uint32_t id);
+    StreamId(const StreamId &other);
     StreamId(grpc_resolved_address *gaddr, uint32_t id);
+    StreamId& operator=(const StreamId &other);
     bool operator==(const StreamId& other) const;
     
     // Convenient accessors for part or all of addr.

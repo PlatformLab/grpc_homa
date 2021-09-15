@@ -22,6 +22,7 @@ HOMA_OBJS = homa_api.o
 
 TEST_OBJS = mock.o \
             test_incoming.o \
+            test_listener.o \
             test_stream.o
 
 LDFLAGS += -L/usr/local/lib `pkg-config --libs protobuf grpc++`\

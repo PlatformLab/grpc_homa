@@ -35,6 +35,21 @@ StreamId::StreamId(uint32_t id)
     addrSize = sizeof(struct sockaddr_in);
 }
 
+StreamId::StreamId(const StreamId &other)
+{
+    addrSize = other.addrSize;
+    memcpy(&addr, &other.addr, addrSize);
+    id = other.id;
+}
+
+StreamId& StreamId::operator=(const StreamId &other)
+{
+    addrSize = other.addrSize;
+    memcpy(&addr, &other.addr, addrSize);
+    id = other.id;
+    return *this;
+}
+
 /**
  * Comparison operator for StreamIds.
  * \param other

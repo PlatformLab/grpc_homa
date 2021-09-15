@@ -10,6 +10,7 @@
  * order to enable better unit testing.
  */
 
+int Mock::errorCode = EIO;
 int Mock::homaRecvErrors = 0;
 int Mock::homaReplyvErrors = 0;
 int Mock::homaSendvErrors = 0;
@@ -233,6 +234,7 @@ void Mock::setUp(void)
     gpr_set_log_function(gprLog);
     gpr_set_log_verbosity(GPR_LOG_SEVERITY_ERROR);
     
+    errorCode = EIO;
     homaRecvErrors = 0;
     homaReplyvErrors = 0;
     homaSendvErrors = 0;
@@ -270,11 +272,11 @@ Mock::substr(const std::string& s, const std::string& substring)
 
 ssize_t homa_recv(int sockfd, void *buf, size_t len, int flags,
         struct sockaddr *srcAddr, size_t *addrlen, uint64_t *id,
-        size_t *msglen)
+        size_t *msglen, int *type)
 {
     Wire::Header *h = static_cast<Wire::Header *>(buf);
     if (Mock::checkError(&Mock::homaRecvErrors)) {
-        errno = EIO;
+        errno = Mock::errorCode;
         return -1;
     }
     *id = 333;
@@ -322,7 +324,7 @@ ssize_t homa_replyv(int sockfd, const struct iovec *iov, int iovcnt,
     }
     
     if (Mock::checkError(&Mock::homaReplyvErrors)) {
-        errno = EIO;
+        errno = Mock::errorCode;
         return -1;
     }
     return totalLength;
@@ -347,8 +349,9 @@ int homa_sendv(int sockfd, const struct iovec *iov, int iovcnt,
     }
     
     if (Mock::checkError(&Mock::homaSendvErrors)) {
-        errno = EIO;
+        errno = Mock::errorCode;
         return -1;
     }
+    *id = 123;
     return totalLength;
 }

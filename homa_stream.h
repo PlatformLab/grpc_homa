@@ -20,7 +20,6 @@
  */
 class HomaStream {
 public:
-
     // Must be held whenever accessing info in this structure.
     grpc_core::Mutex mutex;
     
@@ -31,10 +30,14 @@ public:
     // the peer (e.g. for sending responses).
     StreamId streamId;
 
-    // On servers, this contains the identifier for the original Homa
-    // request (which is also used for the final response). On clients,
-    // this is zero.
+    // The identifier for the first RPC on this stream (which is also used
+    // for the final response). On clients, this is 0 until the first RPC
+    // is sent.
     uint64_t homaId;
+    
+    // True means that this is the client side of the RPC; false means
+    // server side.
+    bool isClient;
 
     // Reference count (owned externally).
     grpc_stream_refcount* refs;
@@ -93,6 +96,10 @@ public:
     grpc_metadata_batch* trailMd;
     grpc_closure* trailMdClosure;
     
+    // True means we have passed trailing metadata to gRPC, so there is
+    // no more message data coming for this stream.
+    bool eof;
+    
     // Error that has occurred on this stream, if any.
     grpc_error_handle error;
     
@@ -112,6 +119,7 @@ public:
     void    flush();
     void    handleIncoming(HomaIncoming::UniquePtr msg);
     void    newXmit();
+    void    notifyError(grpc_error_handle error);
     void    saveCallbacks(grpc_transport_stream_op_batch* op);
     void    serializeMetadata(grpc_metadata_batch* batch);
     void    transferData();

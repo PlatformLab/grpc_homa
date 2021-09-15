@@ -15,6 +15,9 @@
  */
 class Mock {
 public:
+    // Used by some methods as the errno to return after a simulated failure.
+    static int errorCode;
+    
     // The variables below can be set to non-zero values by unit tests in order
     // to simulate error returns from various functions. If bit 0 is set to 1,
     // the next call to the function will fail; bit 1 corresponds to the next

@@ -2,22 +2,9 @@ Miscellaneous notes about a Homa plugin for gRPC:
 -------------------------------------------------
 
 * TODO list:
-  * Handle large messages and metadata, streaming RPCs
-    * First Homa RPC for a stream is also used for the last response.
-    * Other Homa RPCs are immediately ACKed.
-    * Define an OpRequests class that holds one or more Homa
-      messages that represent all of the data in one set of stream ops?
-      Or, maybe just use the Stream?
-  * Incoming messages:
-    * Don't know a message's stream until after receiving it.
-    * Use small buffer for initial reception, get remainder later
-      if needed.
-    * Use sequence numbers to process incoming messages in order
-  * How can server send multiple messages? Only 1 RPC is open!
-    * After receiving an intermediate response, the client immediately issues
-      another RPC for the next response. However, this doesn't allow
-      pipelining.
-    * Let server act as client, initiating RPCs back to the client?
+  * Recheck comments for stream batch ops to see if anything else
+    needs to be done
+  * Need to send and process responses for extra Homa messages
   * Clean up messages after errors
   * Add proper channelz support
   * Deal with recv_initial_metadata.recv_flags

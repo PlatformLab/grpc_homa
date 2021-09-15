@@ -11,60 +11,88 @@ public:
 };
 
 TEST_F(TestIncoming, read_basics) {
-    HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5);
+    grpc_error_handle error;
+    HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5, &error);
     ASSERT_TRUE(msg);
     EXPECT_EQ(44U, msg->streamId.id);
     EXPECT_EQ(1000U, msg->messageLength);
     EXPECT_EQ(1051U, msg->baseLength);
+    EXPECT_EQ(GRPC_ERROR_NONE, error);
 }
-TEST_F(TestIncoming, read_firsthomaRecvFails) {
+TEST_F(TestIncoming, read_noMessageAvailable) {
+    grpc_error_handle error;
     Mock::homaRecvErrors = 1;
-    HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5);
-    EXPECT_FALSE(msg);
+    Mock::errorCode = EAGAIN;
+    HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5, &error);
+    EXPECT_EQ(GRPC_ERROR_NONE, error);
+    EXPECT_EQ(nullptr, msg.get());
+    EXPECT_STREQ("", Mock::log.c_str());
+}
+TEST_F(TestIncoming, read_firstHomaRecvFails) {
+    grpc_error_handle error;
+    Mock::homaRecvErrors = 1;
+    HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5, &error);
+    EXPECT_NE(GRPC_ERROR_NONE, error);
     EXPECT_SUBSTR("gpr_log: Error in homa_recv:",
             Mock::log.c_str());
+    EXPECT_SUBSTR("os_error", grpc_error_string(error));
 }
 TEST_F(TestIncoming, read_firsthomaRecvTooShort) {
+    grpc_error_handle error;
     Mock::homaRecvMsgLengths.push_back(4);
-    HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5);
-    EXPECT_FALSE(msg);
+    HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5, &error);
+    EXPECT_NE(GRPC_ERROR_NONE, error);
     EXPECT_SUBSTR("gpr_log: Homa message contained only 4 bytes",
             Mock::log.c_str());
+    EXPECT_SUBSTR("Incoming Homa message too short for header",
+            grpc_error_string(error));
 }
 TEST_F(TestIncoming, read_lengthsInconsistent) {
+    grpc_error_handle error;
     Mock::homaRecvMsgLengths.push_back(1000);
-    HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5);
-    EXPECT_FALSE(msg);
+    HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5, &error);
+    EXPECT_NE(GRPC_ERROR_NONE, error);
     EXPECT_SUBSTR("gpr_log: Bad message length 1000",
             Mock::log.c_str());
+    EXPECT_SUBSTR("Incoming Homa message length doesn't match header",
+            grpc_error_string(error));
 }
 TEST_F(TestIncoming, read_tailhomaRecvFails) {
+    grpc_error_handle error;
     Mock::homaRecvErrors = 2;
     Mock::homaRecvReturns.push_back(500);
-    HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5);
-    EXPECT_FALSE(msg);
+    HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5, &error);
+    EXPECT_NE(GRPC_ERROR_NONE, error);
     EXPECT_SUBSTR("gpr_log: Error in homa_recv for tail of id 333:",
             Mock::log.c_str());
+    EXPECT_SUBSTR("os_error", grpc_error_string(error));
 }
 TEST_F(TestIncoming, read_tailHasWrongLength) {
+    grpc_error_handle error;
     Mock::homaRecvReturns.push_back(500);
     Mock::homaRecvReturns.push_back(500);
-    HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5);
-    EXPECT_FALSE(msg);
+    HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5, &error);
+    EXPECT_NE(GRPC_ERROR_NONE, error);
     EXPECT_SUBSTR("gpr_log: Tail of Homa message has wrong length",
             Mock::log.c_str());
+    EXPECT_SUBSTR("Tail of Homa message length has wrong length",
+            grpc_error_string(error));
 }
 TEST_F(TestIncoming, read_tailOK) {
+    grpc_error_handle error;
     Mock::homaRecvReturns.push_back(500);
     Mock::homaRecvReturns.push_back(551);
-    HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5);
+    HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5, &error);
+    EXPECT_EQ(GRPC_ERROR_NONE, error);
     ASSERT_TRUE(msg);
     EXPECT_LT(100U, msg->tail.size());
 }
 
 TEST_F(TestIncoming, copyOut) {
+    grpc_error_handle error;
     int destroyCounter = 0;
-    HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5);
+    HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5, &error);
+    EXPECT_EQ(GRPC_ERROR_NONE, error);
     msg->destroyCounter = &destroyCounter;
     msg->baseLength = 500;
     msg->tail.resize(1000);
@@ -91,8 +119,10 @@ TEST_F(TestIncoming, copyOut) {
 }
 
 TEST_F(TestIncoming, getStaticSlice) {
+    grpc_error_handle error;
     grpc_core::Arena *arena = grpc_core::Arena::Create(2000);
-    HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5);
+    HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5, &error);
+    EXPECT_EQ(GRPC_ERROR_NONE, error);
     msg->baseLength = 500;
     fillData(msg->initialPayload, 500, 0);
     
@@ -113,8 +143,10 @@ TEST_F(TestIncoming, getStaticSlice) {
 }
 
 TEST_F(TestIncoming, getSlice) {
+    grpc_error_handle error;
     int destroyCounter = 0;
-    HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5);
+    HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5, &error);
+    EXPECT_EQ(GRPC_ERROR_NONE, error);
     msg->destroyCounter = &destroyCounter;
     msg->baseLength = 500;
     msg->tail.resize(1000);
@@ -151,8 +183,10 @@ TEST_F(TestIncoming, getSlice) {
 }
 
 TEST_F(TestIncoming, deserializeMetadata_basics) {
+    grpc_error_handle error;
     grpc_core::Arena *arena = grpc_core::Arena::Create(2000);
-    HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5);
+    HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5, &error);
+    EXPECT_EQ(GRPC_ERROR_NONE, error);
     ASSERT_TRUE(msg);
     int destroyCounter = 0;
     msg->destroyCounter = &destroyCounter;
@@ -173,8 +207,10 @@ TEST_F(TestIncoming, deserializeMetadata_basics) {
     arena->Destroy();
 }
 TEST_F(TestIncoming, deserializeMetadata_metadataOverrunsSpace) {
+    grpc_error_handle error;
     grpc_core::Arena *arena = grpc_core::Arena::Create(2000);
-    HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5);
+    HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5, &error);
+    EXPECT_EQ(GRPC_ERROR_NONE, error);
     ASSERT_TRUE(msg);
     size_t length = msg->addMetadata(75, 100,
             "name1", "value1", 100,
@@ -190,8 +226,10 @@ TEST_F(TestIncoming, deserializeMetadata_metadataOverrunsSpace) {
     arena->Destroy();
 }
 TEST_F(TestIncoming, deserializeMetadata_useCallout) {
+    grpc_error_handle error;
     grpc_core::Arena *arena = grpc_core::Arena::Create(2000);
-    HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5);
+    HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5, &error);
+    EXPECT_EQ(GRPC_ERROR_NONE, error);
     ASSERT_TRUE(msg);
     size_t length = msg->addMetadata(75, 1000,
             "name1", "value1", GRPC_BATCH_PATH,
@@ -206,8 +244,10 @@ TEST_F(TestIncoming, deserializeMetadata_useCallout) {
     arena->Destroy();
 }
 TEST_F(TestIncoming, deserializeMetadata_valueMustBeManaged) {
+    grpc_error_handle error;
     grpc_core::Arena *arena = grpc_core::Arena::Create(2000);
-    HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5);
+    HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5, &error);
+    EXPECT_EQ(GRPC_ERROR_NONE, error);
     ASSERT_TRUE(msg);
     int destroyCounter = 0;
     msg->destroyCounter = &destroyCounter;
@@ -229,8 +269,10 @@ TEST_F(TestIncoming, deserializeMetadata_valueMustBeManaged) {
     arena->Destroy();
 }
 TEST_F(TestIncoming, deserializeMetadata_incompleteHeader) {
+    grpc_error_handle error;
     grpc_core::Arena *arena = grpc_core::Arena::Create(2000);
-    HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5);
+    HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5, &error);
+    EXPECT_EQ(GRPC_ERROR_NONE, error);
     ASSERT_TRUE(msg);
     size_t length = msg->addMetadata(75, 100,
             "name1", "value1", 100,
@@ -245,9 +287,11 @@ TEST_F(TestIncoming, deserializeMetadata_incompleteHeader) {
 }
 
 TEST_F(TestIncoming, getBytes) {
+    grpc_error_handle error;
     struct Bytes16 {uint8_t data[16];};
     Bytes16 buffer;
-    HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5);
+    HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5, &error);
+    EXPECT_EQ(GRPC_ERROR_NONE, error);
     msg->baseLength = 500;
     msg->tail.resize(1000);
     fillData(msg->initialPayload, 500, 0);

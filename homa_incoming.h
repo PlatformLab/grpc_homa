@@ -39,7 +39,7 @@ public:
     grpc_slice getStaticSlice(size_t offset, size_t length,
                     grpc_core::Arena *arena);
     
-    static UniquePtr read(int fd, int flags);
+    static UniquePtr read(int fd, int flags, grpc_error_handle *error);
     
     /**
      * Make a range of bytes from a message addressable in a contiguous
@@ -94,7 +94,8 @@ public:
     // keys and values).
     grpc_slice_refcount sliceRefs;
 
-    // Homa's id for this message.
+    // Homa's id for this message. 0 means an error occurred without
+    // actually reading a message.
     uint64_t homaId;
 
     // Information about stream (gRPC RPC) associated with the message.
@@ -103,6 +104,10 @@ public:
     // Total length of the message (may be longer than the space
     // available in hdr and initialPayload).
     size_t length;
+    
+    // True means the message is a request, false means reply. Only
+    // valid if homaId != 0.
+    bool isRequest;
 
     // Number of bytes actually stored in hdr and initialPayload
     size_t baseLength;

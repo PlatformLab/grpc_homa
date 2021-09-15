@@ -53,7 +53,8 @@ HomaIncoming::HomaIncoming(int sequence, bool initMd, size_t messageLength,
             HomaIncoming::destroyer, this, nullptr)
     , homaId(123)
     , streamId(999)
-    , length()
+    , length(0)
+    , isRequest()
     , baseLength(sizeof(Wire::Header))
     , sequence(sequence)
     , initMdLength(0)
@@ -129,30 +130,49 @@ void HomaIncoming::destroyer(void *arg)
  *      File descriptor of Homa socket from which to read the message
  * \param flags
  *      Flags to pass to homa_recv, such as HOMA_RECV_RESPONSE.
+ * \param homaId
+ *      Homa's id for the received message is stored here. This is
+ *      needed to provide that info to caller's in cases where nullptr
+ *      is returned (e.g. because the RPC failed). 0 means no id.
+ * \param error
+ *      Error information will be stored here, or GRPC_ERROR_NONE
+ *      if there was no error. Caller must invoke GRPC_ERROR_UNREF.
+ * 
  * \return
- *      The message that was just read (or nullptr if there was an
- *      error reading the message).
+ *      The message that was just read, or empty if no messages were
+ *      available. If there was an error (*error != GRPC_ERROR_NONE)
+ *      then the return value will be nonempty (some of the fields
+ *      may be useful), such as homaId and type.
  */
-HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags)
+HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags,
+        grpc_error_handle *error)
 {
     UniquePtr msg(new HomaIncoming);
+    int type;
+    
+    *error = GRPC_ERROR_NONE;
     msg->streamId.addrSize = sizeof(streamId.addr);
     ssize_t result = homa_recv(fd, &msg->initialPayload,
             sizeof(msg->initialPayload),
             flags | HOMA_RECV_PARTIAL, msg->streamId.sockaddr(),
-            &msg->streamId.addrSize, &msg->homaId, &msg->length);
+            &msg->streamId.addrSize, &msg->homaId, &msg->length, &type);
+    msg->isRequest = (type == HOMA_RECV_REQUEST);
     if (result < 0) {
-        if (errno != EAGAIN) {
-            gpr_log(GPR_ERROR, "Error in homa_recv: %s", strerror(errno));
+        if (errno == EAGAIN) {
+            return nullptr;
         }
-        return nullptr;
+        gpr_log(GPR_ERROR, "Error in homa_recv: %s", strerror(errno));
+        *error = GRPC_OS_ERROR(errno, "homa_recv");
+        return msg;
     }
     msg->baseLength = result;
     if (msg->baseLength < sizeof(Wire::Header)) {
         gpr_log(GPR_ERROR, "Homa message contained only %lu bytes "
                 "(need %lu bytes for header)",
                 msg->baseLength, sizeof(Wire::Header));
-        return nullptr;
+        *error = GRPC_ERROR_CREATE_FROM_STATIC_STRING(
+                "Incoming Homa message too short for header");
+        return msg;
     }
     msg->streamId.id = ntohl(msg->hdr()->streamId);
     msg->sequence = ntohl(msg->hdr()->sequenceNum);
@@ -164,31 +184,37 @@ HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags)
     if (msg->length != expected) {
         gpr_log(GPR_ERROR, "Bad message length %lu (expected %u)",
                 msg->length, expected);
-        return nullptr;
+        *error = GRPC_ERROR_CREATE_FROM_STATIC_STRING(
+                "Incoming Homa message length doesn't match header");
+        return msg;
     }
     if (msg->length > msg->baseLength) {
         // Must read the tail of the message.
         msg->tail.resize(msg->length - msg->baseLength);
         ssize_t tail_length = homa_recv(fd, msg->tail.data(),
                 msg->length - msg->baseLength, flags, msg->streamId.sockaddr(),
-                &msg->streamId.addrSize, &msg->homaId, nullptr);
+                &msg->streamId.addrSize, &msg->homaId, nullptr, nullptr);
         if (tail_length < 0) {
             gpr_log(GPR_ERROR, "Error in homa_recv for tail of id %lu: %s",
                     msg->homaId, strerror(errno));
-            return nullptr;
+            *error = GRPC_OS_ERROR(errno, "homa_recv");
+            return msg;
         }
         if ((msg->baseLength + tail_length) != msg->length) {
             gpr_log(GPR_ERROR, "Tail of Homa message has wrong length: "
                     "expected %lu bytes, got %lu bytes",
                     msg->length - msg->baseLength,  tail_length);
-            return nullptr;
+            *error = GRPC_ERROR_CREATE_FROM_STATIC_STRING(
+                    "Tail of Homa message length has wrong length");
+            return msg;
         }
     }
     gpr_log(GPR_INFO, "Received Homa message from host 0x%x, port %d with "
-            "id %d, sequence %d, Homa id %lu, length %lu, addr_size %lu",
+            "id %d, sequence %d, Homa id %lu, %u initMd bytes, "
+            "%u message bytes, %u trailMd bytes, flags 0x%x",
             msg->streamId.ipv4Addr(), msg->streamId.port(), msg->streamId.id,
-            htonl(msg->hdr()->sequenceNum), msg->homaId, msg->length,
-            msg->streamId.addrSize);
+            msg->sequence, msg->homaId, msg->initMdLength,
+            msg->messageLength, msg->trailMdLength, msg->hdr()->flags);
     return msg;
 }
 

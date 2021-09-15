@@ -10,7 +10,7 @@
  *      Identifies a particular gRPC RPC.
  * \param homaId
  *      On servers, the Homa identifier for the first message; on clients,
- *      zero.
+ *      zero (it will be filled in when the message is sent).
  * \param fd
  *      Use this file descriptor to send and receive Homa messages.
  * \param refcount
@@ -26,6 +26,7 @@ HomaStream::HomaStream(StreamId streamId, uint64_t homaId, int fd,
     , fd(fd)
     , streamId(streamId)
     , homaId(homaId)
+    , isClient(homaId == 0)
     , refs(refcount)
     , arena(arena)
     , xmitBuffer()
@@ -44,6 +45,7 @@ HomaStream::HomaStream(StreamId streamId, uint64_t homaId, int fd,
     , messageClosure(nullptr)
     , trailMd(nullptr)
     , trailMdClosure(nullptr)
+    , eof(false)
     , error(GRPC_ERROR_NONE)
     , maxMessageLength(HOMA_MAX_MESSAGE_LENGTH)
 {
@@ -69,10 +71,14 @@ void HomaStream::flush()
     if ((xmitSize <= sizeof(Wire::Header)) && (hdr()->flags == 0)) {
         return;
     }
-    if (homaId == 0) {
+    if (isClient) {
+        uint64_t id;
         status = homa_sendv(fd, vecs.data(), vecs.size(),
                 reinterpret_cast<struct sockaddr *>(streamId.addr),
-                streamId.addrSize, nullptr);
+                streamId.addrSize, &id);
+        if (homaId == 0) {
+            homaId = id;
+        }
     } else {
         status = homa_replyv(fd, vecs.data(), vecs.size(),
                 reinterpret_cast<struct sockaddr *>(streamId.addr),
@@ -86,7 +92,7 @@ void HomaStream::flush()
     } else {
         gpr_log(GPR_INFO, "Sent Homa %s with %d initial metadata bytes, "
                 "%d payload bytes, %d trailing metadata bytes",
-                (homaId == 0) ? "request" : "response",
+                (isClient) ? "request" : "response",
                 ntohl(hdr()->initMdBytes),
                 ntohl(hdr()->messageBytes),
                 ntohl(hdr()->trailMdBytes));
@@ -144,6 +150,10 @@ void HomaStream::saveCallbacks(grpc_transport_stream_op_batch* op)
         trailMd = op->payload->recv_trailing_metadata.recv_trailing_metadata;
         trailMdClosure =
                 op->payload->recv_trailing_metadata.recv_trailing_metadata_ready;
+    }
+    
+    if (error != GRPC_ERROR_NONE) {
+        notifyError(error);
     }
 }
 
@@ -313,6 +323,7 @@ void HomaStream::xmit(grpc_transport_stream_op_batch* op)
     
     if (op->send_message) {
         hdr()->flags |= Wire::Header::messageComplete;
+        op->payload->send_message.send_message.reset();
     }
     
     if (op->send_trailing_metadata) {
@@ -345,8 +356,6 @@ void HomaStream::transferData()
             if (msg->hdr()->flags & msg->hdr()->initMdPresent) {
                 msg->deserializeMetadata(sizeof(Wire::Header),
                         msg->initMdLength, initMd, arena);
-                gpr_log(GPR_INFO, "Accepted %u bytes of initial metadata",
-                        msg->initMdLength);
                 logMetadata(initMd, "incoming initial metadata");
                 grpc_closure *c = initMdClosure;
                 initMdClosure = nullptr;
@@ -395,6 +404,7 @@ void HomaStream::transferData()
                 grpc_closure *c = messageClosure;
                 messageClosure = nullptr;
                 grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_NONE);
+                gpr_log(GPR_INFO, "Invoked message closure");
             }
         } else if ((msg->messageLength > 0)
                 || (msg->hdr()->flags & msg->hdr()->messageComplete)) {
@@ -409,13 +419,13 @@ void HomaStream::transferData()
                 msg->deserializeMetadata(
                         sizeof(Wire::Header) + msg->initMdLength,
                         msg->trailMdLength, trailMd, arena);
-                gpr_log(GPR_INFO, "Accepted %u bytes of trailing metadata",
-                        msg->trailMdLength);
                 logMetadata(trailMd, "incoming trailing metadata");
                 grpc_closure *c = trailMdClosure;
                 trailMdClosure = nullptr;
                 msg->hdr()->flags &= ~msg->hdr()->trailMdPresent;
                 grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_NONE);
+                gpr_log(GPR_INFO, "Invoked trailing metadata closure");
+                eof = true;
             }
         } else if (msg->hdr()->flags & msg->hdr()->trailMdPresent) {
             // Can't do anything until we get a closure to accept
@@ -426,6 +436,16 @@ void HomaStream::transferData()
             nextIncomingSequence++;
         }
         incoming.erase(incoming.begin());
+    }
+    
+    if (eof && messageClosure) {
+        // gRPC has asked for another message but there aren't going to
+        // be any; signal that.
+        *messageStream = nullptr;
+        grpc_closure *c = messageClosure;
+        messageClosure = nullptr;
+        grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_NONE);
+        gpr_log(GPR_INFO, "Invoked message closure (eof)");
     }
 }
 
@@ -454,4 +474,40 @@ void HomaStream::handleIncoming(HomaIncoming::UniquePtr msg)
     }
 messageInserted:
     transferData();
+}
+
+/**
+ * This method is invoked a fatal error occurs on a stream. It invokes
+ * any callbacks present for the stream.
+ * \param error
+ *      Information about what went wrong. This method takes ownership
+ *      of the error.
+ */
+void HomaStream::notifyError(grpc_error_handle error)
+{
+    if (error != this->error) {
+        GRPC_ERROR_UNREF(this->error);
+        this->error = error;
+    }
+    gpr_log(GPR_INFO, "Recording error for stream id %u: %s",
+        streamId.id, grpc_error_string(error));
+    
+    if (initMdClosure) {
+        grpc_closure *c = initMdClosure;
+        initMdClosure = nullptr;
+        GRPC_ERROR_REF(this->error);
+        grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, this->error);
+    }
+    if (messageClosure) {
+        grpc_closure *c = messageClosure;
+        messageClosure = nullptr;
+        GRPC_ERROR_REF(this->error);
+        grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, this->error);
+    }
+    if (trailMdClosure) {
+        grpc_closure *c = trailMdClosure;
+        trailMdClosure = nullptr;
+        GRPC_ERROR_REF(this->error);
+        grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, this->error);
+    }
 }

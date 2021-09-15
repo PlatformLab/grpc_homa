@@ -6,6 +6,9 @@ package test;
 
 service Test {
     rpc Sum(SumArgs) returns (SumResult) {}
+    rpc SumMany(stream Value) returns (SumResult) {}
+    rpc GetRange(Value) returns (stream Value) {}
+    rpc IncMany(stream Value) returns (stream Value) {}
 }
 
 message SumArgs {
@@ -15,4 +18,8 @@ message SumArgs {
 
 message SumResult {
     int32 sum = 1;
+}
+
+message Value {
+    int32 value = 1;
 }
