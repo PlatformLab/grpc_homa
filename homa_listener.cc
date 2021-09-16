@@ -244,7 +244,6 @@ void HomaListener::onRead(void* arg, grpc_error* error)
                 grpc_error_string(error));
         return;
     }
-    grpc_fd_notify_on_read(lis->gfd, &lis->read_closure);
     while (true) {
         std::optional<grpc_core::MutexLock> streamLock;
         grpc_error_handle error;
@@ -257,6 +256,7 @@ void HomaListener::onRead(void* arg, grpc_error* error)
         HomaStream *stream = lis->getStream(msg.get(), streamLock);
         stream->handleIncoming(std::move(msg));
     }
+    grpc_fd_notify_on_read(lis->gfd, &lis->read_closure);
 }
 
 grpc_core::channelz::ListenSocketNode*

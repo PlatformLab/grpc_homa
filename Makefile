@@ -58,19 +58,22 @@ homa_api.o: /users/ouster/homaModule/homa_api.c
 	cc -c $(CFLAGS) $< -o $@
 	
 clean:
-	rm -f test_client test_server unit tcp_test *.o .deps
+	rm -f test_client test_server unit tcp_test *.o *.pb.* .deps
 	
 %.o: %.cc
 	$(CXX) -c $(CXXFLAGS) -std=c++17 $< -o $@
 
-%.grpc.pb.cc: %.proto %.pb.cc
+%.grpc.pb.cc %.grpc.pb.h: %.proto %.pb.cc
 	$(PROTOC) -I $(PROTOS_PATH) --grpc_out=. --plugin=protoc-gen-grpc=$(GRPC_CPP_PLUGIN_PATH) $<
 
-%.pb.cc: %.proto
+%.pb.cc %.pb.h: %.proto
 	$(PROTOC) -I $(PROTOS_PATH) --cpp_out=. $<
 	
 .PHONY: test clean
+.PRECIOUS: test.grpc.pb.h test.grpc.pb.cc test.pb.h test.pb.cc
 	
+test_client.o test_server.o tcp_test.o : test.grpc.pb.h test.pb.h
+
 # This magic (along with the -MD gcc option) automatically generates makefile
 # dependencies for header files included from source files we compile,
 # and keeps those dependencies up-to-date every time we recompile.

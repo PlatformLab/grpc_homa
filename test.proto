@@ -7,7 +7,7 @@ package test;
 service Test {
     rpc Sum(SumArgs) returns (SumResult) {}
     rpc SumMany(stream Value) returns (SumResult) {}
-    rpc GetRange(Value) returns (stream Value) {}
+    rpc GetValues(Value) returns (stream Value) {}
     rpc IncMany(stream Value) returns (stream Value) {}
 }
 

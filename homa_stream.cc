@@ -71,7 +71,8 @@ void HomaStream::flush()
     if ((xmitSize <= sizeof(Wire::Header)) && (hdr()->flags == 0)) {
         return;
     }
-    if (isClient) {
+    bool isRequest = isClient || !(hdr()->flags & Wire::Header::trailMdPresent);
+    if (isRequest) {
         uint64_t id;
         status = homa_sendv(fd, vecs.data(), vecs.size(),
                 reinterpret_cast<struct sockaddr *>(streamId.addr),
@@ -86,13 +87,13 @@ void HomaStream::flush()
     }
     if (status < 0) {
         gpr_log(GPR_ERROR, "Couldn't send Homa %s: %s",
-                (homaId == 0) ? "request" : "response",
+                (isRequest) ? "request" : "response",
                 strerror(errno));
         error = GRPC_OS_ERROR(errno, "Couldn't send Homa request/response");
     } else {
         gpr_log(GPR_INFO, "Sent Homa %s with %d initial metadata bytes, "
                 "%d payload bytes, %d trailing metadata bytes",
-                (isClient) ? "request" : "response",
+                (isRequest) ? "request" : "response",
                 ntohl(hdr()->initMdBytes),
                 ntohl(hdr()->messageBytes),
                 ntohl(hdr()->trailMdBytes));
@@ -404,7 +405,6 @@ void HomaStream::transferData()
                 grpc_closure *c = messageClosure;
                 messageClosure = nullptr;
                 grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_NONE);
-                gpr_log(GPR_INFO, "Invoked message closure");
             }
         } else if ((msg->messageLength > 0)
                 || (msg->hdr()->flags & msg->hdr()->messageComplete)) {
@@ -424,12 +424,12 @@ void HomaStream::transferData()
                 trailMdClosure = nullptr;
                 msg->hdr()->flags &= ~msg->hdr()->trailMdPresent;
                 grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_NONE);
-                gpr_log(GPR_INFO, "Invoked trailing metadata closure");
                 eof = true;
             }
         } else if (msg->hdr()->flags & msg->hdr()->trailMdPresent) {
             // Can't do anything until we get a closure to accept
             // trailing metadata.
+            eof = true;
             break;
         }
         if (msg->sequence == nextIncomingSequence) {
