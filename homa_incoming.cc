@@ -126,6 +126,8 @@ void HomaIncoming::destroyer(void *arg)
 
 /**
  * Read (the first part of) an incoming Homa request or response message.
+ * This method also takes care of sending automatic response for
+ * streaming RPCs, and for discarding those responses.
  * \param fd
  *      File descriptor of Homa socket from which to read the message
  * \param flags
@@ -149,22 +151,37 @@ HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags,
 {
     UniquePtr msg(new HomaIncoming);
     int type;
+    ssize_t result;
     
     *error = GRPC_ERROR_NONE;
-    msg->streamId.addrSize = sizeof(streamId.addr);
-    ssize_t result = homa_recv(fd, &msg->initialPayload,
-            sizeof(msg->initialPayload),
-            flags | HOMA_RECV_PARTIAL, msg->streamId.sockaddr(),
-            &msg->streamId.addrSize, &msg->homaId, &msg->length, &type);
-    msg->isRequest = (type == HOMA_RECV_REQUEST);
-    if (result < 0) {
-        if (errno == EAGAIN) {
-            return nullptr;
+    
+    // The following loop executes multiple times if it receives (and
+    // discards) streaming responses.
+    while (true) {
+        msg->streamId.addrSize = sizeof(streamId.addr);
+        msg->homaId = 0;
+        result = homa_recv(fd, &msg->initialPayload,
+                sizeof(msg->initialPayload),
+                flags | HOMA_RECV_PARTIAL, msg->streamId.sockaddr(),
+                &msg->streamId.addrSize, &msg->homaId, &msg->length, &type);
+        msg->isRequest = (type == HOMA_RECV_REQUEST);
+        if (result < 0) {
+            if (errno == EAGAIN) {
+                return nullptr;
+            }
+            gpr_log(GPR_ERROR, "Error in homa_recv: %s", strerror(errno));
+            *error = GRPC_OS_ERROR(errno, "homa_recv");
+            return msg;
         }
-        gpr_log(GPR_ERROR, "Error in homa_recv: %s", strerror(errno));
-        *error = GRPC_OS_ERROR(errno, "homa_recv");
-        return msg;
+        if (!(msg->hdr()->flags & Wire::Header::streamResponse)) {
+            break;
+        }
+        gpr_log(GPR_INFO,
+                "Discarding streaming response for id %d, sequence %d",
+                ntohl(msg->hdr()->streamId), ntohl(msg->hdr()->sequenceNum));
     }
+    
+    // We now have a message suitable for returning to the caller.
     msg->baseLength = result;
     if (msg->baseLength < sizeof(Wire::Header)) {
         gpr_log(GPR_ERROR, "Homa message contained only %lu bytes "
@@ -176,9 +193,9 @@ HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags,
     }
     msg->streamId.id = ntohl(msg->hdr()->streamId);
     msg->sequence = ntohl(msg->hdr()->sequenceNum);
-    msg->initMdLength = htonl(msg->hdr()->initMdBytes);
-    msg->messageLength = htonl(msg->hdr()->messageBytes);
-    msg->trailMdLength = htonl(msg->hdr()->trailMdBytes);
+    msg->initMdLength = ntohl(msg->hdr()->initMdBytes);
+    msg->messageLength = ntohl(msg->hdr()->messageBytes);
+    msg->trailMdLength = ntohl(msg->hdr()->trailMdBytes);
     uint32_t expected = sizeof(Wire::Header) + msg->initMdLength
             + msg->messageLength + msg->trailMdLength;
     if (msg->length != expected) {
@@ -188,6 +205,25 @@ HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags,
                 "Incoming Homa message length doesn't match header");
         return msg;
     }
+    
+    // Send a response for any message that is a "streaming request"
+    // (i.e., a request message that is not the first message for a
+    // new RPC). The only reason for sending these responses is so
+    // that Homa can clean up its state for the RPC (the responses
+    // get discarded above).
+    if (msg->hdr()->flags & Wire::Header::streamRequest) {
+        Wire::Header response(msg->streamId.id, msg->sequence);
+        response.flags |= Wire::Header::streamResponse;
+        if (homa_reply(fd, &response, sizeof(response),
+                msg->streamId.sockaddr(), msg->streamId.addrSize,
+                msg->homaId) < 0) {
+            gpr_log(GPR_ERROR, "Couldn't send Homa streaming response: %s",
+                    strerror(errno));
+        }
+        gpr_log(GPR_INFO, "Sent streaming response for id %d, sequence %d",
+                msg->streamId.id, msg->sequence);
+    }
+    
     if (msg->length > msg->baseLength) {
         // Must read the tail of the message.
         msg->tail.resize(msg->length - msg->baseLength);

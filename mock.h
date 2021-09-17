@@ -23,6 +23,7 @@ public:
     // the next call to the function will fail; bit 1 corresponds to the next
     // call after that, and so on.
     static int homaRecvErrors;
+    static int homaReplyErrors;
     static int homaReplyvErrors;
     static int homaSendvErrors;
     

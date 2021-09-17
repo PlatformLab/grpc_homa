@@ -160,7 +160,7 @@ int main(int argc, char** argv) {
 //    int sum;
 //    sum = client.Sum(22, 33);
 //    printf("Sum of 22 and 33 is %d\n", sum);
-    printf("SumMany of 1..5 is %d\n", client.SumMany(1, 2, 3, 4, 5, -1));
+//    printf("SumMany of 1..5 is %d\n", client.SumMany(1, 2, 3, 4, 5, -1));
 //    client.PrintValues(21);
     client.IncMany(3, 4);
     return 0;

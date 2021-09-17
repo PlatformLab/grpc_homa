@@ -106,5 +106,11 @@ void Wire::dumpHeader(void *msg, gpr_log_severity severity)
     if (hdr->flags & Header::trailMdPresent) {
         s.append(", trailMdPresent");
     }
+    if (hdr->flags & Header::streamRequest) {
+        s.append(", streamRequest");
+    }
+    if (hdr->flags & Header::streamResponse) {
+        s.append(", streamResponse");
+    }
     gpr_log(__FILE__, __LINE__, severity, "Header: %s", s.c_str());
 }

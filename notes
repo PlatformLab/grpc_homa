@@ -12,7 +12,6 @@ Miscellaneous notes about a Homa plugin for gRPC:
   * Fill in remaining stream/transport ops
   * Make HomaStream instance variables protected
   * Implement timeouts
-  * Paramaterize default message sizes, for testing.
   * HomaClient:onRead currently locks the stream: awkward.
 
 * Various notes about how gRPC works:

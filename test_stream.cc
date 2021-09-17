@@ -202,8 +202,9 @@ TEST_F(TestStream, xmit_initialMetadata) {
     stream.xmit(&op);
     ASSERT_EQ(1U, Mock::homaMessages.size());
     Wire::dumpHeader(Mock::homaMessages[0].data(), GPR_LOG_SEVERITY_ERROR);
-    EXPECT_STREQ("homa_replyv: 1 iovecs, 62 bytes; "
-            "gpr_log: Header: id: 33, sequence 2, initMdBytes 41, initMdPresent",
+    EXPECT_STREQ("homa_sendv: 1 iovecs, 62 bytes; "
+            "gpr_log: Header: id: 33, sequence 2, initMdBytes 41, "
+            "initMdPresent, streamRequest",
             Mock::log.c_str());
     Mock::log.clear();
     Wire::dumpMetadata(Mock::homaMessages[0].data() + sizeof(Wire::Header),
@@ -274,9 +275,9 @@ TEST_F(TestStream, xmit_onlyMessageData) {
     stream.xmit(&op);
     ASSERT_EQ(1U, Mock::homaMessages.size());
     Wire::dumpHeader(Mock::homaMessages[0].data(), GPR_LOG_SEVERITY_ERROR);
-    EXPECT_STREQ("homa_replyv: 4 iovecs, 621 bytes; "
+    EXPECT_STREQ("homa_sendv: 4 iovecs, 621 bytes; "
             "gpr_log: Header: id: 33, sequence 2, messageBytes 600, "
-            "messageComplete",
+            "messageComplete, streamRequest",
             Mock::log.c_str());
     Mock::log.clear();
     Mock::logData("; ",
@@ -352,8 +353,8 @@ TEST_F(TestStream, xmit_multipleHomaMessages) {
     stream.maxMessageLength = 301;
     stream.xmit(&op);
     ASSERT_EQ(3U, Mock::homaMessages.size());
-    EXPECT_STREQ("homa_replyv: 3 iovecs, 301 bytes; "
-            "homa_replyv: 2 iovecs, 301 bytes; "
+    EXPECT_STREQ("homa_sendv: 3 iovecs, 301 bytes; "
+            "homa_sendv: 2 iovecs, 301 bytes; "
             "homa_replyv: 3 iovecs, 202 bytes",
             Mock::log.c_str());
     
@@ -361,7 +362,7 @@ TEST_F(TestStream, xmit_multipleHomaMessages) {
     Mock::log.clear();
     Wire::dumpHeader(Mock::homaMessages[0].data(), GPR_LOG_SEVERITY_ERROR);
     EXPECT_STREQ("gpr_log: Header: id: 33, sequence 2, initMdBytes 20, "
-            "messageBytes 260, initMdPresent",
+            "messageBytes 260, initMdPresent, streamRequest",
             Mock::log.c_str());
     Mock::log.clear();
     Wire::dumpMetadata(Mock::homaMessages[0].data() + sizeof(Wire::Header),
@@ -377,8 +378,8 @@ TEST_F(TestStream, xmit_multipleHomaMessages) {
     // Second Homa message: more message data.
     Mock::log.clear();
     Wire::dumpHeader(Mock::homaMessages[1].data(), GPR_LOG_SEVERITY_ERROR);
-    EXPECT_STREQ("gpr_log: Header: id: 33, sequence 3, messageBytes 280",
-            Mock::log.c_str());
+    EXPECT_STREQ("gpr_log: Header: id: 33, sequence 3, messageBytes 280, "
+            "streamRequest", Mock::log.c_str());
     Mock::log.clear();
     Mock::logData("; ", Mock::homaMessages[1].data() + sizeof(Wire::Header),
             Mock::homaMessages[1].size() - (sizeof(Wire::Header)));

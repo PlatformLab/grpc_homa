@@ -12,6 +12,7 @@
 
 int Mock::errorCode = EIO;
 int Mock::homaRecvErrors = 0;
+int Mock::homaReplyErrors = 0;
 int Mock::homaReplyvErrors = 0;
 int Mock::homaSendvErrors = 0;
 
@@ -236,6 +237,7 @@ void Mock::setUp(void)
     
     errorCode = EIO;
     homaRecvErrors = 0;
+    homaReplyErrors = 0;
     homaReplyvErrors = 0;
     homaSendvErrors = 0;
     
@@ -303,6 +305,21 @@ ssize_t homa_recv(int sockfd, void *buf, size_t len, int flags,
     ssize_t result = Mock::homaRecvReturns.front();
     Mock::homaRecvReturns.pop_front();
     return result;
+}
+
+ssize_t homa_reply(int sockfd, const void *buffer, size_t length,
+        const struct sockaddr *dest_addr, size_t addrlen, uint64_t id)
+{
+    Mock::logPrintf("; ", "homa_reply: %lu bytes", length);
+    
+    Mock::homaMessages.emplace_back(length);
+    memcpy(Mock::homaMessages.back().data(), buffer, length);
+    
+    if (Mock::checkError(&Mock::homaReplyErrors)) {
+        errno = Mock::errorCode;
+        return -1;
+    }
+    return length;
 }
 
 ssize_t homa_replyv(int sockfd, const struct iovec *iov, int iovcnt,
