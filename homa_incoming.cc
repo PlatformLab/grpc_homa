@@ -9,7 +9,6 @@ HomaIncoming::HomaIncoming()
     : refs()
     , sliceRefs(grpc_slice_refcount::Type::REGULAR, &refs,
             HomaIncoming::destroyer, this, nullptr)
-    , homaId()
     , streamId()
     , length()
     , baseLength()
@@ -51,7 +50,6 @@ HomaIncoming::HomaIncoming(int sequence, bool initMd, size_t messageLength,
     : refs()
     , sliceRefs(grpc_slice_refcount::Type::REGULAR, &refs,
             HomaIncoming::destroyer, this, nullptr)
-    , homaId(123)
     , streamId(999)
     , length(0)
     , isRequest()
@@ -141,13 +139,14 @@ void HomaIncoming::destroyer(void *arg)
  *      if there was no error. Caller must invoke GRPC_ERROR_UNREF.
  * 
  * \return
- *      The message that was just read, or empty if no messages were
- *      available. If there was an error (*error != GRPC_ERROR_NONE)
- *      then the return value will be nonempty (some of the fields
- *      may be useful), such as homaId and type.
+ *      The message that was just read, or empty if no message could
+ *      be read. If *error == GRPC_ERROR_NONE and the result is empty,
+ *      it means no message was available. If *error != GRPC_ERROR_NONE,
+ *      then there was an error reading a message. In this case, if
+ *      *homaId is nonzero, it means that that particular RPC failed.
  */
 HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags,
-        grpc_error_handle *error)
+        uint64_t *homaId, grpc_error_handle *error)
 {
     UniquePtr msg(new HomaIncoming);
     int type;
@@ -159,11 +158,11 @@ HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags,
     // discards) streaming responses.
     while (true) {
         msg->streamId.addrSize = sizeof(streamId.addr);
-        msg->homaId = 0;
+        *homaId = 0;
         result = homa_recv(fd, &msg->initialPayload,
                 sizeof(msg->initialPayload),
                 flags | HOMA_RECV_PARTIAL, msg->streamId.sockaddr(),
-                &msg->streamId.addrSize, &msg->homaId, &msg->length, &type);
+                &msg->streamId.addrSize, homaId, &msg->length, &type);
         msg->isRequest = (type == HOMA_RECV_REQUEST);
         if (result < 0) {
             if (errno == EAGAIN) {
@@ -171,7 +170,7 @@ HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags,
             }
             gpr_log(GPR_ERROR, "Error in homa_recv: %s", strerror(errno));
             *error = GRPC_OS_ERROR(errno, "homa_recv");
-            return msg;
+            return nullptr;
         }
         if (!(msg->hdr()->flags & Wire::Header::streamResponse)) {
             break;
@@ -189,7 +188,7 @@ HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags,
                 msg->baseLength, sizeof(Wire::Header));
         *error = GRPC_ERROR_CREATE_FROM_STATIC_STRING(
                 "Incoming Homa message too short for header");
-        return msg;
+        return nullptr;
     }
     msg->streamId.id = ntohl(msg->hdr()->streamId);
     msg->sequence = ntohl(msg->hdr()->sequenceNum);
@@ -203,20 +202,20 @@ HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags,
                 msg->length, expected);
         *error = GRPC_ERROR_CREATE_FROM_STATIC_STRING(
                 "Incoming Homa message length doesn't match header");
-        return msg;
+        return nullptr;
     }
     
     // Send a response for any message that is a "streaming request"
-    // (i.e., a request message that is not the first message for a
-    // new RPC). The only reason for sending these responses is so
-    // that Homa can clean up its state for the RPC (the responses
-    // get discarded above).
-    if (msg->hdr()->flags & Wire::Header::streamRequest) {
+    // (any incoming request that doesn't contain trailing metadata).
+    // The only reason for sending these responses is so that Homa can
+    // clean up its state for the RPC (the responses get discarded above).
+    if ((type == HOMA_RECV_REQUEST)
+            && !(msg->hdr()->flags & Wire::Header::trailMdPresent)) {
         Wire::Header response(msg->streamId.id, msg->sequence);
         response.flags |= Wire::Header::streamResponse;
         if (homa_reply(fd, &response, sizeof(response),
                 msg->streamId.sockaddr(), msg->streamId.addrSize,
-                msg->homaId) < 0) {
+                *homaId) < 0) {
             gpr_log(GPR_ERROR, "Couldn't send Homa streaming response: %s",
                     strerror(errno));
         }
@@ -229,12 +228,12 @@ HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags,
         msg->tail.resize(msg->length - msg->baseLength);
         ssize_t tail_length = homa_recv(fd, msg->tail.data(),
                 msg->length - msg->baseLength, flags, msg->streamId.sockaddr(),
-                &msg->streamId.addrSize, &msg->homaId, nullptr, nullptr);
+                &msg->streamId.addrSize, homaId, nullptr, nullptr);
         if (tail_length < 0) {
             gpr_log(GPR_ERROR, "Error in homa_recv for tail of id %lu: %s",
-                    msg->homaId, strerror(errno));
+                    *homaId, strerror(errno));
             *error = GRPC_OS_ERROR(errno, "homa_recv");
-            return msg;
+            return nullptr;
         }
         if ((msg->baseLength + tail_length) != msg->length) {
             gpr_log(GPR_ERROR, "Tail of Homa message has wrong length: "
@@ -242,14 +241,14 @@ HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags,
                     msg->length - msg->baseLength,  tail_length);
             *error = GRPC_ERROR_CREATE_FROM_STATIC_STRING(
                     "Tail of Homa message length has wrong length");
-            return msg;
+            return nullptr;
         }
     }
     gpr_log(GPR_INFO, "Received Homa message from host 0x%x, port %d with "
             "id %d, sequence %d, Homa id %lu, %u initMd bytes, "
             "%u message bytes, %u trailMd bytes, flags 0x%x",
             msg->streamId.ipv4Addr(), msg->streamId.port(), msg->streamId.id,
-            msg->sequence, msg->homaId, msg->initMdLength,
+            msg->sequence, *homaId, msg->initMdLength,
             msg->messageLength, msg->trailMdLength, msg->hdr()->flags);
     return msg;
 }

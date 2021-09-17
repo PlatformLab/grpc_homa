@@ -8,9 +8,6 @@
  * Constructor for HomaStreams.
  * \param streamId
  *      Identifies a particular gRPC RPC.
- * \param homaId
- *      On servers, the Homa identifier for the first message; on clients,
- *      zero (it will be filled in when the message is sent).
  * \param fd
  *      Use this file descriptor to send and receive Homa messages.
  * \param refcount
@@ -20,13 +17,13 @@
  *      allocated here will persist for the life of the stream and be
  *      automatically garbage collected when the stream is destroyed.
  */
-HomaStream::HomaStream(StreamId streamId, uint64_t homaId, int fd,
+HomaStream::HomaStream(StreamId streamId, int fd,
         grpc_stream_refcount* refcount, grpc_core::Arena* arena)
     : mutex()
     , fd(fd)
     , streamId(streamId)
-    , homaId(homaId)
-    , isClient(homaId == 0)
+    , sentHomaId(0)
+    , recvHomaId(0)
     , refs(refcount)
     , arena(arena)
     , xmitBuffer()
@@ -71,22 +68,16 @@ void HomaStream::flush()
     if ((xmitSize <= sizeof(Wire::Header)) && (hdr()->flags == 0)) {
         return;
     }
-    bool isRequest = isClient || !(hdr()->flags & Wire::Header::trailMdPresent);
+    bool isRequest = (recvHomaId == 0)
+            || !(hdr()->flags & Wire::Header::trailMdPresent);
     if (isRequest) {
-        uint64_t id;
-        if (!isClient || (nextXmitSequence > 2)) {
-            hdr()->flags |= Wire::Header::streamRequest;
-        }
         status = homa_sendv(fd, vecs.data(), vecs.size(),
                 reinterpret_cast<struct sockaddr *>(streamId.addr),
-                streamId.addrSize, &id);
-        if (homaId == 0) {
-            homaId = id;
-        }
+                streamId.addrSize, &sentHomaId);
     } else {
         status = homa_replyv(fd, vecs.data(), vecs.size(),
                 reinterpret_cast<struct sockaddr *>(streamId.addr),
-                streamId.addrSize, homaId);
+                streamId.addrSize, recvHomaId);
     }
     if (status < 0) {
         gpr_log(GPR_ERROR, "Couldn't send Homa %s: %s",

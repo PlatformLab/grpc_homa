@@ -26,20 +26,22 @@ public:
 
     typedef std::unique_ptr<HomaIncoming, UnrefIncoming> UniquePtr;
     
-    explicit   HomaIncoming();
-    explicit   HomaIncoming(int sequence, bool initMd, size_t messageLength,
-                    size_t tailLength, int firstValue,
-                    bool messageComplete, bool trailMd);
-               ~HomaIncoming();
-    size_t     addMetadata(size_t offset, size_t staticLength, ...);
-    void       copyOut(void *dst, size_t offset, size_t length);
-    void       deserializeMetadata(size_t offset, size_t length,
-                    grpc_metadata_batch* batch, grpc_core::Arena* arena);
-    grpc_slice getSlice(size_t offset, size_t length);
-    grpc_slice getStaticSlice(size_t offset, size_t length,
-                    grpc_core::Arena *arena);
+    explicit          HomaIncoming();
+    explicit          HomaIncoming(int sequence, bool initMd,
+                            size_t messageLength, size_t tailLength,
+                            int firstValue, bool messageComplete, bool trailMd);
+                      ~HomaIncoming();
+    size_t            addMetadata(size_t offset, size_t staticLength, ...);
+    void              copyOut(void *dst, size_t offset, size_t length);
+    void              deserializeMetadata(size_t offset, size_t length,
+                            grpc_metadata_batch* batch,
+                            grpc_core::Arena* arena);
+    grpc_slice        getSlice(size_t offset, size_t length);
+    grpc_slice        getStaticSlice(size_t offset, size_t length,
+                            grpc_core::Arena *arena);
     
-    static UniquePtr read(int fd, int flags, grpc_error_handle *error);
+    static UniquePtr  read(int fd, int flags, uint64_t *homaId,
+                            grpc_error_handle *error);
     
     /**
      * Make a range of bytes from a message addressable in a contiguous
@@ -93,10 +95,6 @@ public:
     // (such as a std::unique_ptr for the entire message, and metadata
     // keys and values).
     grpc_slice_refcount sliceRefs;
-
-    // Homa's id for this message. 0 means an error occurred without
-    // actually reading a message.
-    uint64_t homaId;
 
     // Information about stream (gRPC RPC) associated with the message.
     StreamId streamId;

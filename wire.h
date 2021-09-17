@@ -61,15 +61,9 @@ public:
         // trailing metadata (possibly none).
         static const int trailMdPresent = 4;
         
-        // Flag bit indicating that this is a request message used
-        // for additional streaming data (it's not the first request
-        // for an RPC). Streaming requests can be sent by either the
-        // client or the server.
-        static const int streamRequest = 8;
-        
         // Flag bit indicating that this is a response for a streaming
-        // request.
-        static const int streamResponse = 16;
+        // request (a message that is not the final one for this RPC).
+        static const int streamResponse = 8;
         
         Header(int streamId, int sequence, int initMdBytes, int trailMdBytes,
                 int messageBytes)

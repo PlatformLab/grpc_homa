@@ -53,8 +53,8 @@ public:
         HomaListener::StreamInit *init =
                 static_cast<HomaListener::StreamInit *>(
                 const_cast<void*>(initInfo));
-        init->stream = new HomaStream(*init->streamId, init->homaId,
-                test->lis->fd, &test->refcount, test->arena);
+        init->stream = new HomaStream(*init->streamId, test->lis->fd,
+                &test->refcount, test->arena);
         test->streams.push_back(init->stream);
     }
 };

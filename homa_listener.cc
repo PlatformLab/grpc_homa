@@ -210,7 +210,6 @@ HomaStream *HomaListener::getStream(HomaIncoming *msg,
     // Must create a new HomaStream.
     StreamInit init;
     init.streamId = &msg->streamId;
-    init.homaId = msg->homaId;
     init.stream = nullptr;
     if (accept_stream_cb) {
         accept_stream_cb(accept_stream_data, &transport, &init);
@@ -238,6 +237,7 @@ done:
 void HomaListener::onRead(void* arg, grpc_error* error)
 {
     HomaListener *lis = static_cast<HomaListener*>(arg);
+    uint64_t homaId;
     
     if (error != GRPC_ERROR_NONE) {
         gpr_log(GPR_ERROR, "OnRead invoked with error: %s",
@@ -248,12 +248,13 @@ void HomaListener::onRead(void* arg, grpc_error* error)
         std::optional<grpc_core::MutexLock> streamLock;
         grpc_error_handle error;
         HomaIncoming::UniquePtr msg = HomaIncoming::read(lis->fd,
-                HOMA_RECV_REQUEST|HOMA_RECV_NONBLOCKING, &error);
+                HOMA_RECV_REQUEST|HOMA_RECV_NONBLOCKING, &homaId, &error);
         if ((error != GRPC_ERROR_NONE) || !msg) {
             break;
         }
 
         HomaStream *stream = lis->getStream(msg.get(), streamLock);
+        stream->setRecvHomaId(homaId);
         stream->handleIncoming(std::move(msg));
     }
     grpc_fd_notify_on_read(lis->gfd, &lis->read_closure);
@@ -299,8 +300,7 @@ int HomaListener::init_stream(grpc_transport* gt, grpc_stream* gs,
     HomaStream *stream = reinterpret_cast<HomaStream *>(gs);
     StreamInit *init = const_cast<StreamInit*>(
             reinterpret_cast<const StreamInit*>(init_info));
-    new (stream) HomaStream(*init->streamId, init->homaId, lis->fd, refcount,
-            arena);
+    new (stream) HomaStream(*init->streamId, lis->fd, refcount, arena);
     init->stream = stream;
     return 0;
 }

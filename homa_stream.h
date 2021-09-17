@@ -30,14 +30,12 @@ public:
     // the peer (e.g. for sending responses).
     StreamId streamId;
 
-    // The identifier for the first RPC on this stream (which is also used
-    // for the final response). On clients, this is 0 until the first RPC
-    // is sent.
-    uint64_t homaId;
-    
-    // True means that this is the client side of the RPC; false means
-    // server side.
-    bool isClient;
+    // Homa's identifier for the most recent request sent on this stream.
+    uint64_t sentHomaId;
+
+    // Homa's identifier for the most recent request received on this stream.
+    // Only used on servers; always 0 on clients.
+    uint64_t recvHomaId;
 
     // Reference count (owned externally).
     grpc_stream_refcount* refs;
@@ -107,12 +105,19 @@ public:
     // is a variable so it can be modified for unit testing).
     size_t maxMessageLength;
 
-    HomaStream(StreamId streamId, uint64_t homaId, int fd,
-            grpc_stream_refcount* refcount, grpc_core::Arena* arena);
+    HomaStream(StreamId streamId, int fd, grpc_stream_refcount* refcount,
+            grpc_core::Arena* arena);
     
     Wire::Header *hdr()
     {
         return reinterpret_cast<Wire::Header*>(xmitBuffer);
+    }
+    
+    void setRecvHomaId(uint64_t homaId)
+    {
+        if (homaId > recvHomaId) {
+            recvHomaId = homaId;
+        }
     }
 
     virtual ~HomaStream();

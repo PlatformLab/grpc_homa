@@ -88,9 +88,6 @@ public:
         // Identifying information from incoming RPC.
         StreamId *streamId;
 
-        // Homa's id for the incoming RPC.
-        uint64_t homaId;
-
         // Used to return the HomaStream address back through callbacks.
         HomaStream *stream;
     };

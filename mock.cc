@@ -282,6 +282,9 @@ ssize_t homa_recv(int sockfd, void *buf, size_t len, int flags,
         return -1;
     }
     *id = 333;
+    if (type != nullptr) {
+        *type = HOMA_RECV_REQUEST;
+    }
     if (Mock::homaRecvHeaders.empty()) {
         new (buf) Wire::Header(44, 0, 10, 20, 1000);
     } else {
@@ -309,9 +312,7 @@ ssize_t homa_recv(int sockfd, void *buf, size_t len, int flags,
 
 ssize_t homa_reply(int sockfd, const void *buffer, size_t length,
         const struct sockaddr *dest_addr, size_t addrlen, uint64_t id)
-{
-    Mock::logPrintf("; ", "homa_reply: %lu bytes", length);
-    
+{    
     Mock::homaMessages.emplace_back(length);
     memcpy(Mock::homaMessages.back().data(), buffer, length);
     
