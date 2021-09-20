@@ -30,7 +30,7 @@ int HomaListener::InsecureCredentials::AddPortToServer(const std::string& addr,
     port = strtol(addr.c_str()+5, &end, 0);
     if ((*end != '\0') || (port <= 0)) {
         gpr_log(GPR_ERROR, "bad Homa port number '%s', must be between 1 and %d",
-                addr.c_str()+5, HOMA_MIN_CLIENT_PORT-1);
+                addr.c_str()+5, HOMA_MIN_DEFAULT_PORT-1);
         return 0;
     }
     HomaListener *listener = HomaListener::Get(server, port);

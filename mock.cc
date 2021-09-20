@@ -274,7 +274,7 @@ Mock::substr(const std::string& s, const std::string& substring)
 
 ssize_t homa_recv(int sockfd, void *buf, size_t len, int flags,
         struct sockaddr *srcAddr, size_t *addrlen, uint64_t *id,
-        size_t *msglen, int *type)
+        size_t *msglen)
 {
     Wire::Header *h = static_cast<Wire::Header *>(buf);
     if (Mock::checkError(&Mock::homaRecvErrors)) {
@@ -282,9 +282,6 @@ ssize_t homa_recv(int sockfd, void *buf, size_t len, int flags,
         return -1;
     }
     *id = 333;
-    if (type != nullptr) {
-        *type = HOMA_RECV_REQUEST;
-    }
     if (Mock::homaRecvHeaders.empty()) {
         new (buf) Wire::Header(44, 0, 10, 20, 1000);
     } else {

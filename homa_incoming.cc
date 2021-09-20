@@ -52,7 +52,6 @@ HomaIncoming::HomaIncoming(int sequence, bool initMd, size_t messageLength,
             HomaIncoming::destroyer, this, nullptr)
     , streamId(999)
     , length(0)
-    , isRequest()
     , baseLength(sizeof(Wire::Header))
     , sequence(sequence)
     , initMdLength(0)
@@ -149,7 +148,6 @@ HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags,
         uint64_t *homaId, grpc_error_handle *error)
 {
     UniquePtr msg(new HomaIncoming);
-    int type;
     ssize_t result;
     
     *error = GRPC_ERROR_NONE;
@@ -162,8 +160,7 @@ HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags,
         result = homa_recv(fd, &msg->initialPayload,
                 sizeof(msg->initialPayload),
                 flags | HOMA_RECV_PARTIAL, msg->streamId.sockaddr(),
-                &msg->streamId.addrSize, homaId, &msg->length, &type);
-        msg->isRequest = (type == HOMA_RECV_REQUEST);
+                &msg->streamId.addrSize, homaId, &msg->length);
         if (result < 0) {
             if (errno == EAGAIN) {
                 return nullptr;
@@ -209,7 +206,7 @@ HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags,
     // (any incoming request that doesn't contain trailing metadata).
     // The only reason for sending these responses is so that Homa can
     // clean up its state for the RPC (the responses get discarded above).
-    if ((type == HOMA_RECV_REQUEST)
+    if ((msg->hdr()->flags & Wire::Header::request)
             && !(msg->hdr()->flags & Wire::Header::trailMdPresent)) {
         Wire::Header response(msg->streamId.id, msg->sequence);
         response.flags |= Wire::Header::streamResponse;
@@ -228,7 +225,7 @@ HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags,
         msg->tail.resize(msg->length - msg->baseLength);
         ssize_t tail_length = homa_recv(fd, msg->tail.data(),
                 msg->length - msg->baseLength, flags, msg->streamId.sockaddr(),
-                &msg->streamId.addrSize, homaId, nullptr, nullptr);
+                &msg->streamId.addrSize, homaId, nullptr);
         if (tail_length < 0) {
             gpr_log(GPR_ERROR, "Error in homa_recv for tail of id %lu: %s",
                     *homaId, strerror(errno));

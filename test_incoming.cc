@@ -88,6 +88,7 @@ TEST_F(TestIncoming, read_tailhomaRecvFails) {
 }
 TEST_F(TestIncoming, read_respondToStreamingRequest) {
     Mock::homaRecvHeaders.emplace_back(3, 4, 10, 0, 1000);
+    Mock::homaRecvHeaders[0].flags |= Wire::Header::request;
     grpc_error_handle error;
     HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5, &homaId, &error);
     EXPECT_EQ(GRPC_ERROR_NONE, error);
@@ -102,6 +103,7 @@ TEST_F(TestIncoming, read_respondToStreamingRequest) {
 TEST_F(TestIncoming, read_errorInStreamingResponse) {
     Mock::homaReplyErrors = 1;
     Mock::homaRecvHeaders.emplace_back(3, 4);
+    Mock::homaRecvHeaders[0].flags |= Wire::Header::request;
     grpc_error_handle error;
     HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5, &homaId, &error);
     EXPECT_EQ(GRPC_ERROR_NONE, error);

@@ -102,10 +102,6 @@ public:
     // Total length of the message (may be longer than the space
     // available in hdr and initialPayload).
     size_t length;
-    
-    // True means the message is a request, false means reply. Only
-    // valid if homaId != 0.
-    bool isRequest;
 
     // Number of bytes actually stored in hdr and initialPayload
     size_t baseLength;

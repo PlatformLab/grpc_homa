@@ -61,9 +61,13 @@ public:
         // trailing metadata (possibly none).
         static const int trailMdPresent = 4;
         
+        // Flag bit indicating that this message is a Homa response
+        // (meaning it that it requires an eventual response).
+        static const int request = 8;
+        
         // Flag bit indicating that this is a response for a streaming
         // request (a message that is not the final one for this RPC).
-        static const int streamResponse = 8;
+        static const int streamResponse = 16;
         
         Header(int streamId, int sequence, int initMdBytes, int trailMdBytes,
                 int messageBytes)

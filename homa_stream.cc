@@ -72,6 +72,7 @@ void HomaStream::flush()
     bool isRequest = (recvHomaId == 0)
             || !(hdr()->flags & Wire::Header::trailMdPresent);
     if (isRequest) {
+        hdr()->flags |= Wire::Header::request;
         status = homa_sendv(fd, vecs.data(), vecs.size(),
                 reinterpret_cast<struct sockaddr *>(streamId.addr),
                 streamId.addrSize, &sentHomaId);
