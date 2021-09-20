@@ -89,6 +89,7 @@ public:
     // fill in message data/metadata and invoke callbacks.
     grpc_metadata_batch* initMd;
     grpc_closure* initMdClosure;
+    bool *initMdTrailMdAvail;
     grpc_core::OrphanablePtr<grpc_core::ByteStream>* messageStream;
     grpc_closure* messageClosure;
     grpc_metadata_batch* trailMd;

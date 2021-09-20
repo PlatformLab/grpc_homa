@@ -136,6 +136,8 @@ void HomaStream::saveCallbacks(grpc_transport_stream_op_batch* op)
         initMd = op->payload->recv_initial_metadata.recv_initial_metadata;
         initMdClosure =
                 op->payload->recv_initial_metadata.recv_initial_metadata_ready;
+        initMdTrailMdAvail =
+                op->payload->recv_initial_metadata.trailing_metadata_available;
     }
     if (op->recv_message) {
         gpr_log(GPR_INFO, "HomaListener::perform_stream_op: receive message");
@@ -361,6 +363,10 @@ void HomaStream::transferData()
                 msg->deserializeMetadata(sizeof(Wire::Header),
                         msg->initMdLength, initMd, arena);
                 logMetadata(initMd, "incoming initial metadata");
+                if (initMdTrailMdAvail && (msg->hdr()->flags
+                        & msg->hdr()->trailMdPresent)) {
+                    *initMdTrailMdAvail = true;
+                }
                 grpc_closure *c = initMdClosure;
                 initMdClosure = nullptr;
                 msg->hdr()->flags &= ~msg->hdr()->initMdPresent;

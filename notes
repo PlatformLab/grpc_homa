@@ -2,9 +2,10 @@ Miscellaneous notes about a Homa plugin for gRPC:
 -------------------------------------------------
 
 * TODO list:
+  * Performance measurements
+  * Create test case with load
   * Recheck comments for stream batch ops to see if anything else
     needs to be done
-  * Need to send and process responses for extra Homa messages
   * Clean up messages after errors
   * Add proper channelz support
   * Deal with recv_initial_metadata.recv_flags

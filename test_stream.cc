@@ -451,8 +451,10 @@ TEST_F(TestStream, transferData_outOfSequence) {
     EXPECT_EQ(1U, stream.incoming.size());
 }
 TEST_F(TestStream, transferData_initialMetadata) {
+    bool trailMdAvail = false;
     stream.initMdClosure = &closure1;
     stream.initMd = &batch;
+    stream.initMdTrailMdAvail = &trailMdAvail;
     stream.incoming.emplace_back(new HomaIncoming(1, true, 0, 0, 0, false,
             false));
     grpc_core::ExecCtx execCtx;
@@ -465,6 +467,26 @@ TEST_F(TestStream, transferData_initialMetadata) {
             Mock::log.c_str());
     EXPECT_EQ(nullptr, stream.initMdClosure);
     EXPECT_EQ(0U, stream.incoming.size());
+    EXPECT_FALSE(trailMdAvail);
+}
+TEST_F(TestStream, transferData_initialMetadataSetTrailMdAvail) {
+    bool trailMdAvail = false;
+    stream.initMdClosure = &closure1;
+    stream.initMd = &batch;
+    stream.initMdTrailMdAvail = &trailMdAvail;
+    stream.incoming.emplace_back(new HomaIncoming(1, true, 0, 0, 0, false,
+            true));
+    grpc_core::ExecCtx execCtx;
+    stream.transferData();
+    execCtx.Flush();
+    EXPECT_STREQ("closure1 invoked with 123", Mock::log.c_str());
+    Mock::log.clear();
+    Mock::logMetadata("; ", &batch);
+    EXPECT_STREQ("metadata initMd1: value1 (24); metadata :path: /x/y (0)",
+            Mock::log.c_str());
+    EXPECT_EQ(nullptr, stream.initMdClosure);
+    EXPECT_EQ(1U, stream.incoming.size());
+    EXPECT_TRUE(trailMdAvail);
 }
 TEST_F(TestStream, transferData_waitForInitialMetadataClosure) {
     stream.messageClosure = &closure1;
