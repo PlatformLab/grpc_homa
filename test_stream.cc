@@ -47,7 +47,6 @@ public:
         , payload(nullptr)
     {
         Mock::setUp();
-        stream.newXmit();
         GRPC_CLOSURE_INIT(&closure1, closureFunc1,
                 reinterpret_cast<void *>(123), dummy);
         GRPC_CLOSURE_INIT(&closure2, closureFunc2,
@@ -191,11 +190,19 @@ TEST_F(TestStream, xmit_initialMetadata) {
     payload.send_initial_metadata.send_initial_metadata = &batch;
     Mock::metadataBatchAppend(&batch, "key1", "7 chars", arena);
     Mock::metadataBatchAppend(&batch, "k2", "0123456789", arena);
+    
+    // First xmit sends nothing (waiting for more info.
+    stream.xmit(&op);
+    EXPECT_EQ(0U, Mock::homaMessages.size());
+    
+    // Second xmit of metadata flushes first batch, but not second.
+    payload.send_initial_metadata.send_initial_metadata = &batch2;
+    Mock::metadataBatchAppend(&batch2, "key3", "key3 value", arena);
     stream.xmit(&op);
     ASSERT_EQ(1U, Mock::homaMessages.size());
     Wire::dumpHeader(Mock::homaMessages[0].data(), GPR_LOG_SEVERITY_ERROR);
     EXPECT_STREQ("homa_sendv: 1 iovecs, 62 bytes; "
-            "gpr_log: Header: id: 33, sequence 2, initMdBytes 41, "
+            "gpr_log: Header: id: 33, sequence 1, initMdBytes 41, "
             "initMdPresent",
             Mock::log.c_str());
     Mock::log.clear();
@@ -205,6 +212,38 @@ TEST_F(TestStream, xmit_initialMetadata) {
     EXPECT_STREQ("gpr_log: Key: key1, value: 7 chars, index: 24; "
             "gpr_log: Key: k2, value: 0123456789, index: 24",
             Mock::log.c_str());
+    
+    // Send message to flush the second metadata batch.
+    Mock::log.clear();
+    op.send_initial_metadata = false;
+    op.send_message = true;
+    grpc_slice_buffer slices;
+    grpc_slice_buffer_init(&slices);
+    grpc_slice_buffer_add(&slices, Mock::dataSlice(100, 1000));
+    payload.send_message.send_message.reset(
+            new grpc_core::SliceBufferByteStream(&slices, 0));
+    stream.xmit(&op);
+    
+    ASSERT_EQ(2U, Mock::homaMessages.size());
+    Wire::dumpHeader(Mock::homaMessages[1].data(), GPR_LOG_SEVERITY_ERROR);
+    EXPECT_STREQ("homa_sendv: 2 iovecs, 144 bytes; "
+            "gpr_log: Header: id: 33, sequence 2, initMdBytes 23, "
+            "messageBytes 100, initMdPresent, messageComplete",
+            Mock::log.c_str());
+    Mock::log.clear();
+    Wire::Header *hdr = reinterpret_cast<Wire::Header *>(
+            Mock::homaMessages[1].data());
+    Wire::dumpMetadata(Mock::homaMessages[1].data() + sizeof(Wire::Header),
+            ntohl(hdr->initMdBytes), GPR_LOG_SEVERITY_ERROR);
+    EXPECT_STREQ("gpr_log: Key: key3, value: key3 value, index: 24",
+            Mock::log.c_str());
+    Mock::log.clear();
+    Mock::logData("; ",
+            Mock::homaMessages[1].data() + sizeof(Wire::Header)
+            + ntohl(hdr->initMdBytes), ntohl(hdr->messageBytes));
+    EXPECT_STREQ("1000-1099",
+            Mock::log.c_str());
+    grpc_slice_buffer_destroy(&slices);
     
 }
 TEST_F(TestStream, xmit_initialMetadataTooLarge) {
@@ -245,7 +284,7 @@ TEST_F(TestStream, xmit_onlyTrailingMetadata) {
     ASSERT_EQ(1U, Mock::homaMessages.size());
     Wire::dumpHeader(Mock::homaMessages[0].data(), GPR_LOG_SEVERITY_ERROR);
     EXPECT_STREQ("homa_replyv: 1 iovecs, 62 bytes; "
-            "gpr_log: Header: id: 33, sequence 2, trailMdBytes 41, "
+            "gpr_log: Header: id: 33, sequence 1, trailMdBytes 41, "
             "trailMdPresent",
             Mock::log.c_str());
     Mock::log.clear();
@@ -269,7 +308,7 @@ TEST_F(TestStream, xmit_onlyMessageData) {
     ASSERT_EQ(1U, Mock::homaMessages.size());
     Wire::dumpHeader(Mock::homaMessages[0].data(), GPR_LOG_SEVERITY_ERROR);
     EXPECT_STREQ("homa_sendv: 4 iovecs, 621 bytes; "
-            "gpr_log: Header: id: 33, sequence 2, messageBytes 600, "
+            "gpr_log: Header: id: 33, sequence 1, messageBytes 600, "
             "messageComplete",
             Mock::log.c_str());
     Mock::log.clear();
@@ -303,7 +342,7 @@ TEST_F(TestStream, xmit_everything) {
     ASSERT_EQ(1U, Mock::homaMessages.size());
     Wire::dumpHeader(Mock::homaMessages[0].data(), GPR_LOG_SEVERITY_ERROR);
     EXPECT_STREQ("homa_replyv: 4 iovecs, 662 bytes; "
-            "gpr_log: Header: id: 33, sequence 2, initMdBytes 20, "
+            "gpr_log: Header: id: 33, sequence 1, initMdBytes 20, "
             "messageBytes 600, trailMdBytes 21, initMdPresent, "
             "messageComplete, trailMdPresent",
             Mock::log.c_str());
@@ -356,7 +395,7 @@ TEST_F(TestStream, xmit_multipleHomaMessages) {
     // First Homa message: initial metadata plus some message data.
     Mock::log.clear();
     Wire::dumpHeader(Mock::homaMessages[0].data(), GPR_LOG_SEVERITY_ERROR);
-    EXPECT_STREQ("gpr_log: Header: id: 33, sequence 2, initMdBytes 20, "
+    EXPECT_STREQ("gpr_log: Header: id: 33, sequence 1, initMdBytes 20, "
             "messageBytes 260, initMdPresent",
             Mock::log.c_str());
     Mock::log.clear();
@@ -373,7 +412,7 @@ TEST_F(TestStream, xmit_multipleHomaMessages) {
     // Second Homa message: more message data.
     Mock::log.clear();
     Wire::dumpHeader(Mock::homaMessages[1].data(), GPR_LOG_SEVERITY_ERROR);
-    EXPECT_STREQ("gpr_log: Header: id: 33, sequence 3, messageBytes 280",
+    EXPECT_STREQ("gpr_log: Header: id: 33, sequence 2, messageBytes 280",
             Mock::log.c_str());
     Mock::log.clear();
     Mock::logData("; ", Mock::homaMessages[1].data() + sizeof(Wire::Header),
@@ -383,7 +422,7 @@ TEST_F(TestStream, xmit_multipleHomaMessages) {
     // Third Homa message; last message data plus trailing metadata.
     Mock::log.clear();
     Wire::dumpHeader(Mock::homaMessages[2].data(), GPR_LOG_SEVERITY_ERROR);
-    EXPECT_STREQ("gpr_log: Header: id: 33, sequence 4, messageBytes 160, "
+    EXPECT_STREQ("gpr_log: Header: id: 33, sequence 3, messageBytes 160, "
             "trailMdBytes 21, messageComplete, trailMdPresent",
             Mock::log.c_str());
     Mock::log.clear();

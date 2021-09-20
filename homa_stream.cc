@@ -47,6 +47,7 @@ HomaStream::HomaStream(StreamId streamId, int fd,
     , maxMessageLength(HOMA_MAX_MESSAGE_LENGTH)
 {
     grpc_slice_buffer_init(&messageData);
+    resetXmit();
 }
     
 HomaStream::~HomaStream()
@@ -102,13 +103,14 @@ void HomaStream::flush()
         }
         slices.clear();
     }
+    resetXmit();
 }
 
 /**
  * Reset all of the state related to an outgoing Homa message to start a
  * new message; any existing state is discarded.
  */
-void HomaStream::newXmit()
+void HomaStream::resetXmit()
 {
     new(hdr()) Wire::Header(streamId.id, nextXmitSequence);
     nextXmitSequence++;
@@ -227,9 +229,10 @@ void HomaStream::serializeMetadata(grpc_metadata_batch* batch)
  */
 void HomaStream::xmit(grpc_transport_stream_op_batch* op)
 {
-    newXmit();
-    
     if (op->send_initial_metadata) {
+        if (hdr()->initMdBytes) {
+            flush();
+        }
         size_t oldLength = xmitSize;
         serializeMetadata(
                 op->payload->send_initial_metadata.send_initial_metadata);
@@ -276,7 +279,6 @@ void HomaStream::xmit(grpc_transport_stream_op_batch* op)
                 || ((msgDataLeft == 0)
                 && ((xmitSize + trailMdLength) > maxMessageLength))) {
             flush();
-            newXmit();
         }
         if (((xmitSize + trailMdLength + msgDataLeft) < maxMessageLength)
                 && (trailMdLength > 0)) {
@@ -324,7 +326,13 @@ void HomaStream::xmit(grpc_transport_stream_op_batch* op)
     if (op->send_trailing_metadata) {
         hdr()->flags |= Wire::Header::trailMdPresent;
     }
-    flush();
+    
+    // If there's nothing besides initial metadata, don't flush now; wait
+    // until it can be combined with something else.
+    if ((hdr()->flags & Wire::Header::trailMdPresent)
+            || (hdr()->messageBytes != 0)) {
+        flush();
+    }
 }
 
 /**

@@ -123,8 +123,8 @@ public:
     virtual ~HomaStream();
     void    flush();
     void    handleIncoming(HomaIncoming::UniquePtr msg);
-    void    newXmit();
     void    notifyError(grpc_error_handle error);
+    void    resetXmit();
     void    saveCallbacks(grpc_transport_stream_op_batch* op);
     void    serializeMetadata(grpc_metadata_batch* batch);
     void    transferData();

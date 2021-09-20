@@ -100,10 +100,14 @@ TEST_F(TestListener, destroy_stream) {
         stream = lis->getStream(&msg, lockGuard);
         EXPECT_EQ(1U, lis->activeRpcs.size());
         EXPECT_EQ(100U, stream->streamId.id);
+        ASSERT_EQ(1U, streams.size());
+        ASSERT_EQ(stream, streams[0]);
     }
     
     HomaListener::destroy_stream(&lis->transport,
             reinterpret_cast <grpc_stream*>(stream), &closure1);
+    free(stream);
+    streams.clear();
     execCtx.Flush();
     EXPECT_EQ(0U, lis->activeRpcs.size());
     EXPECT_STREQ("closure1 invoked with 123", Mock::log.c_str());
