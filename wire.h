@@ -69,6 +69,10 @@ public:
         // request (a message that is not the final one for this RPC).
         static const int streamResponse = 16;
         
+        // Flag bit indicating that the sender has cancelled this
+        // RPC, and the receiver should do the same.
+        static const int cancelled = 32;
+        
         Header(int streamId, int sequence, int initMdBytes, int trailMdBytes,
                 int messageBytes)
             : streamId(htonl(streamId))

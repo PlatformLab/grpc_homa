@@ -301,6 +301,8 @@ void HomaClient::perform_stream_op(grpc_transport* gt, grpc_stream* gs,
         gpr_log(GPR_INFO, "HomaClient::perform_stream_op: cancel "
                 "stream ((%s)", grpc_error_std_string(
                 op->payload->cancel_stream.cancel_error).c_str());
+        stream->cancelPeer();
+        stream->notifyError(op->payload->cancel_stream.cancel_error);
     }
     if (op->recv_initial_metadata || op->recv_message
             || op->recv_trailing_metadata) {
@@ -450,7 +452,6 @@ void HomaClient::onRead(void* arg, grpc_error* sockError)
                 HOMA_RECV_RESPONSE|HOMA_RECV_REQUEST|HOMA_RECV_NONBLOCKING,
                 &homaId, &error);
         if (error != GRPC_ERROR_NONE) {
-            GRPC_ERROR_UNREF(error);
             if (homaId != 0) {
                 // An outgoing RPC failed. Find the stream for it and record
                 // the error on that stream.
@@ -458,13 +459,14 @@ void HomaClient::onRead(void* arg, grpc_error* sockError)
                 for (std::pair<const StreamId, HomaStream *> p: hc->streams) {
                     HomaStream *stream = p.second;
                     if (stream->sentHomaId == homaId) {
-                        GRPC_ERROR_REF(error);
-                        stream->notifyError(error);
+                        stream->notifyError(GRPC_ERROR_REF(error));
                         break;
                     }
                 }
+                GRPC_ERROR_UNREF(error);
                 continue;
             }
+            GRPC_ERROR_UNREF(error);
         }
         if (!msg) {
             break;

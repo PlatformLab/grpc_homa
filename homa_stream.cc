@@ -43,6 +43,7 @@ HomaStream::HomaStream(StreamId streamId, int fd,
     , trailMd(nullptr)
     , trailMdClosure(nullptr)
     , eof(false)
+    , cancelled(false)
     , error(GRPC_ERROR_NONE)
     , maxMessageLength(HOMA_MAX_MESSAGE_LENGTH)
 {
@@ -66,11 +67,18 @@ HomaStream::~HomaStream()
 void HomaStream::flush()
 {
     int status;
-    if ((xmitSize <= sizeof(Wire::Header)) && (hdr()->flags == 0)) {
+    if (((xmitSize <= sizeof(Wire::Header)) && (hdr()->flags == 0))
+            || cancelled) {
         return;
     }
     bool isRequest = (recvHomaId == 0)
             || !(hdr()->flags & Wire::Header::trailMdPresent);
+    gpr_log(GPR_INFO, "Sending Homa %s with %d initial metadata bytes, "
+            "%d payload bytes, %d trailing metadata bytes",
+            (isRequest) ? "request" : "response",
+            ntohl(hdr()->initMdBytes),
+            ntohl(hdr()->messageBytes),
+            ntohl(hdr()->trailMdBytes));
     if (isRequest) {
         hdr()->flags |= Wire::Header::request;
         status = homa_sendv(fd, vecs.data(), vecs.size(),
@@ -86,13 +94,6 @@ void HomaStream::flush()
                 (isRequest) ? "request" : "response",
                 strerror(errno));
         error = GRPC_OS_ERROR(errno, "Couldn't send Homa request/response");
-    } else {
-        gpr_log(GPR_INFO, "Sent Homa %s with %d initial metadata bytes, "
-                "%d payload bytes, %d trailing metadata bytes",
-                (isRequest) ? "request" : "response",
-                ntohl(hdr()->initMdBytes),
-                ntohl(hdr()->messageBytes),
-                ntohl(hdr()->trailMdBytes));
     }
     
     // It isn't safe to free the slices for message data until all
@@ -131,7 +132,7 @@ void HomaStream::resetXmit()
 void HomaStream::saveCallbacks(grpc_transport_stream_op_batch* op)
 {
     if (op->recv_initial_metadata) {
-        gpr_log(GPR_INFO, "HomaListener::perform_stream_op: "
+        gpr_log(GPR_INFO, "HomaStream::perform_stream_op: "
                 "receive initial metadata");
         initMd = op->payload->recv_initial_metadata.recv_initial_metadata;
         initMdClosure =
@@ -140,12 +141,12 @@ void HomaStream::saveCallbacks(grpc_transport_stream_op_batch* op)
                 op->payload->recv_initial_metadata.trailing_metadata_available;
     }
     if (op->recv_message) {
-        gpr_log(GPR_INFO, "HomaListener::perform_stream_op: receive message");
+        gpr_log(GPR_INFO, "HomaStream::perform_stream_op: receive message");
         messageStream = op->payload->recv_message.recv_message;
         messageClosure = op->payload->recv_message.recv_message_ready;
     }
     if (op->recv_trailing_metadata) {
-        gpr_log(GPR_INFO, "HomaListener::perform_stream_op: "
+        gpr_log(GPR_INFO, "HomaStream::perform_stream_op: "
                 "receive trailing metadata");
         trailMd = op->payload->recv_trailing_metadata.recv_trailing_metadata;
         trailMdClosure =
@@ -153,7 +154,7 @@ void HomaStream::saveCallbacks(grpc_transport_stream_op_batch* op)
     }
     
     if (error != GRPC_ERROR_NONE) {
-        notifyError(error);
+        notifyError(GRPC_ERROR_REF(error));
     }
 }
 
@@ -462,14 +463,18 @@ void HomaStream::transferData()
  * Take ownership of an incoming message and ensure that (eventually)
  * all of the information in it is passed to gRPC.
  * \param msg
- *      An incoming message previously returned by readIncoming. This method
- *      takes ownership of the message (we may need to save part or all
- *      of it for a while before the info can be passed to gRPC). If
- *      msg doesn't contain the entire message, this module will eventually
- *      read the remainder.
+ *      An incoming Homa message previously returned by readIncoming. This
+ *      method takes ownership of the message (we may need to save part or
+ *      all of it for a while before the info can be passed to gRPC).
  */
 void HomaStream::handleIncoming(HomaIncoming::UniquePtr msg)
 {
+    if (msg->hdr()->flags & Wire::Header::cancelled) {
+        gpr_log(GPR_INFO, "RPC id %d cancelled by peer", streamId.id);
+        cancelled = true;
+        notifyError(GRPC_ERROR_CANCELLED);
+        return;
+    }
     if (incoming.empty()) {
         incoming.push_back(std::move(msg));
     } else {
@@ -486,7 +491,7 @@ messageInserted:
 }
 
 /**
- * This method is invoked a fatal error occurs on a stream. It invokes
+ * This method is invoked when a fatal error occurs on a stream. It invokes
  * any callbacks present for the stream.
  * \param error
  *      Information about what went wrong. This method takes ownership
@@ -494,29 +499,38 @@ messageInserted:
  */
 void HomaStream::notifyError(grpc_error_handle error)
 {
-    if (error != this->error) {
-        GRPC_ERROR_UNREF(this->error);
-        this->error = error;
-    }
+    GRPC_ERROR_UNREF(this->error);
+    this->error = error;
     gpr_log(GPR_INFO, "Recording error for stream id %u: %s",
         streamId.id, grpc_error_string(error));
     
     if (initMdClosure) {
         grpc_closure *c = initMdClosure;
         initMdClosure = nullptr;
-        GRPC_ERROR_REF(this->error);
-        grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, this->error);
+        grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_REF(this->error));
     }
     if (messageClosure) {
         grpc_closure *c = messageClosure;
         messageClosure = nullptr;
-        GRPC_ERROR_REF(this->error);
-        grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, this->error);
+        grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_REF(this->error));
     }
     if (trailMdClosure) {
         grpc_closure *c = trailMdClosure;
         trailMdClosure = nullptr;
-        GRPC_ERROR_REF(this->error);
-        grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, this->error);
+        grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_REF(this->error));
     }
+}
+
+/**
+ * Notify the other side that this RPC is being cancelled.
+ */
+void HomaStream::cancelPeer(void)
+{
+    if (cancelled) {
+        return;
+    }
+    gpr_log(GPR_INFO, "Sending peer cancellation for RPC id %d", streamId.id);
+    hdr()->flags |= Wire::Header::cancelled;
+    flush();
+    cancelled = true;
 }

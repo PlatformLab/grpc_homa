@@ -99,6 +99,10 @@ public:
     // no more message data coming for this stream.
     bool eof;
     
+    // True means this RPC has been cancelled, so we shouldn't send
+    // any more Homa messages.
+    bool cancelled;
+    
     // Error that has occurred on this stream, if any.
     grpc_error_handle error;
     
@@ -121,11 +125,12 @@ public:
         }
     }
 
-    virtual ~HomaStream();
-    void    flush();
+    virtual ~HomaStream(void);
+    void    cancelPeer(void);
+    void    flush(void);
     void    handleIncoming(HomaIncoming::UniquePtr msg);
     void    notifyError(grpc_error_handle error);
-    void    resetXmit();
+    void    resetXmit(void);
     void    saveCallbacks(grpc_transport_stream_op_batch* op);
     void    serializeMetadata(grpc_metadata_batch* batch);
     void    transferData();

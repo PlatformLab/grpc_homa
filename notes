@@ -4,13 +4,10 @@ Miscellaneous notes about a Homa plugin for gRPC:
 * TODO list:
   * Performance measurements
   * Create test case with load
-  * Recheck comments for stream batch ops to see if anything else
-    needs to be done
   * Clean up messages after errors
   * Add proper channelz support
   * Deal with recv_initial_metadata.recv_flags
   * Implement cancellation
-  * Fill in remaining stream/transport ops
   * Make HomaStream instance variables protected
   * Implement timeouts
   * HomaClient:onRead currently locks the stream: awkward.

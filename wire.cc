@@ -109,5 +109,8 @@ void Wire::dumpHeader(void *msg, gpr_log_severity severity)
     if (hdr->flags & Header::streamResponse) {
         s.append(", streamResponse");
     }
+    if (hdr->flags & Header::cancelled) {
+        s.append(", cancelled");
+    }
     gpr_log(__FILE__, __LINE__, severity, "Header: %s", s.c_str());
 }

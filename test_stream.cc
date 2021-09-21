@@ -608,7 +608,15 @@ TEST_F(TestStream, transferData_eof) {
     EXPECT_EQ(nullptr, message.get());
 }
 
-TEST_F(TestStream, handleIncoming) {
+TEST_F(TestStream, handleIncoming_cancelled) {
+    HomaIncoming::UniquePtr msg(new HomaIncoming(4, true, 0, 0, 0, false,
+            false));
+    msg->hdr()->flags |= Wire::Header::cancelled;
+    stream.handleIncoming(std::move(msg));
+    EXPECT_EQ(0U, stream.incoming.size());
+    EXPECT_EQ(GRPC_ERROR_CANCELLED, stream.error);
+}
+TEST_F(TestStream, handleIncoming_basics) {
     stream.initMdClosure = &closure1;
     stream.initMd = &batch;
     stream.trailMdClosure = &closure2;
@@ -697,4 +705,18 @@ TEST_F(TestStream, notifyError) {
     EXPECT_SUBSTR("closure1 invoked with 777, error", Mock::log.c_str());
     EXPECT_SUBSTR("closure2 invoked with 456, error", Mock::log.c_str());
     EXPECT_SUBSTR("testing notifyError", Mock::log.c_str());
+}
+
+TEST_F(TestStream, cancelPeer_peerCancelled) {
+    stream.cancelled = true;
+    stream.cancelPeer();
+    ASSERT_EQ(0U, Mock::homaMessages.size());
+}
+TEST_F(TestStream, cancelPeer) {
+    stream.cancelPeer();
+    ASSERT_EQ(1U, Mock::homaMessages.size());
+    Wire::dumpHeader(Mock::homaMessages[0].data(), GPR_LOG_SEVERITY_ERROR);
+    EXPECT_STREQ("homa_sendv: 1 iovecs, 21 bytes; "
+            "gpr_log: Header: id: 33, sequence 1, cancelled",
+            Mock::log.c_str());
 }

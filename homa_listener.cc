@@ -339,6 +339,8 @@ void HomaListener::perform_stream_op(grpc_transport* gt, grpc_stream* gs,
         gpr_log(GPR_INFO, "HomaListener::perform_stream_op: cancel "
                 "stream ((%s)", grpc_error_std_string(
                 op->payload->cancel_stream.cancel_error).c_str());
+        stream->cancelPeer();
+        stream->notifyError(op->payload->cancel_stream.cancel_error);
     }
     if (op->recv_initial_metadata || op->recv_message
             || op->recv_trailing_metadata) {
