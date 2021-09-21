@@ -33,9 +33,10 @@ public:
     // Homa's identifier for the most recent request sent on this stream.
     uint64_t sentHomaId;
 
-    // Homa's identifier for the most recent request received on this stream.
-    // Only used on servers; always 0 on clients.
-    uint64_t recvHomaId;
+    // Homa's identifier for an unacknowledged Homa request received on this
+    // stream, or 0 if none. The next time we want to send a message, we'll
+    // send a reply to this RPC, rather than starting a new RPC.
+    uint64_t homaRequestId;
 
     // Reference count (owned externally).
     grpc_stream_refcount* refs;
@@ -117,21 +118,15 @@ public:
     {
         return reinterpret_cast<Wire::Header*>(xmitBuffer);
     }
-    
-    void setRecvHomaId(uint64_t homaId)
-    {
-        if (homaId > recvHomaId) {
-            recvHomaId = homaId;
-        }
-    }
 
     virtual ~HomaStream(void);
     void    cancelPeer(void);
     void    flush(void);
-    void    handleIncoming(HomaIncoming::UniquePtr msg);
+    void    handleIncoming(HomaIncoming::UniquePtr msg, uint64_t homaId);
     void    notifyError(grpc_error_handle error);
     void    resetXmit(void);
     void    saveCallbacks(grpc_transport_stream_op_batch* op);
+    void    sendDummyResponse();
     void    serializeMetadata(grpc_metadata_batch* batch);
     void    transferData();
     void    xmit(grpc_transport_stream_op_batch* op);

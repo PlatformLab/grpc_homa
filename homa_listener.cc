@@ -254,8 +254,7 @@ void HomaListener::onRead(void* arg, grpc_error* error)
         }
 
         HomaStream *stream = lis->getStream(msg.get(), streamLock);
-        stream->setRecvHomaId(homaId);
-        stream->handleIncoming(std::move(msg));
+        stream->handleIncoming(std::move(msg), homaId);
     }
     grpc_fd_notify_on_read(lis->gfd, &lis->read_closure);
 }
@@ -336,9 +335,6 @@ void HomaListener::perform_stream_op(grpc_transport* gt, grpc_stream* gs,
     grpc_error_handle error = GRPC_ERROR_NONE;
     
     if (op->cancel_stream) {
-        gpr_log(GPR_INFO, "HomaListener::perform_stream_op: cancel "
-                "stream ((%s)", grpc_error_std_string(
-                op->payload->cancel_stream.cancel_error).c_str());
         stream->cancelPeer();
         stream->notifyError(op->payload->cancel_stream.cancel_error);
     }
@@ -424,7 +420,6 @@ void HomaListener::perform_op(grpc_transport* gt, grpc_transport_op* op)
 void HomaListener::destroy_stream(grpc_transport* gt, grpc_stream* gs,
         grpc_closure* closure)
 {
-    gpr_log(GPR_INFO, "HomaListener::destroy_stream invoked");
     {
         HomaListener *lis = containerOf(gt, &HomaListener::transport);
         HomaStream *stream = reinterpret_cast<HomaStream*>(gs);

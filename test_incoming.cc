@@ -55,8 +55,8 @@ TEST_F(TestIncoming, read_discardStreamingResponses) {
     Mock::homaRecvHeaders.emplace_back(1, 2);
     Mock::homaRecvHeaders.emplace_back(1, 3);
     Mock::homaRecvHeaders.emplace_back(2, 1);
-    Mock::homaRecvHeaders[0].flags |= Wire::Header::streamResponse;
-    Mock::homaRecvHeaders[1].flags |= Wire::Header::streamResponse;
+    Mock::homaRecvHeaders[0].flags |= Wire::Header::emptyResponse;
+    Mock::homaRecvHeaders[1].flags |= Wire::Header::emptyResponse;
     grpc_error_handle error;
     HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5, &homaId, &error);
     EXPECT_EQ(GRPC_ERROR_NONE, error);
@@ -85,32 +85,6 @@ TEST_F(TestIncoming, read_tailhomaRecvFails) {
     EXPECT_SUBSTR("gpr_log: Error in homa_recv for tail of id 333:",
             Mock::log.c_str());
     EXPECT_SUBSTR("os_error", grpc_error_string(error));
-}
-TEST_F(TestIncoming, read_respondToStreamingRequest) {
-    Mock::homaRecvHeaders.emplace_back(3, 4, 10, 0, 1000);
-    Mock::homaRecvHeaders[0].flags |= Wire::Header::request;
-    grpc_error_handle error;
-    HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5, &homaId, &error);
-    EXPECT_EQ(GRPC_ERROR_NONE, error);
-    EXPECT_EQ(3U, msg->streamId.id);
-    EXPECT_EQ(0U, Mock::homaRecvHeaders.size());
-    ASSERT_EQ(1U, Mock::homaMessages.size());
-    Mock::log.clear();
-    Wire::dumpHeader(Mock::homaMessages[0].data(), GPR_LOG_SEVERITY_ERROR);
-    EXPECT_STREQ("gpr_log: Header: id: 3, sequence 4, streamResponse",
-            Mock::log.c_str());
-}
-TEST_F(TestIncoming, read_errorInStreamingResponse) {
-    Mock::homaReplyErrors = 1;
-    Mock::homaRecvHeaders.emplace_back(3, 4);
-    Mock::homaRecvHeaders[0].flags |= Wire::Header::request;
-    grpc_error_handle error;
-    HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5, &homaId, &error);
-    EXPECT_EQ(GRPC_ERROR_NONE, error);
-    EXPECT_EQ(3U, msg->streamId.id);
-    EXPECT_EQ(0U, Mock::homaRecvHeaders.size());
-    EXPECT_EQ(1U, Mock::homaMessages.size());
-    EXPECT_SUBSTR("Couldn't send Homa streaming response", Mock::log.c_str());
 }
 TEST_F(TestIncoming, read_tailHasWrongLength) {
     grpc_error_handle error;

@@ -23,7 +23,7 @@ HomaStream::HomaStream(StreamId streamId, int fd,
     , fd(fd)
     , streamId(streamId)
     , sentHomaId(0)
-    , recvHomaId(0)
+    , homaRequestId(0)
     , refs(refcount)
     , arena(arena)
     , xmitBuffer()
@@ -53,6 +53,9 @@ HomaStream::HomaStream(StreamId streamId, int fd,
     
 HomaStream::~HomaStream()
 {
+    if (homaRequestId != 0) {
+        sendDummyResponse();
+    }
     for (grpc_slice &slice: slices) {
         grpc_slice_unref(slice);
     }
@@ -71,23 +74,33 @@ void HomaStream::flush()
             || cancelled) {
         return;
     }
-    bool isRequest = (recvHomaId == 0)
-            || !(hdr()->flags & Wire::Header::trailMdPresent);
-    gpr_log(GPR_INFO, "Sending Homa %s with %d initial metadata bytes, "
-            "%d payload bytes, %d trailing metadata bytes",
-            (isRequest) ? "request" : "response",
-            ntohl(hdr()->initMdBytes),
-            ntohl(hdr()->messageBytes),
-            ntohl(hdr()->trailMdBytes));
+    bool isRequest = (homaRequestId == 0);
+    
+    // When transmitting data, send a response message if there is a
+    // request we haven't yet responded to; otherwise start a fresh
+    // request. This makes the most efficient use of Homa messages.
     if (isRequest) {
         hdr()->flags |= Wire::Header::request;
         status = homa_sendv(fd, vecs.data(), vecs.size(),
                 reinterpret_cast<struct sockaddr *>(streamId.addr),
                 streamId.addrSize, &sentHomaId);
+        gpr_log(GPR_INFO, "Sent Homa request with Homa id %lu, "
+                "%d initial metadata bytes, %d payload bytes, "
+                "%d trailing metadata bytes",
+                sentHomaId, ntohl(hdr()->initMdBytes),
+                ntohl(hdr()->messageBytes),
+                ntohl(hdr()->trailMdBytes));
     } else {
+        gpr_log(GPR_INFO, "Sending Homa response with Homa id %lu, "
+                "%d initial metadata bytes, %d payload bytes, "
+                "%d trailing metadata bytes",
+                homaRequestId, ntohl(hdr()->initMdBytes),
+                ntohl(hdr()->messageBytes),
+                ntohl(hdr()->trailMdBytes));
         status = homa_replyv(fd, vecs.data(), vecs.size(),
                 reinterpret_cast<struct sockaddr *>(streamId.addr),
-                streamId.addrSize, recvHomaId);
+                streamId.addrSize, homaRequestId);
+        homaRequestId = 0;
     }
     if (status < 0) {
         gpr_log(GPR_ERROR, "Couldn't send Homa %s: %s",
@@ -132,8 +145,6 @@ void HomaStream::resetXmit()
 void HomaStream::saveCallbacks(grpc_transport_stream_op_batch* op)
 {
     if (op->recv_initial_metadata) {
-        gpr_log(GPR_INFO, "HomaStream::perform_stream_op: "
-                "receive initial metadata");
         initMd = op->payload->recv_initial_metadata.recv_initial_metadata;
         initMdClosure =
                 op->payload->recv_initial_metadata.recv_initial_metadata_ready;
@@ -141,13 +152,10 @@ void HomaStream::saveCallbacks(grpc_transport_stream_op_batch* op)
                 op->payload->recv_initial_metadata.trailing_metadata_available;
     }
     if (op->recv_message) {
-        gpr_log(GPR_INFO, "HomaStream::perform_stream_op: receive message");
         messageStream = op->payload->recv_message.recv_message;
         messageClosure = op->payload->recv_message.recv_message_ready;
     }
     if (op->recv_trailing_metadata) {
-        gpr_log(GPR_INFO, "HomaStream::perform_stream_op: "
-                "receive trailing metadata");
         trailMd = op->payload->recv_trailing_metadata.recv_trailing_metadata;
         trailMdClosure =
                 op->payload->recv_trailing_metadata.recv_trailing_metadata_ready;
@@ -340,6 +348,25 @@ void HomaStream::xmit(grpc_transport_stream_op_batch* op)
 }
 
 /**
+ * This method is called to send a response to homaRequestId, which
+ * allows the kernel to clean up RPC state associated with it. The
+ * caller must ensure that homaRequestId is valid.
+ */
+void HomaStream::sendDummyResponse()
+{
+    Wire::Header response(streamId.id, 0);
+    response.flags |= Wire::Header::emptyResponse;
+    gpr_log(GPR_INFO, "Sending dummy response for homaId %lu, stream id %d",
+            homaRequestId, streamId.id);
+    if (homa_reply(fd, &response, sizeof(response), streamId.sockaddr(),
+            streamId.addrSize, homaRequestId) < 0) {
+        gpr_log(GPR_ERROR, "Couldn't send dummy Homa response: %s",
+                strerror(errno));
+    }
+    homaRequestId = 0;
+}
+
+/**
  * See if there is any information in accumulated incoming messages that
  * can now be passed off to gRPC. If so, pass it off.
  */
@@ -466,15 +493,27 @@ void HomaStream::transferData()
  *      An incoming Homa message previously returned by readIncoming. This
  *      method takes ownership of the message (we may need to save part or
  *      all of it for a while before the info can be passed to gRPC).
+ * \param homaId
+ *      Homa identifier for the RPC used to transmit this message.
  */
-void HomaStream::handleIncoming(HomaIncoming::UniquePtr msg)
+void HomaStream::handleIncoming(HomaIncoming::UniquePtr msg, uint64_t homaId)
 {
+    if (msg->hdr()->flags & Wire::Header::request) {
+        if (homaRequestId != 0){
+            // We only have room to save one request id, so clean up the
+            // older request.
+            sendDummyResponse();
+        }
+        homaRequestId = homaId;
+    }
+    
     if (msg->hdr()->flags & Wire::Header::cancelled) {
         gpr_log(GPR_INFO, "RPC id %d cancelled by peer", streamId.id);
         cancelled = true;
         notifyError(GRPC_ERROR_CANCELLED);
         return;
     }
+    
     if (incoming.empty()) {
         incoming.push_back(std::move(msg));
     } else {

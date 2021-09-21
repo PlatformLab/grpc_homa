@@ -106,8 +106,11 @@ void Wire::dumpHeader(void *msg, gpr_log_severity severity)
     if (hdr->flags & Header::trailMdPresent) {
         s.append(", trailMdPresent");
     }
-    if (hdr->flags & Header::streamResponse) {
-        s.append(", streamResponse");
+    if (hdr->flags & Header::request) {
+        s.append(", request");
+    }
+    if (hdr->flags & Header::emptyResponse) {
+        s.append(", emptyResponse");
     }
     if (hdr->flags & Header::cancelled) {
         s.append(", cancelled");

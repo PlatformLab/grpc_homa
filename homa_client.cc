@@ -137,7 +137,6 @@ HomaClient::HomaClient()
 
 HomaClient::~HomaClient()
 {
-    gpr_log(GPR_INFO, "HomaClient destructor invoked");
     grpc_fd_shutdown(gfd,
             GRPC_ERROR_CREATE_FROM_STATIC_STRING("Destroying HomaClient"));
     grpc_fd_orphan(gfd, nullptr, nullptr, "Destroying HomaClient");
@@ -298,9 +297,6 @@ void HomaClient::perform_stream_op(grpc_transport* gt, grpc_stream* gs,
     }
 
     if (op->cancel_stream) {
-        gpr_log(GPR_INFO, "HomaClient::perform_stream_op: cancel "
-                "stream ((%s)", grpc_error_std_string(
-                op->payload->cancel_stream.cancel_error).c_str());
         stream->cancelPeer();
         stream->notifyError(op->payload->cancel_stream.cancel_error);
     }
@@ -324,7 +320,6 @@ void HomaClient::perform_stream_op(grpc_transport* gt, grpc_stream* gs,
  */
 void HomaClient::perform_op(grpc_transport* gt, grpc_transport_op* op)
 {
-    gpr_log(GPR_INFO, "HomaClient::perform_op invoked");
     if (op->start_connectivity_watch) {
         gpr_log(GPR_INFO, "HomaClient::perform_op invoked with "
                 "start_connectivity_watch");
@@ -349,12 +344,12 @@ void HomaClient::perform_op(grpc_transport* gt, grpc_transport_op* op)
                 "set_accept_stream");
     }
     if (op->bind_pollset) {
-        gpr_log(GPR_INFO, "HomaClient::perform_op invoked with "
-                "bind_pollset");
+        // No need to do anything here: streams don't have separate fd's
+        // that need polling.
     }
     if (op->bind_pollset_set) {
-        gpr_log(GPR_INFO, "HomaClient::perform_op invoked with "
-                "bind_pollset_set");
+        // No need to do anything here: streams don't have separate fd's
+        // that need polling.
     }
     if (op->send_ping.on_initiate) {
         gpr_log(GPR_INFO, "HomaClient::perform_op invoked with "
@@ -388,7 +383,6 @@ void HomaClient::destroy_stream(grpc_transport* gt, grpc_stream* gs,
     HomaClient *hc = peer->hc;
     HomaStream *stream = reinterpret_cast<HomaStream*>(gs);
     
-    gpr_log(GPR_INFO, "HomaClient::destroy_stream invoked");
     {
         grpc_core::MutexLock lock(&hc->mutex);
         hc->streams.erase(stream->streamId);
@@ -407,7 +401,6 @@ void HomaClient::destroy_stream(grpc_transport* gt, grpc_stream* gs,
  */
 void HomaClient::destroy(grpc_transport* gt)
 {
-    gpr_log(GPR_INFO, "HomaClient::destroy invoked");
     Peer *peer = containerOf(gt, &HomaClient::Peer::transport);
     delete peer;
     {
@@ -483,8 +476,7 @@ void HomaClient::onRead(void* arg, grpc_error* sockError)
                     msg->getStreamId().id);
             return;
         }
-        stream->handleIncoming(std::move(msg));
+        stream->handleIncoming(std::move(msg), homaId);
     }
     grpc_fd_notify_on_read(hc->gfd, &hc->readClosure);
-    gpr_log(GPR_INFO, "HomaClient::onRead done");
 }

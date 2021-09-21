@@ -169,12 +169,12 @@ HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags,
             *error = GRPC_OS_ERROR(errno, "homa_recv");
             return nullptr;
         }
-        if (!(msg->hdr()->flags & Wire::Header::streamResponse)) {
+        if (!(msg->hdr()->flags & Wire::Header::emptyResponse)) {
             break;
         }
         gpr_log(GPR_INFO,
-                "Discarding streaming response for id %d, sequence %d",
-                ntohl(msg->hdr()->streamId), ntohl(msg->hdr()->sequenceNum));
+                "Discarding dummy response for Homa id %lu, stream id %d",
+                *homaId, ntohl(msg->hdr()->streamId));
     }
     
     // We now have a message suitable for returning to the caller.
@@ -202,24 +202,6 @@ HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags,
         return nullptr;
     }
     
-    // Send a response for any message that is a "streaming request"
-    // (any incoming request that doesn't contain trailing metadata).
-    // The only reason for sending these responses is so that Homa can
-    // clean up its state for the RPC (the responses get discarded above).
-    if ((msg->hdr()->flags & Wire::Header::request)
-            && !(msg->hdr()->flags & Wire::Header::trailMdPresent)) {
-        Wire::Header response(msg->streamId.id, msg->sequence);
-        response.flags |= Wire::Header::streamResponse;
-        if (homa_reply(fd, &response, sizeof(response),
-                msg->streamId.sockaddr(), msg->streamId.addrSize,
-                *homaId) < 0) {
-            gpr_log(GPR_ERROR, "Couldn't send Homa streaming response: %s",
-                    strerror(errno));
-        }
-        gpr_log(GPR_INFO, "Sent streaming response for id %d, sequence %d",
-                msg->streamId.id, msg->sequence);
-    }
-    
     if (msg->length > msg->baseLength) {
         // Must read the tail of the message.
         msg->tail.resize(msg->length - msg->baseLength);
@@ -242,10 +224,10 @@ HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags,
         }
     }
     gpr_log(GPR_INFO, "Received Homa message from host 0x%x, port %d with "
-            "id %d, sequence %d, Homa id %lu, %u initMd bytes, "
+            "homaId %lu, stream id %d, sequence %d, %u initMd bytes, "
             "%u message bytes, %u trailMd bytes, flags 0x%x",
-            msg->streamId.ipv4Addr(), msg->streamId.port(), msg->streamId.id,
-            msg->sequence, *homaId, msg->initMdLength,
+            msg->streamId.ipv4Addr(), msg->streamId.port(), *homaId,
+            msg->streamId.id, msg->sequence, msg->initMdLength,
             msg->messageLength, msg->trailMdLength, msg->hdr()->flags);
     return msg;
 }

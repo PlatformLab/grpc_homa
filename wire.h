@@ -61,13 +61,13 @@ public:
         // trailing metadata (possibly none).
         static const int trailMdPresent = 4;
         
-        // Flag bit indicating that this message is a Homa response
+        // Flag bit indicating that this message is a Homa request
         // (meaning it that it requires an eventual response).
         static const int request = 8;
         
-        // Flag bit indicating that this is a response for a streaming
-        // request (a message that is not the final one for this RPC).
-        static const int streamResponse = 16;
+        // Indicates that there is no useful information in this message;
+        // it was a dummy Homa response sent by the other side.
+        static const int emptyResponse = 16;
         
         // Flag bit indicating that the sender has cancelled this
         // RPC, and the receiver should do the same.
