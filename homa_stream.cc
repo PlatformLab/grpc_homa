@@ -160,6 +160,7 @@ void HomaStream::saveCallbacks(grpc_transport_stream_op_batch* op)
         trailMdClosure =
                 op->payload->recv_trailing_metadata.recv_trailing_metadata_ready;
     }
+    transferData();
     
     if (error != GRPC_ERROR_NONE) {
         notifyError(GRPC_ERROR_REF(error));
@@ -385,9 +386,14 @@ void HomaStream::transferData()
             break;
         }
         
+        if(msg->hdr()->flags & (Wire::Header::messageComplete
+                | Wire::Header::trailMdPresent)){
+            eof = true;
+        }
+        
         // Transfer initial metadata, if possible.
         if (initMdClosure) {
-            if (msg->hdr()->flags & msg->hdr()->initMdPresent) {
+            if (msg->hdr()->flags & Wire::Header::initMdPresent) {
                 msg->deserializeMetadata(sizeof(Wire::Header),
                         msg->initMdLength, initMd, arena);
                 logMetadata(initMd, "incoming initial metadata");
@@ -397,13 +403,9 @@ void HomaStream::transferData()
                 }
                 grpc_closure *c = initMdClosure;
                 initMdClosure = nullptr;
-                msg->hdr()->flags &= ~msg->hdr()->initMdPresent;
+                msg->hdr()->flags &= ~Wire::Header::initMdPresent;
                 grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_NONE);
             }
-        } else if (msg->hdr()->flags & msg->hdr()->initMdPresent) {
-            // Can't do anything until we get a closure to accept
-            // initial metadata.
-            break;
         }
 
         // Transfer data, if possible.
@@ -433,7 +435,7 @@ void HomaStream::transferData()
                 msg->messageLength = 0;
             }
             
-            if (msg->hdr()->flags & msg->hdr()->messageComplete) {
+            if (msg->hdr()->flags & Wire::Header::messageComplete) {
                 messageStream->reset(new grpc_core::SliceBufferByteStream(
                         &messageData, 0));
                 grpc_slice_buffer_destroy(&messageData);
@@ -441,34 +443,33 @@ void HomaStream::transferData()
 
                 grpc_closure *c = messageClosure;
                 messageClosure = nullptr;
+                msg->hdr()->flags &= ~Wire::Header::messageComplete;
                 grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_NONE);
             }
-        } else if ((msg->messageLength > 0)
-                || (msg->hdr()->flags & msg->hdr()->messageComplete)) {
-            // Can't do anything until we're given a closure for transferring
-            // message data.
-            break;
         }
 
         // Transfer trailing metadata, if possible.
         if (trailMdClosure) {
-            if (msg->hdr()->flags & msg->hdr()->trailMdPresent) {
+            if (msg->hdr()->flags & Wire::Header::trailMdPresent) {
                 msg->deserializeMetadata(
                         sizeof(Wire::Header) + msg->initMdLength,
                         msg->trailMdLength, trailMd, arena);
                 logMetadata(trailMd, "incoming trailing metadata");
                 grpc_closure *c = trailMdClosure;
                 trailMdClosure = nullptr;
-                msg->hdr()->flags &= ~msg->hdr()->trailMdPresent;
+                msg->hdr()->flags &= ~Wire::Header::trailMdPresent;
                 grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_NONE);
                 eof = true;
             }
-        } else if (msg->hdr()->flags & msg->hdr()->trailMdPresent) {
-            // Can't do anything until we get a closure to accept
-            // trailing metadata.
-            eof = true;
+        }
+
+        if ((msg->hdr()->flags & (Wire::Header::initMdPresent
+                | Wire::Header::trailMdPresent | Wire::Header::messageComplete))
+                || (msg->messageLength != 0)) {
             break;
         }
+        
+        // We've extracted everything of value from this message.
         if (msg->sequence == nextIncomingSequence) {
             nextIncomingSequence++;
         }

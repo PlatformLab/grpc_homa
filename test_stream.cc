@@ -144,6 +144,24 @@ TEST_F(TestStream, saveCallbacks_notifyError) {
     EXPECT_SUBSTR("closure2 invoked with 456, error", Mock::log.c_str());
     EXPECT_SUBSTR("test error", Mock::log.c_str());
 }
+TEST_F(TestStream, saveCallbacks_transferData) {
+    grpc_core::ExecCtx execCtx;
+    op.recv_initial_metadata = true;
+    op.payload->recv_initial_metadata.recv_initial_metadata = &batch;
+    op.payload->recv_initial_metadata.recv_initial_metadata_ready = &closure1;
+    stream.incoming.emplace_back(new HomaIncoming(1, true, 0, 0, 0, false,
+            false));
+    stream.saveCallbacks(&op);
+    execCtx.Flush();
+    
+    EXPECT_STREQ("closure1 invoked with 123", Mock::log.c_str());
+    Mock::log.clear();
+    Mock::logMetadata("; ", &batch);
+    EXPECT_STREQ("metadata initMd1: value1 (24); metadata :path: /x/y (0)",
+            Mock::log.c_str());
+    EXPECT_EQ(nullptr, stream.initMdClosure);
+    EXPECT_EQ(0U, stream.incoming.size());
+}
 
 TEST_F(TestStream, metadataLength) {
     Mock::metadataBatchAppend(&batch, "key1", "7 chars", arena);
@@ -467,6 +485,42 @@ TEST_F(TestStream, transferData_outOfSequence) {
     EXPECT_STREQ("", Mock::log.c_str());
     EXPECT_EQ(1U, stream.incoming.size());
 }
+TEST_F(TestStream, transferData_setEof) {
+    // First message: only initial metadata.
+    HomaIncoming *msg = new HomaIncoming(2, true, 0, 0, 0, false, false);
+    stream.nextIncomingSequence = 2;
+    stream.incoming.emplace_back(msg);
+    grpc_core::ExecCtx execCtx;
+    stream.transferData();
+    execCtx.Flush();
+    EXPECT_STREQ("", Mock::log.c_str());
+    EXPECT_EQ(1U, stream.incoming.size());
+    EXPECT_FALSE(stream.eof);
+    
+    // Second message: messageComplete.
+    msg = new HomaIncoming(2, false, 1000, 1000, 0, true, false);
+    stream.incoming.clear();
+    stream.incoming.emplace_back(msg);
+    stream.eof = false;
+    Mock::log.clear();
+    stream.transferData();
+    execCtx.Flush();
+    EXPECT_STREQ("", Mock::log.c_str());
+    EXPECT_EQ(1U, stream.incoming.size());
+    EXPECT_TRUE(stream.eof);
+    
+    // Third message: trailing metadata.
+    msg = new HomaIncoming(2, false, 0, 0, 0, false, true);
+    stream.incoming.clear();
+    stream.incoming.emplace_back(msg);
+    stream.eof = false;
+    Mock::log.clear();
+    stream.transferData();
+    execCtx.Flush();
+    EXPECT_STREQ("", Mock::log.c_str());
+    EXPECT_EQ(1U, stream.incoming.size());
+    EXPECT_TRUE(stream.eof);
+}
 TEST_F(TestStream, transferData_initialMetadata) {
     bool trailMdAvail = false;
     stream.initMdClosure = &closure1;
@@ -548,20 +602,6 @@ TEST_F(TestStream, transferData_messageDataAlsoInTail) {
     Mock::logByteStream("; ", message.get());
     EXPECT_STREQ("1000-1099; 1100-6099", Mock::log.c_str());
 }
-TEST_F(TestStream, transferData_mustWaitForMessageClosure) {
-    stream.trailMdClosure = &closure1;
-    stream.trailMd = &batch;
-    stream.incoming.emplace_back(new HomaIncoming(1, false, 100, 5000, 1000,
-            true, true));
-    grpc_core::ExecCtx execCtx;
-    stream.transferData();
-    execCtx.Flush();
-    EXPECT_STREQ("", Mock::log.c_str());
-    Mock::log.clear();
-    Mock::logMetadata("; ", &batch);
-    EXPECT_STREQ("", Mock::log.c_str());
-    EXPECT_EQ(1U, stream.incoming.size());
-}
 TEST_F(TestStream, transferData_trailingMetadata) {
     stream.trailMdClosure = &closure1;
     stream.trailMd = &batch;
@@ -576,18 +616,6 @@ TEST_F(TestStream, transferData_trailingMetadata) {
     EXPECT_STREQ("metadata k2: 0123456789 (24)", Mock::log.c_str());
     EXPECT_EQ(0U, stream.incoming.size());
     EXPECT_TRUE(stream.eof);
-}
-TEST_F(TestStream, transferData_mustWaitForTrailingMetadataClosure) {
-    stream.incoming.emplace_back(new HomaIncoming(1, false, 0, 0, 0, false,
-            true));
-    grpc_core::ExecCtx execCtx;
-    stream.transferData();
-    execCtx.Flush();
-    EXPECT_STREQ("", Mock::log.c_str());
-    Mock::log.clear();
-    Mock::logMetadata("; ", &batch);
-    EXPECT_STREQ("", Mock::log.c_str());
-    EXPECT_EQ(1U, stream.incoming.size());
 }
 TEST_F(TestStream, transferData_multipleMessages) {
     stream.initMdClosure = &closure1;
@@ -612,7 +640,7 @@ TEST_F(TestStream, transferData_multipleMessages) {
     EXPECT_STREQ("metadata k2: 0123456789 (24)", Mock::log.c_str());
     EXPECT_EQ(0U, stream.incoming.size());
 }
-TEST_F(TestStream, transferData_eof) {
+TEST_F(TestStream, transferData_useEof) {
     stream.messageClosure = &closure1;
     grpc_core::OrphanablePtr<grpc_core::ByteStream> message;
     stream.messageStream = &message;
