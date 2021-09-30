@@ -2,14 +2,12 @@ Miscellaneous notes about a Homa plugin for gRPC:
 -------------------------------------------------
 
 * TODO list:
+  * Figure out TimeTrace cleanup
   * Performance measurements
   * Create test case with load
-  * Clean up messages after errors
   * Add proper channelz support
   * Deal with recv_initial_metadata.recv_flags
-  * Implement cancellation
   * Make HomaStream instance variables protected
-  * Implement timeouts
   * HomaClient:onRead currently locks the stream: awkward.
 
 * Various notes about how gRPC works:

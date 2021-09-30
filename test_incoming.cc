@@ -2,6 +2,8 @@
 #include "mock.h"
 #include "util.h"
 
+// This file contains unit tests for homa_incoming.cc and homa_incoming.h.
+
 class TestIncoming : public ::testing::Test {
 public:   
     uint64_t homaId;

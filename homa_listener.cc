@@ -2,6 +2,7 @@
 
 #include "homa_listener.h"
 #include "homa.h"
+#include "time_trace.h"
 #include "util.h"
 
 std::optional<HomaListener::Shared> HomaListener::shared;
@@ -212,7 +213,9 @@ HomaStream *HomaListener::getStream(HomaIncoming *msg,
     init.streamId = &msg->streamId;
     init.stream = nullptr;
     if (accept_stream_cb) {
+        tt("Calling accept_stream_cb");
         accept_stream_cb(accept_stream_data, &transport, &init);
+        tt("accept_stream_cb returned");
     }
     if (init.stream == nullptr) {
         gpr_log(GPR_INFO, "Stream doesn't appear to have been initialized.");

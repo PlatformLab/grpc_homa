@@ -2,6 +2,7 @@
 
 #include "homa.h"
 #include "homa_stream.h"
+#include "time_trace.h"
 #include "util.h"
 
 /**
@@ -108,6 +109,7 @@ void HomaStream::flush()
                 strerror(errno));
         error = GRPC_OS_ERROR(errno, "Couldn't send Homa request/response");
     }
+    tt("Homa message sent");
     
     // It isn't safe to free the slices for message data until all
     // message data has been transmitted: otherwise, the last slice
@@ -285,6 +287,7 @@ void HomaStream::xmit(grpc_transport_stream_op_batch* op)
     size_t bytesInSlice = 0;
     size_t sliceOffset = 0;
     if (op->send_message) {
+        tt("send_message stream op invoked");
         msgDataLeft = data->length();
     }
     while ((trailMdLength + msgDataLeft) > 0) {
@@ -394,6 +397,7 @@ void HomaStream::transferData()
         // Transfer initial metadata, if possible.
         if (initMdClosure) {
             if (msg->hdr()->flags & Wire::Header::initMdPresent) {
+                tt("calling deserializeMetadata");
                 msg->deserializeMetadata(sizeof(Wire::Header),
                         msg->initMdLength, initMd, arena);
                 logMetadata(initMd, "incoming initial metadata");
@@ -404,6 +408,7 @@ void HomaStream::transferData()
                 grpc_closure *c = initMdClosure;
                 initMdClosure = nullptr;
                 msg->hdr()->flags &= ~Wire::Header::initMdPresent;
+                tt("Invoking initial metadata closure");
                 grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_NONE);
             }
         }
@@ -444,6 +449,7 @@ void HomaStream::transferData()
                 grpc_closure *c = messageClosure;
                 messageClosure = nullptr;
                 msg->hdr()->flags &= ~Wire::Header::messageComplete;
+                tt("Invoking message closure");
                 grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_NONE);
             }
         }
@@ -458,11 +464,12 @@ void HomaStream::transferData()
                 grpc_closure *c = trailMdClosure;
                 trailMdClosure = nullptr;
                 msg->hdr()->flags &= ~Wire::Header::trailMdPresent;
+                tt("Invoking trailing metadata closure");
                 grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_NONE);
                 eof = true;
             }
         }
-
+        
         if ((msg->hdr()->flags & (Wire::Header::initMdPresent
                 | Wire::Header::trailMdPresent | Wire::Header::messageComplete))
                 || (msg->messageLength != 0)) {

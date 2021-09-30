@@ -3,6 +3,7 @@
 #include "homa_client.h"
 #include "homa_incoming.h"
 #include "homa.h"
+#include "time_trace.h"
 #include "util.h"
 #include "wire.h"
 

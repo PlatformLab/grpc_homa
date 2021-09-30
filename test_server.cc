@@ -6,6 +6,7 @@
 #include "test.grpc.pb.h"
 #include "homa.h"
 #include "homa_listener.h"
+#include "time_trace.h"
 #include "util.h"
 
 class TestImpl : public test::Test::Service {   
@@ -13,8 +14,9 @@ public:
     grpc::Status Sum(grpc::ServerContext*context, const test::SumArgs *args,
             test::SumResult *result) override
     {
-        printf("Sum invoked with arguments %d and %d\n",
-                args->op1(), args->op2());
+//        printf("Sum invoked with arguments %d and %d\n",
+//                args->op1(), args->op2());
+        tt("Sum service method invoked");
         result->set_sum(args->op1() + args->op2());
         return grpc::Status::OK;
     }
@@ -60,26 +62,63 @@ public:
         printf("IncMany finished\n");
         return grpc::Status::OK;
     }
+    
+    grpc::Status PrintTrace(grpc::ServerContext*context,
+            const test::String *args, test::Empty *result) override
+    {
+        TimeTrace::printToFile(args->s().c_str());
+        return grpc::Status::OK;
+    }
 };
 
 int main(int argc, char** argv) {
-    if (argc != 2) {
-        fprintf(stderr, "Usage: %s homa:port\n", argv[0]);
-        exit(1);
+    recordFunc = TimeTrace::record2;
+    std::string serverAddress;
+    bool useHoma = true;
+    std::vector<std::string> args;
+    unsigned nextArg;
+    
+    for (int i = 0; i < argc; i++) {
+        args.emplace_back(argv[i]);
     }
-    printf("sizeof(struct sockaddr_in6): %lu\n", sizeof(struct sockaddr_in6));
-    std::string server_address(argv[1]);
+    
+    for (nextArg = 1; nextArg < args.size(); nextArg++) {
+		const char *option = args[nextArg].c_str();
+        if (strcmp(option, "--tcp") == 0) {
+            useHoma = false;
+            continue;
+        }
+        break;
+    }
+    if (nextArg != args.size()) {
+        if (nextArg != (args.size() - 1)) {
+            fprintf(stderr, "Usage: test_server [--tcp] [homa:port]\n");
+            exit(1);
+        }
+        serverAddress = args.back();
+    }
+    if (serverAddress.empty()) {
+        if (useHoma) {
+            serverAddress = "homa:4000";
+        } else {
+            serverAddress = "0.0.0.0:4000";
+        }
+    }
+    
+   
     TestImpl service;
-
     grpc::ServerBuilder builder;
-    builder.AddListeningPort(server_address,
-            HomaListener::insecureCredentials());
-  //  builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
+    if (useHoma) {
+        builder.AddListeningPort(serverAddress,
+                HomaListener::insecureCredentials());
+    } else {
+        builder.AddListeningPort(serverAddress, grpc::InsecureServerCredentials());
+    }
     builder.RegisterService(&service);
     std::unique_ptr<grpc::Server> server(builder.BuildAndStart());
     if (server == nullptr)
         exit(1);
-    std::cout << "Server listening on " << server_address << std::endl;
+    std::cout << "Server listening on " << serverAddress << std::endl;
     server->Wait();
 
     return 0;

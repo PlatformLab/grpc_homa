@@ -6,17 +6,22 @@
 #include <sys/types.h>
 
 #include <cstdarg>
+#include <optional>
 
 #include <grpcpp/grpcpp.h>
 #include "test.grpc.pb.h"
 
 #include "homa.h"
 #include "homa_client.h"
+#include "time_trace.h"
 #include "util.h"
 
-class SumClient{
+const char *ttFile = "homa.tt";
+const char *ttServerFile = "homaServer.tt";
+
+class TestClient{
 public:
-    SumClient(const std::shared_ptr<grpc::Channel> channel)
+    TestClient(const std::shared_ptr<grpc::Channel> channel)
         : stub(test::Test::NewStub(channel)) {}
         
     std::unique_ptr<test::Test::Stub> stub;
@@ -143,25 +148,87 @@ public:
                     stringForStatus(&status).c_str());
         }
     }
+    /**
+     * Have the peer print its timetrace to a file.
+     * \param name
+     *      Name of the file in which to print the trace.
+     */
+    void PrintTrace(const char *name)
+    {
+        test::String args;
+        test::Empty result;
+        grpc::ClientContext context;
+        
+        args.set_s(name);
+        grpc::Status status = stub->PrintTrace(&context, args, &result);
+        if (!status.ok()) {
+            printf("PrintTrace RPC failed: %s\n",
+                    stringForStatus(&status).c_str());
+        }
+    }
 };
 
-int main(int argc, char** argv) {
-    const char *server;
-    
-    if (argc == 1) {
-        server = "node-1:4000";
-    } else if (argc == 2) {
-        server = argv[1];
-    } else {
-        fprintf(stderr, "Usage: test_client [host:port]\n");
-        return 1;
+void measureRtt(TestClient *client)
+{
+#define NUM_REQUESTS 1000
+    uint64_t start = TimeTrace::rdtsc();
+    for (int i = 0; i < NUM_REQUESTS; i++) {
+        tt("Starting request");
+        client->Sum(1, 2);
+        tt("Request %d finished", i);
+        tt("TimeTrace::record completed");
     }
-    SumClient client(HomaClient::createInsecureChannel(server));
+    uint64_t end = TimeTrace::rdtsc();
+    printf("Round-trip time for Sum requests: %.1f us\n",
+            TimeTrace::toSeconds(end-start)*1e06/NUM_REQUESTS);
+    client->PrintTrace(ttServerFile);
+    TimeTrace::printToFile(ttFile);
+}
+
+int main(int argc, char** argv)
+{
+    recordFunc = TimeTrace::record2;
+    const char *server = "node-1:4000";
+    bool useHoma = true;
+    std::vector<std::string> args;
+    unsigned nextArg;
+    
+    for (int i = 0; i < argc; i++) {
+        args.emplace_back(argv[i]);
+    }
+    
+    for (nextArg = 1; nextArg < args.size(); nextArg++) {
+		const char *option = args[nextArg].c_str();
+        if (strcmp(option, "--tcp") == 0) {
+            useHoma = false;
+            continue;
+        }
+        break;
+    }
+    if (nextArg != args.size()) {
+        if (nextArg != (args.size() - 1)) {
+            fprintf(stderr, "Usage: test_client [--tcp] [host::port]\n");
+            exit(1);
+        }
+        server = args.back().c_str();
+    }
+    
+    std::optional<TestClient> client;
+    if (useHoma) {
+        client.emplace(HomaClient::createInsecureChannel(server));
+    } else {
+        ttFile = "tcp.tt";
+        ttServerFile = "tcpServer.tt";
+        client.emplace(grpc::CreateChannel(server,
+                grpc::InsecureChannelCredentials()));
+    }
 //    int sum;
-//    sum = client.Sum(22, 33);
+//    sum = client->Sum(22, 33);
 //    printf("Sum of 22 and 33 is %d\n", sum);
-//    printf("SumMany of 1..5 is %d\n", client.SumMany(1, 2, 3, 4, 5, -1));
-//    client.PrintValues(21);
-    client.IncMany(3, 4);
+//    printf("SumMany of 1..5 is %d\n", client->SumMany(1, 2, 3, 4, 5, -1));
+//    client->PrintValues(21);
+//    client->IncMany(3, 4);
+    measureRtt(&client.value());
+    
     return 0;
 }

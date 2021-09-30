@@ -9,6 +9,7 @@ service Test {
     rpc SumMany(stream Value) returns (SumResult) {}
     rpc GetValues(Value) returns (stream Value) {}
     rpc IncMany(stream Value) returns (stream Value) {}
+    rpc PrintTrace(String) returns (Empty) {}
 }
 
 message SumArgs {
@@ -23,3 +24,9 @@ message SumResult {
 message Value {
     int32 value = 1;
 }
+
+message String {
+    string s = 1;
+}
+
+message Empty {}

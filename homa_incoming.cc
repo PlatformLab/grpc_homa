@@ -3,6 +3,7 @@
 
 #include "homa.h"
 #include "homa_incoming.h"
+#include "time_trace.h"
 #include "util.h"
 
 HomaIncoming::HomaIncoming()
@@ -149,6 +150,7 @@ HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags,
 {
     UniquePtr msg(new HomaIncoming);
     ssize_t result;
+    uint64_t startTime = TimeTrace::rdtsc();
     
     *error = GRPC_ERROR_NONE;
     
@@ -229,6 +231,8 @@ HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags,
             msg->streamId.ipv4Addr(), msg->streamId.port(), *homaId,
             msg->streamId.id, msg->sequence, msg->initMdLength,
             msg->messageLength, msg->trailMdLength, msg->hdr()->flags);
+    TimeTrace::record(startTime, "HomaIncoming::read starting");
+    tt("HomaIncoming::read returning");
     return msg;
 }
 

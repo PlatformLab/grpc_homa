@@ -108,31 +108,34 @@ void Mock::logByteStream(const char *separator,
  */
 void Mock::logData(const char *separator, void *data, int length)
 {
-	int i, rangeStart, expectedNext;
+    int i, rangeStart, expectedNext;
     uint8_t* p = static_cast<uint8_t *>(data);
-	if (length == 0) {
-		logPrintf(separator, "empty block");
-		return;
-	}
-	if (length >= 4)
-		rangeStart = *reinterpret_cast<int32_t *>(p);
-	expectedNext = rangeStart;
-	for (i = 0; i <= length-4; i += 4) {
-		int current = *reinterpret_cast<int32_t *>(p + i);
-		if (current != expectedNext) {
-			logPrintf(separator, "%d-%d", rangeStart, expectedNext-1);
-			separator = " ";
-			rangeStart = current;
-		}
-		expectedNext = current+4;
-	}
-	logPrintf(separator, "%d-%d", rangeStart, expectedNext-1);
-	separator = " ";
-	
-	for ( ; i < length; i += 1) {
-		logPrintf(separator, "0x%x", p[i]);
-		separator = " ";
-	}
+    if (length == 0) {
+        logPrintf(separator, "empty block");
+        return;
+    }
+    if (length >= 4) {
+        rangeStart = *reinterpret_cast<int32_t *>(p);
+    } else {
+        rangeStart = 0;
+    }
+    expectedNext = rangeStart;
+    for (i = 0; i <= length-4; i += 4) {
+        int current = *reinterpret_cast<int32_t *>(p + i);
+        if (current != expectedNext) {
+            logPrintf(separator, "%d-%d", rangeStart, expectedNext-1);
+            separator = " ";
+            rangeStart = current;
+        }
+        expectedNext = current+4;
+    }
+    logPrintf(separator, "%d-%d", rangeStart, expectedNext-1);
+    separator = " ";
+
+    for ( ; i < length; i += 1) {
+        logPrintf(separator, "0x%x", p[i]);
+        separator = " ";
+    }
 }
 
 /**

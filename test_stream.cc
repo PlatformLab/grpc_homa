@@ -1,6 +1,8 @@
 #include "homa_stream.h"
 #include "mock.h"
 
+// This file contains unit tests for homa_stream.cc and homa_stream.h.
+
 class TestStream : public ::testing::Test {
 public:
     grpc_core::Arena *arena;

@@ -7,14 +7,15 @@ INCLUDES = -I ../install/include \
            -I ../grpc \
            -I ../grpc/third_party/abseil-cpp \
            -I $(GTEST_INCLUDE_PATH)
-CXXFLAGS += -g -std=c++11 -Wall -Werror -fno-strict-aliasing $(INCLUDES) -MD
-CFLAGS = -Wall -Werror -fno-strict-aliasing -g -MD
+CXXFLAGS += -O3 -std=c++17 -Wall -Werror -fno-strict-aliasing $(INCLUDES) -MD
+CFLAGS = -Wall -Werror -fno-strict-aliasing -O3 -MD
 
 OBJS =      homa_client.o \
 	    homa_incoming.o \
 	    homa_listener.o \
 	    homa_stream.o \
 	    stream_id.o \
+	    time_trace.o \
 	    util.o \
 	    wire.o
 
@@ -61,7 +62,10 @@ clean:
 	rm -f test_client test_server unit tcp_test *.o *.pb.* .deps
 	
 %.o: %.cc
-	$(CXX) -c $(CXXFLAGS) -std=c++17 $< -o $@
+	$(CXX) -c $(CXXFLAGS) $< -o $@
+	
+%.o: %.c
+	cc -c $(CFLAGS) $< -o $@
 
 %.grpc.pb.cc %.grpc.pb.h: %.proto %.pb.cc
 	$(PROTOC) -I $(PROTOS_PATH) --grpc_out=. --plugin=protoc-gen-grpc=$(GRPC_CPP_PLUGIN_PATH) $<
