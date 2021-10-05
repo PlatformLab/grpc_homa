@@ -1,0 +1,20 @@
+// Protocol buffer definitions used for grpcHoma's stress test.
+
+syntax = "proto3";
+
+package stress;
+
+service Stress {
+    rpc Ping(PingRequest) returns (PingResponse) {}
+}
+
+message PingRequest {
+    int32 replyLength = 1;
+    repeated int32 data = 2;
+}
+
+message PingResponse {
+    repeated int32 data = 1;
+}
+
+message Empty {}

@@ -7,8 +7,8 @@ INCLUDES = -I ../install/include \
            -I ../grpc \
            -I ../grpc/third_party/abseil-cpp \
            -I $(GTEST_INCLUDE_PATH)
-CXXFLAGS += -O3 -std=c++17 -Wall -Werror -fno-strict-aliasing $(INCLUDES) -MD
-CFLAGS = -Wall -Werror -fno-strict-aliasing -O3 -MD
+CXXFLAGS += -g -std=c++17 -Wall -Werror -fno-strict-aliasing $(INCLUDES) -MD
+CFLAGS = -Wall -Werror -fno-strict-aliasing -g -MD
 
 OBJS =      homa_client.o \
 	    homa_incoming.o \
@@ -37,8 +37,11 @@ PROTOS_PATH = .
 PKG_CONFIG_PATH = /ouster/install/lib/pkgconfig
 export PKG_CONFIG_PATH
 
-all: test_client test_server tcp_test
+all: stress test_client test_server tcp_test
 	
+stress: stress.grpc.pb.o stress.pb.o stress.o $(OBJS) $(HOMA_OBJS)
+	$(CXX) $^ $(LDFLAGS) -o $@
+
 test_client: test.grpc.pb.o test.pb.o test_client.o $(OBJS) $(HOMA_OBJS)
 	$(CXX) $^ $(LDFLAGS) -o $@
 	
@@ -77,6 +80,8 @@ clean:
 .PRECIOUS: test.grpc.pb.h test.grpc.pb.cc test.pb.h test.pb.cc
 	
 test_client.o test_server.o tcp_test.o : test.grpc.pb.h test.pb.h
+
+stress.o: stress.grpc.pb.h stress.pb.h
 
 # This magic (along with the -MD gcc option) automatically generates makefile
 # dependencies for header files included from source files we compile,
