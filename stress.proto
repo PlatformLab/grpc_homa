@@ -5,16 +5,31 @@ syntax = "proto3";
 package stress;
 
 service Stress {
-    rpc Ping(PingRequest) returns (PingResponse) {}
+    rpc Ping(Request) returns (Response) {}
+    rpc StreamOut(stream StreamOutRequest) returns (Response) {}
+    rpc StreamIn(StreamInRequest) returns (stream Response) {}
+    rpc Stream2Way(stream StreamOutRequest) returns (stream Response) {}
 }
 
-message PingRequest {
-    int32 replyLength = 1;
-    repeated int32 data = 2;
+message Request {
+    sfixed32 requestItems = 1;
+    sfixed32 replyItems = 2;
+    repeated sfixed32 data = 3;
 }
 
-message PingResponse {
-    repeated int32 data = 1;
+message Response {
+    repeated sfixed32 data = 1;
+}
+
+message StreamOutRequest {
+    sfixed32 done = 1;
+    sfixed32 requestItems = 2;
+    sfixed32 replyItems = 3;
+    repeated sfixed32 data = 4;
+}
+
+message StreamInRequest {
+    repeated sfixed32 sizes = 1;
 }
 
 message Empty {}
