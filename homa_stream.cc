@@ -389,11 +389,6 @@ void HomaStream::transferData()
             break;
         }
         
-        if(msg->hdr()->flags & (Wire::Header::messageComplete
-                | Wire::Header::trailMdPresent)){
-            eof = true;
-        }
-        
         // Transfer initial metadata, if possible.
         if (initMdClosure) {
             if (msg->hdr()->flags & Wire::Header::initMdPresent) {
@@ -455,8 +450,9 @@ void HomaStream::transferData()
         }
 
         // Transfer trailing metadata, if possible.
-        if (trailMdClosure) {
-            if (msg->hdr()->flags & Wire::Header::trailMdPresent) {
+        if (msg->hdr()->flags & Wire::Header::trailMdPresent) {
+            eof = true;
+            if (trailMdClosure) {
                 msg->deserializeMetadata(
                         sizeof(Wire::Header) + msg->initMdLength,
                         msg->trailMdLength, trailMd, arena);
@@ -466,7 +462,6 @@ void HomaStream::transferData()
                 msg->hdr()->flags &= ~Wire::Header::trailMdPresent;
                 tt("Invoking trailing metadata closure");
                 grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_NONE);
-                eof = true;
             }
         }
         

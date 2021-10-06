@@ -509,7 +509,6 @@ TEST_F(TestStream, transferData_setEof) {
     execCtx.Flush();
     EXPECT_STREQ("", Mock::log.c_str());
     EXPECT_EQ(1U, stream.incoming.size());
-    EXPECT_TRUE(stream.eof);
     
     // Third message: trailing metadata.
     msg = new HomaIncoming(2, false, 0, 0, 0, false, true);
