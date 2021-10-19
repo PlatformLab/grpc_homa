@@ -16,7 +16,7 @@ StreamId::StreamId(grpc_resolved_address *gaddr, uint32_t id)
     GPR_ASSERT(reinterpret_cast<struct sockaddr*>(gaddr)->sa_family == AF_INET);
     GPR_ASSERT(addrSize <= sizeof(addr));
     
-    bcopy(gaddr->addr, addr, addrSize);
+    memcpy(addr, gaddr->addr, addrSize);
 }
 
 /**
@@ -38,14 +38,14 @@ StreamId::StreamId(uint32_t id)
 StreamId::StreamId(const StreamId &other)
 {
     addrSize = other.addrSize;
-    memcpy(&addr, &other.addr, addrSize);
+    memcpy(addr, other.addr, addrSize);
     id = other.id;
 }
 
 StreamId& StreamId::operator=(const StreamId &other)
 {
     addrSize = other.addrSize;
-    memcpy(&addr, &other.addr, addrSize);
+    memcpy(addr, other.addr, addrSize);
     id = other.id;
     return *this;
 }
