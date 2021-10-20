@@ -251,7 +251,8 @@ void HomaListener::onRead(void* arg, grpc_error* error)
         std::optional<grpc_core::MutexLock> streamLock;
         grpc_error_handle error;
         HomaIncoming::UniquePtr msg = HomaIncoming::read(lis->fd,
-                HOMA_RECV_REQUEST|HOMA_RECV_NONBLOCKING, &homaId, &error);
+                HOMA_RECV_REQUEST|HOMA_RECV_RESPONSE|HOMA_RECV_NONBLOCKING,
+                &homaId, &error);
         if ((error != GRPC_ERROR_NONE) || !msg) {
             break;
         }
