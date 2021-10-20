@@ -85,18 +85,18 @@ void HomaStream::flush()
         status = homa_sendv(fd, vecs.data(), vecs.size(),
                 reinterpret_cast<struct sockaddr *>(streamId.addr),
                 streamId.addrSize, &sentHomaId);
-        gpr_log(GPR_INFO, "Sent Homa request with Homa id %lu, "
-                "%d initial metadata bytes, %d payload bytes, "
-                "%d trailing metadata bytes",
-                sentHomaId, ntohl(hdr()->initMdBytes),
-                ntohl(hdr()->messageBytes),
+        gpr_log(GPR_INFO, "Sent Homa request for stream id %d, "
+                "sequence %d with Homa id %lu, %d initial metadata bytes, "
+                "%d payload bytes, %d trailing metadata bytes",
+                streamId.id, ntohl(hdr()->sequenceNum), sentHomaId,
+                ntohl(hdr()->initMdBytes), ntohl(hdr()->messageBytes),
                 ntohl(hdr()->trailMdBytes));
     } else {
-        gpr_log(GPR_INFO, "Sending Homa response with Homa id %lu, "
-                "%d initial metadata bytes, %d payload bytes, "
-                "%d trailing metadata bytes",
-                homaRequestId, ntohl(hdr()->initMdBytes),
-                ntohl(hdr()->messageBytes),
+        gpr_log(GPR_INFO, "Sending Homa response for stream id %d, "
+                "sequence %d with Homa id %lu, %d initial metadata bytes, "
+                "%d payload bytes, %d trailing metadata bytes",
+                streamId.id, ntohl(hdr()->sequenceNum), homaRequestId,
+                ntohl(hdr()->initMdBytes), ntohl(hdr()->messageBytes),
                 ntohl(hdr()->trailMdBytes));
         status = homa_replyv(fd, vecs.data(), vecs.size(),
                 reinterpret_cast<struct sockaddr *>(streamId.addr),
@@ -461,6 +461,8 @@ void HomaStream::transferData()
                 trailMdClosure = nullptr;
                 msg->hdr()->flags &= ~Wire::Header::trailMdPresent;
                 tt("Invoking trailing metadata closure");
+                gpr_log(GPR_INFO,"Invoked trailing metadata closure for "
+                        "stream id %d", streamId.id);
                 grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_NONE);
             }
         }
