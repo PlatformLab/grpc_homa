@@ -5,6 +5,26 @@
 #include "time_trace.h"
 #include "util.h"
 
+
+/**
+ * This class is needed because grpc_core::SliceBufferByteStream::Orphan
+ * doesn't actually delete the object; this class is identical to
+ * grpc_core::SliceBufferByteStream except that its Orphan method
+ * finishes the job.
+ */
+class HomaSliceBufferByteStream : public grpc_core::SliceBufferByteStream {
+public:
+    HomaSliceBufferByteStream(grpc_slice_buffer* slice_buffer, uint32_t flags)
+            : grpc_core::SliceBufferByteStream(slice_buffer, flags)
+    {}
+
+    void Orphan() override
+    {
+        grpc_core::SliceBufferByteStream::Orphan();
+        delete this;
+    }
+};
+
 /**
  * Constructor for HomaStreams.
  * \param streamId
@@ -436,7 +456,7 @@ void HomaStream::transferData()
             }
             
             if (msg->hdr()->flags & Wire::Header::messageComplete) {
-                messageStream->reset(new grpc_core::SliceBufferByteStream(
+                messageStream->reset(new HomaSliceBufferByteStream(
                         &messageData, 0));
                 grpc_slice_buffer_destroy(&messageData);
                 grpc_slice_buffer_init(&messageData);
