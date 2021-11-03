@@ -334,7 +334,6 @@ TimeTrace::Buffer::Buffer()
  */
 TimeTrace::Buffer::~Buffer()
 {
-    printf("TimeTrace::Buffer destroyed\n");
 }
 
 /**
