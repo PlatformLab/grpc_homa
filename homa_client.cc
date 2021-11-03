@@ -473,9 +473,9 @@ void HomaClient::onRead(void* arg, grpc_error* sockError)
             stream = hc->streams.at(msg->getStreamId());
             streamLock.emplace(&stream->mutex);
         } catch (std::out_of_range& e) {
-            gpr_log(GPR_ERROR, "Ignoring message for unknown RPC id %d",
+            gpr_log(GPR_ERROR, "Ignoring message for unknown RPC, stream id %d",
                     msg->getStreamId().id);
-            return;
+            continue;
         }
         stream->handleIncoming(std::move(msg), homaId);
     }
