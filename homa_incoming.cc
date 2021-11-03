@@ -167,7 +167,8 @@ HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags,
             if (errno == EAGAIN) {
                 return nullptr;
             }
-            gpr_log(GPR_ERROR, "Error in homa_recv: %s", strerror(errno));
+            gpr_log(GPR_ERROR, "Error in homa_recv (homaId %lu): %s",
+                    *homaId, strerror(errno));
             *error = GRPC_OS_ERROR(errno, "homa_recv");
             return nullptr;
         }

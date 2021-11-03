@@ -106,14 +106,14 @@ void HomaStream::flush()
                 reinterpret_cast<struct sockaddr *>(streamId.addr),
                 streamId.addrSize, &sentHomaId);
         gpr_log(GPR_INFO, "Sent Homa request for stream id %d, "
-                "sequence %d with Homa id %lu, %d initial metadata bytes, "
+                "sequence %d with homaId %lu, %d initial metadata bytes, "
                 "%d payload bytes, %d trailing metadata bytes",
                 streamId.id, ntohl(hdr()->sequenceNum), sentHomaId,
                 ntohl(hdr()->initMdBytes), ntohl(hdr()->messageBytes),
                 ntohl(hdr()->trailMdBytes));
     } else {
         gpr_log(GPR_INFO, "Sending Homa response for stream id %d, "
-                "sequence %d with Homa id %lu, %d initial metadata bytes, "
+                "sequence %d with homaId %lu, %d initial metadata bytes, "
                 "%d payload bytes, %d trailing metadata bytes",
                 streamId.id, ntohl(hdr()->sequenceNum), homaRequestId,
                 ntohl(hdr()->initMdBytes), ntohl(hdr()->messageBytes),

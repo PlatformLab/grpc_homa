@@ -2,7 +2,6 @@ Miscellaneous notes about a Homa plugin for gRPC:
 -------------------------------------------------
 
 * TODO list:
-  * Fix problem with RPC ids (can't reliably receive messages > 10 KB)
   * Figure out TimeTrace cleanup
   * Create test case with load
   * Add proper channelz support
@@ -208,6 +207,3 @@ Other notes from phone call on 12/8:
 * Issues to resolve
   * Poll sets
   * Deadlines
-
-
-cmake -DgRPC_INSTALL=ON -DgRPC_BUILD_TESTS=OFF -DCMAKE_INSTALL_PREFIX=$MY_INSTALL_DIR ../..

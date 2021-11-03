@@ -38,7 +38,7 @@ TEST_F(TestIncoming, read_firstHomaRecvFails) {
     HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5, &homaId, &error);
     EXPECT_NE(GRPC_ERROR_NONE, error);
     EXPECT_EQ(nullptr, msg.get());
-    EXPECT_SUBSTR("gpr_log: Error in homa_recv:",
+    EXPECT_SUBSTR("gpr_log: Error in homa_recv",
             Mock::log.c_str());
     EXPECT_SUBSTR("os_error", grpc_error_string(error));
 }
