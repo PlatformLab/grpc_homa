@@ -45,7 +45,6 @@
  */
 class TimeTrace {
 public:
-	static void cleanup();
 	static void freeze();
     static double getCyclesPerSec();
 	static std::string getTrace();
@@ -111,14 +110,33 @@ protected:
 
 		friend class TimeTrace;
 	};
+    
+    /**
+     * Stores a pointer to a Buffer; used to automatically allocate
+     * buffers on thread creation and recycle them on thread exit.
+     */
+    class BufferPtr {
+        public:
+        BufferPtr();
+        ~BufferPtr();
+        Buffer* operator->()
+        {
+            return buffer;
+        }
+        
+        Buffer *buffer;
+    };
 
-	// Points to a private per-thread TimeTrace::Buffer; NULL means no
-    // such object exists for the current thread.
-	static thread_local Buffer tb;
+	// Points to a private per-thread TimeTrace::Buffer.
+	static thread_local BufferPtr tb;
 
 	// Holds pointers to all of the existing thread-private buffers.
     // Entries get deleted only by free_unused.
 	static std::vector<Buffer*> threadBuffers;
+    
+    // Buffers that have been previously used by a thread, but the
+    // thread has exited so the buffer is available for re-use.
+    static std::vector<Buffer*> freeBuffers;
 
 public:
 	/**
@@ -147,7 +165,7 @@ public:
 			uint64_t arg0 = 0, uint64_t arg1 = 0,
 			uint64_t arg2 = 0, uint64_t arg3 = 0) {
 #if ENABLE_TIME_TRACE
-		tb.record(timestamp, format, arg0, arg1, arg2, arg3);
+		tb->record(timestamp, format, arg0, arg1, arg2, arg3);
 #endif
 	}
 	static inline void record(const char* format, uint64_t arg0 = 0,

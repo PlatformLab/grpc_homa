@@ -20,28 +20,39 @@
 
 #include "time_trace.h"
 
-thread_local TimeTrace::Buffer TimeTrace::tb;
+thread_local TimeTrace::BufferPtr TimeTrace::tb;
 std::vector<TimeTrace::Buffer*> TimeTrace::threadBuffers;
+std::vector<TimeTrace::Buffer*> TimeTrace::freeBuffers;
 int TimeTrace::frozen = 0;
 
-// Synchronizes accesses to ThreadBuffers.
+// Synchronizes accesses to Buffers.
 static std::mutex mutex;
 
 /**
- * Frees all of the thread-local buffers that are no longer in use
- * (they don't get freed when the ThreadBuffer objects are deleted, in
- * order to allow timetraces to be dumped after threads have exited).
+ * Constructor for BufferPtrs: reuses a defunct Buffer if available,
+ * otherwise allocates a new one.
  */
-void TimeTrace::cleanup()
+TimeTrace::BufferPtr::BufferPtr()
+    : buffer(nullptr)
 {
-	std::lock_guard<std::mutex> guard(mutex);
-	for (int i = (int) (threadBuffers.size() - 1); i >= 0; i--) {
-		Buffer *buffer = threadBuffers[i];
-		if (buffer->refCount == 0) {
-			delete buffer;
-			threadBuffers.erase(threadBuffers.begin() + i);
-		}
-	}
+    {
+        std::lock_guard<std::mutex> guard(mutex);
+        if (freeBuffers.size() > 0) {
+            buffer = freeBuffers.back();
+            freeBuffers.pop_back();
+        }
+    }
+    if (buffer == nullptr) {
+        buffer = new Buffer();
+    }
+}
+
+
+TimeTrace::BufferPtr::~BufferPtr()
+{
+    tt("Thread exited");
+    std::lock_guard<std::mutex> guard(mutex);
+    freeBuffers.push_back(buffer);
 }
 
 /**
@@ -132,7 +143,7 @@ TimeTrace::printInternal(std::string *s, FILE *f)
 	
 	freeze();
 	
-	/* Make a copy of ThreadBuffers in order to avoid potential
+	/* Make a copy of threadBuffers in order to avoid potential
 	 * synchronization issues with new threads modifying it.
 	 */
 	{
@@ -334,6 +345,7 @@ TimeTrace::Buffer::Buffer()
  */
 TimeTrace::Buffer::~Buffer()
 {
+    printf("Deleting TimeTrace::Buffer");
 }
 
 /**
@@ -342,7 +354,7 @@ TimeTrace::Buffer::~Buffer()
 void TimeTrace::record2(const char* format, uint64_t arg0, uint64_t arg1,
         uint64_t arg2, uint64_t arg3) {
 #if ENABLE_TIME_TRACE
-    tb.record(rdtsc(), format, arg0, arg1, arg2, arg3);
+    tb->record(rdtsc(), format, arg0, arg1, arg2, arg3);
 #endif
 }
 
