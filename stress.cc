@@ -4,6 +4,7 @@
 
 #include <netdb.h>
 #include <stdio.h>
+#include <sys/random.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 
@@ -462,9 +463,13 @@ int sum(std::vector<int>& v)
  */
 void client(int id)
 {
-    std::mt19937 rng;
-    rng.seed(id);
     ClientStats *stats = &clientStats[id];
+    int seed;
+    std::mt19937 rng;
+
+    getrandom(&seed, sizeof(seed), 0);
+    gpr_log(GPR_INFO, "Client %d starting with random seed %d", id, seed);
+    rng.seed(seed);
     
     // Picks the target for an operation
     std::uniform_int_distribution<int> targetDist(0, targets.size()-1);
