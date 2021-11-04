@@ -539,10 +539,17 @@ void HomaStream::handleIncoming(HomaIncoming::UniquePtr msg, uint64_t homaId)
         return;
     }
     
+    if (msg->sequence < nextIncomingSequence) {
+        goto duplicate;
+    }
+    
     if (incoming.empty()) {
         incoming.push_back(std::move(msg));
     } else {
         for (size_t i = incoming.size(); i > 0; i--) {
+            if (incoming[i-1]->sequence == msg->sequence) {
+                goto duplicate;
+            }
             if (incoming[i-1]->sequence < msg->sequence) {
                 incoming.emplace(incoming.begin()+i, std::move(msg));
                 goto messageInserted;
@@ -552,6 +559,11 @@ void HomaStream::handleIncoming(HomaIncoming::UniquePtr msg, uint64_t homaId)
     }
 messageInserted:
     transferData();
+    return;
+
+duplicate:   
+    gpr_log(GPR_INFO, "Dropping duplicate message, stream id %d, sequence %d, "
+            "homaId %lu", streamId.id, msg->sequence, homaId);         
 }
 
 /**

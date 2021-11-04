@@ -732,6 +732,36 @@ TEST_F(TestStream, handleIncoming_basics) {
     Mock::logMetadata("; ", &batch2);
     EXPECT_STREQ("metadata k2: 0123456789 (24)", Mock::log.c_str());
 }
+TEST_F(TestStream, handleIncoming_duplicate_lt_nextIncomingSequence) {
+    stream.initMdClosure = &closure1;
+    stream.initMd = &batch;
+    stream.nextIncomingSequence = 2;
+    grpc_core::ExecCtx execCtx;
+    
+    HomaIncoming::UniquePtr msg(new HomaIncoming(1, true, 0, 0, 0,
+            false, false));
+    stream.handleIncoming(std::move(msg), 444U);
+    execCtx.Flush();
+    EXPECT_STREQ("", Mock::log.c_str());
+}
+TEST_F(TestStream, handleIncoming_duplicate_queued_packet) {
+    stream.initMdClosure = &closure1;
+    stream.initMd = &batch;
+    grpc_core::ExecCtx execCtx;
+    
+    HomaIncoming::UniquePtr msg(new HomaIncoming(2, true, 0, 0, 0,
+            false, false));
+    stream.handleIncoming(std::move(msg), 444U);
+    execCtx.Flush();
+    EXPECT_STREQ("", Mock::log.c_str());
+    EXPECT_EQ(1U, stream.incoming.size());
+    
+    msg.reset(new HomaIncoming(2, true, 0, 0, 0, false, false));
+    stream.handleIncoming(std::move(msg), 444U);
+    execCtx.Flush();
+    EXPECT_STREQ("", Mock::log.c_str());
+    EXPECT_EQ(1U, stream.incoming.size());
+}
 
 TEST_F(TestStream, notifyError) {
     grpc_core::ExecCtx execCtx;
