@@ -20,6 +20,8 @@
 
 #include "time_trace.h"
 
+#include <grpcpp/grpcpp.h>
+
 thread_local TimeTrace::BufferPtr TimeTrace::tb;
 std::vector<TimeTrace::Buffer*> TimeTrace::threadBuffers;
 std::vector<TimeTrace::Buffer*> TimeTrace::freeBuffers;
@@ -38,11 +40,14 @@ TimeTrace::BufferPtr::BufferPtr()
     {
         std::lock_guard<std::mutex> guard(mutex);
         if (freeBuffers.size() > 0) {
+            gpr_log(GPR_INFO, "Reusing trace buffer: %lu available",
+                    freeBuffers.size());
             buffer = freeBuffers.back();
             freeBuffers.pop_back();
         }
     }
     if (buffer == nullptr) {
+        gpr_log(GPR_INFO, "Allocating new trace buffer");
         buffer = new Buffer();
     }
 }
@@ -53,6 +58,8 @@ TimeTrace::BufferPtr::~BufferPtr()
     tt("Thread exited");
     std::lock_guard<std::mutex> guard(mutex);
     freeBuffers.push_back(buffer);
+    gpr_log(GPR_INFO, "Freeing trace buffer, %lu now available",
+            freeBuffers.size());
 }
 
 /**
