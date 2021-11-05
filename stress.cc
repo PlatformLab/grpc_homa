@@ -101,9 +101,17 @@ WeightedChoice::WeightedChoice(int zeroWeight ...)
     dist = std::uniform_int_distribution<int>(0, sum-1);
 }
 
-// Each instance records cumulative statistics for a single client thread.
+// Number of distinct operation types.
 static const int numOps = 6;
+
+// Human-readable names for each of the client operations.
+const char *opNames[] = {
+    "Ping100", "Ping5000", "Ping1.2MB", "StreamOut", "StreamIn", "Stream2Way"
+};
+
+// Each instance records metrics for a single client thread.
 struct ClientStats {
+    
     // Total number of times each operation type has been invoked.
     uint64_t ops[numOps];
     
@@ -112,6 +120,17 @@ struct ClientStats {
     
     // Total number of data bytes received for each operation type.
     uint64_t inBytes[numOps];
+    
+    // Number of RTT measurements retained for each operation type.
+    static const int maxSamples = 10000;
+    
+    // RTT measurements from recent RPCs, separated by operation
+    // type.
+    uint64_t rtts[numOps][maxSamples];
+    
+    // Index of where to record the next RTT measurement for each
+    // operation type.
+    int nextSample[numOps];
 };
 
 std::vector<ClientStats> clientStats;
@@ -405,10 +424,12 @@ public:
             }
             response.clear_data();
             int size = request.replyitems();
-            for (int i = 0; i < size; i++) {
-                response.add_data(i);
+            if (size > 0) {
+                for (int i = 0; i < size; i++) {
+                    response.add_data(i);
+                }
+                stream->Write(response);
             }
-            stream->Write(response);
             if (request.done()) {
                 break;
             }
@@ -484,49 +505,56 @@ void client(int id)
     std::vector<int> stream2WayInSizes = makeVector<int>(
             7, 1200000, 5000, 300, 9000, 0, 0, 5000);
     
+    int outBytes[numOps];
+    int inBytes[numOps];
+    outBytes[0] = 100;
+    inBytes[0] = 100;
+    outBytes[1] = 5000;
+    inBytes[1] = 5000;
+    outBytes[2] = 1200000;
+    inBytes[2] = 1200000;
+    outBytes[3] = sum(streamSizes);
+    inBytes[3] = 5000;
+    outBytes[4] = 0;
+    inBytes[4] = sum(streamSizes);
+    outBytes[5] = sum(stream2WayOutSizes);
+    inBytes[5] = sum(stream2WayInSizes);
+    
     while (true) {
         Target& target = targets[targetDist(rng)];
         int type = typeDist(rng);
         stats->ops[type]++;
         gpr_log(GPR_INFO, "Starting request, client %d type %d",
                 id, type);
+        uint64_t start = TimeTrace::rdtsc();
         switch (type) {
             // Issue a small ping request.
             case 0: {
-                target.Ping(100, 100);
-                stats->outBytes[type] += 100;
-                stats->inBytes[type] += 100;
+                target.Ping(outBytes[0], inBytes[0]);
                 break;
             }
 
             // Issue a medium-size ping request.
             case 1: {
-                target.Ping(5000, 5000);
-                stats->outBytes[type] += 5000;
-                stats->inBytes[type] += 5000;
+                target.Ping(outBytes[1], inBytes[1]);
                 break;
             }
 
             // Issue a large ping request.
             case 2: {
-                target.Ping(1200000, 1200000);
-                stats->outBytes[type] += 1200000;
-                stats->inBytes[type] += 1200000;
+                target.Ping(outBytes[2], inBytes[2]);
                 break;
             }
 
             // Stream data out to a server.
             case 3: {
                 target.StreamOut(streamSizes, 5000);
-                stats->outBytes[type] += sum(streamSizes);
-                stats->inBytes[type] += 5000;
                 break;
             }
 
             // Stream data in from a server.
             case 4: {
                 target.StreamIn(streamSizes);
-                stats->inBytes[type] += sum(streamSizes);
                 break;
             }
 
@@ -538,18 +566,18 @@ void client(int id)
                 break;
             }
         }
+        uint64_t elapsed = TimeTrace::rdtsc() - start;
+        stats->outBytes[type] += outBytes[type];
+        stats->inBytes[type] += inBytes[type];
+        int i = stats->nextSample[type];
+        stats->rtts[type][i] = elapsed;
+        i++;
+        if (i >= ClientStats::maxSamples) {
+            i = 0;
+        }
+        stats->nextSample[type] = i;
     }
 }
-
-// Human-readable name for each of the client operations.
-const char *opNames[] = {
-    "Short ping",
-    "Medium ping",
-    "Long ping",
-    "Stream out",
-    "Stream in",
-    "Stream 2-way"
-};
 
 /**
  * Print help information for this program.
@@ -740,64 +768,95 @@ int main(int argc, char** argv)
         ClientStats *curTotal = &totalStats[latestStats];
         ClientStats *oldTotal = &totalStats[1-latestStats];
         
-        // These arrays build up strings listing rates of ops and data
-        // for each operation type.
-        std::string count[numOps];
-        std::string outBytes[numOps];
-        std::string inBytes[numOps];
+        // These arrays build up strings listing rates of ops and data.
+        std::string count;
+        std::string outBytes;
+        std::string inBytes;
+        
+        // RTT samples for current op.
+        std::vector<double> rtts;
+        
+        double totalOps = 0.0;
+        double totalOut = 0.0;
+        double totalIn = 0.0;
         
         uint64_t currentTime = TimeTrace::rdtsc();
         double elapsed = TimeTrace::toSeconds(currentTime - lastSampleTime);
         
         // Gather and print current statistics.
         memset(curTotal, 0, sizeof(*curTotal));
-        for (size_t i = 0; i < clientStats.size(); i++) {
-            ClientStats *cur = &clientStats[i];
-            ClientStats *old = &prevClientStats[i];
-            for (int j = 0; j < numOps; j++) {
-                double opsPerSec = (cur->ops[j] - old->ops[j])/elapsed;
-                appendPrintf(count[j], " ", "%.3f", opsPerSec*1e-3);
-                curTotal->ops[j] += cur->ops[j];
-                old->ops[j] = cur->ops[j];
-
-                double outPerSec = (cur->outBytes[j] - old->outBytes[j])
-                        /elapsed;
-                appendPrintf(outBytes[j], " ", "%.2f", outPerSec*1e-6);
-                curTotal->outBytes[j] += cur->outBytes[j];
-                old->outBytes[j] = cur->outBytes[j];
-
-                double inPerSec = (cur->inBytes[j] - old->inBytes[j])
-                        /elapsed;
-                appendPrintf(inBytes[j], " ", "%.2f", inPerSec*1e-6);
-                curTotal->inBytes[j] += cur->inBytes[j];
-                old->inBytes[j] = cur->inBytes[j];
+        rtts.reserve(clientStats.size() * ClientStats::maxSamples);
+        for (int op = 0; op < numOps; op++) {
+            count.resize(0);
+            outBytes.resize(0);
+            inBytes.resize(0);
+            rtts.resize(0);
+            if (clientStats.size() == 0) {
+                break;
             }
-        }
-        if (!firstTime && (clientStats.size() != 0)) {
-            double totalOps = 0.0;
-            double totalOut = 0.0;
-            double totalIn = 0.0;
-            for (int i = 0; i < numOps; i++) {
-                printf("%s:\n", opNames[i]);
-                double opsPerSec = (curTotal->ops[i] - oldTotal->ops[i])/elapsed;
-                totalOps += curTotal->ops[i] - oldTotal->ops[i];
-                printf("  kOps/sec: %.3f [%s]\n", opsPerSec*1e-3, count[i].c_str());
-                double outPerSec = (curTotal->outBytes[i]
-                        - oldTotal->outBytes[i])/elapsed;
-                totalOut += curTotal->outBytes[i] - oldTotal->outBytes[i];
-                printf("  MB/sec out: %.2f [%s]\n", outPerSec*1e-6,
-                        outBytes[i].c_str());
-                double inPerSec = (curTotal->inBytes[i]
-                        - oldTotal->inBytes[i])/elapsed;
-                totalIn += curTotal->inBytes[i] - oldTotal->inBytes[i];
-                printf("  MB/sec in: %.2f [%s]\n", inPerSec*1e-6,
-                        inBytes[i].c_str());
+            for (size_t client = 0; client < clientStats.size(); client++) {
+                ClientStats *cur = &clientStats[client];
+                ClientStats *old = &prevClientStats[client];
+                double opsPerSec = (cur->ops[op] - old->ops[op])/elapsed;
+                appendPrintf(count, " ", "%5.0f", opsPerSec);
+                curTotal->ops[op] += cur->ops[op];
+                old->ops[op] = cur->ops[op];
+
+                double outPerSec = (cur->outBytes[op] - old->outBytes[op])
+                        /elapsed;
+                appendPrintf(outBytes, " ", "%5.2f", outPerSec*1e-6);
+                curTotal->outBytes[op] += cur->outBytes[op];
+                old->outBytes[op] = cur->outBytes[op];
+
+                double inPerSec = (cur->inBytes[op] - old->inBytes[op])
+                        /elapsed;
+                appendPrintf(inBytes, " ", "%5.2f", inPerSec*1e-6);
+                curTotal->inBytes[op] += cur->inBytes[op];
+                old->inBytes[op] = cur->inBytes[op];
+                
+                uint64_t *current = clientStats[client].rtts[op];
+                for (int count = ClientStats::maxSamples; count > 0; count--) {
+                    if (*current == 0) {
+                        break;
+                    }
+                    rtts.push_back(TimeTrace::toSeconds(*current));
+                    current++;
+                }
             }
-            printf("Totals: %.1f kOps/sec, %.1f MB/sec out %.1f MB/sec in\n",
-                    1e-03*totalOps/elapsed, 1e-06*totalOut/elapsed,
-                    1e-06*totalOut/elapsed);
+            
+            printf("%s:\n", opNames[op]);
+            if (rtts.size() > 0) {
+                std::sort(rtts.begin(), rtts.end());
+                printf("  RTT:        min %.2f ms, P50 %.2f ms, P99 %.2f ms, "
+                        "max %.2f ms\n",
+                        rtts[0]*1e3, rtts[rtts.size()/2]*1e3,
+                        rtts[rtts.size()*99/100]*1e3, rtts[rtts.size()-1]*1e3);
+            }
+
+            if (!firstTime) {
+                double opsPerSec = (curTotal->ops[op]
+                        - oldTotal->ops[op])/elapsed;
+                totalOps += curTotal->ops[op] - oldTotal->ops[op];
+                printf("  ops/sec:    %-6.0f [%s]\n", opsPerSec, count.c_str());
+                double outPerSec = (curTotal->outBytes[op]
+                        - oldTotal->outBytes[op])/elapsed;
+                totalOut += curTotal->outBytes[op] - oldTotal->outBytes[op];
+                printf("  MB/sec out: %-6.2f [%s]\n", outPerSec*1e-6,
+                        outBytes.c_str());
+                double inPerSec = (curTotal->inBytes[op]
+                        - oldTotal->inBytes[op])/elapsed;
+                totalIn += curTotal->inBytes[op] - oldTotal->inBytes[op];
+                printf("  MB/sec in:  %-6.2f [%s]\n", inPerSec*1e-6,
+                        inBytes.c_str());
+            }
         }
         
+        if (!firstTime && (clientStats.size() != 0)) {
+            printf("Totals: %.0f ops/sec, %.2f MB/sec out %.2f MB/sec in\n",
+                    totalOps/elapsed, 1e-06*totalOut/elapsed,
+                    1e-06*totalOut/elapsed);
+        }
+
         firstTime = false;
         lastSampleTime = currentTime;
         usleep(2000000);
