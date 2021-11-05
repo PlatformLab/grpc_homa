@@ -459,6 +459,25 @@ TEST_F(TestStream, xmit_multipleHomaMessages) {
     
     grpc_slice_buffer_destroy(&slices);
 }
+TEST_F(TestStream, xmit_emptyMessage) {
+    op.send_message = true;
+    grpc_slice_buffer slices;
+    grpc_slice_buffer_init(&slices);
+    payload.send_message.send_message.reset(
+            new grpc_core::SliceBufferByteStream(&slices, 0));
+    stream.xmit(&op);
+    ASSERT_EQ(1U, Mock::homaMessages.size());
+    Wire::dumpHeader(Mock::homaMessages[0].data(), GPR_LOG_SEVERITY_ERROR);
+    EXPECT_STREQ("homa_sendv: 1 iovecs, 21 bytes; gpr_log: Header: id: 33, "
+            "sequence 1, messageComplete, request",
+            Mock::log.c_str());
+    Mock::log.clear();
+    Mock::logData("; ",
+            Mock::homaMessages[0].data() + sizeof(Wire::Header),
+            Mock::homaMessages[0].size() - sizeof(Wire::Header));
+    EXPECT_STREQ("empty block", Mock::log.c_str());
+    grpc_slice_buffer_destroy(&slices);
+}
 
 TEST_F(TestStream, sendDummyResponse) {
     stream.homaRequestId = 999;

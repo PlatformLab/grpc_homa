@@ -365,8 +365,7 @@ void HomaStream::xmit(grpc_transport_stream_op_batch* op)
     
     // If there's nothing besides initial metadata, don't flush now; wait
     // until it can be combined with something else.
-    if ((hdr()->flags & Wire::Header::trailMdPresent)
-            || (hdr()->messageBytes != 0)) {
+    if (op->send_message || op->send_trailing_metadata) {
         flush();
     }
 }
