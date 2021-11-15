@@ -1,14 +1,32 @@
+DEBUG := no
+ifeq ($(DEBUG),no)
+    GRPC_INSTALL_DIR := /ouster/install.release
+    DEBUG_FLAGS := -O3 -DNDEBUG
+else
+    GRPC_INSTALL_DIR := /ouster/install.debug
+    DEBUG_FLAGS := -g
+endif
+
+GRPC_LIBS := $(shell export PKG_CONFIG_PATH=$(GRPC_INSTALL_DIR)/lib/pkgconfig; \
+	pkg-config --libs protobuf grpc++)
+ifeq ($(DEBUG),yes)
+    GRPC_LIBS := $(subst -lprotobuf,-lprotobufd,$(GRPC_LIBS))
+endif
+
 GTEST_INCLUDE_PATH = ../googletest/googletest/include
 GTEST_LIB_PATH = ../googletest/build/lib
-PROTOC = protoc
+export PKG_LIB_PATH = $(GRPC_INSTALL_DIR)/lib/pkgconfig
+GRPC_DIR = ../grpc
+PROTOC = $(GRPC_INSTALL_DIR)/bin/protoc
 CXX = g++
-INCLUDES = -I ../install/include \
+INCLUDES = -I $(GRPC_INSTALL_DIR)/include \
            -I /users/ouster/homaModule \
-           -I ../grpc \
-           -I ../grpc/third_party/abseil-cpp \
+           -I $(GRPC_DIR) \
+           -I $(GRPC_DIR)/third_party/abseil-cpp \
            -I $(GTEST_INCLUDE_PATH)
-CXXFLAGS += -g -std=c++17 -Wall -Werror -fno-strict-aliasing $(INCLUDES) -MD
-CFLAGS = -Wall -Werror -fno-strict-aliasing -g -MD
+CXXFLAGS += $(DEBUG_FLAGS) -std=c++17 -Wall -Werror -fno-strict-aliasing \
+         $(INCLUDES) -MD
+CFLAGS = -Wall -Werror -fno-strict-aliasing $(DEBUG_FLAGS) -MD
 
 OBJS =      homa_client.o \
 	    homa_incoming.o \
@@ -26,16 +44,13 @@ TEST_OBJS = mock.o \
             test_listener.o \
             test_stream.o
 
-LDFLAGS += -L/usr/local/lib `pkg-config --libs protobuf grpc++`\
+LDFLAGS += -L/usr/local/lib $(GRPC_LIBS)\
            -pthread\
            -Wl,--no-as-needed -lgrpc++_reflection -Wl,--as-needed\
            -ldl
 
-GRPC_CPP_PLUGIN = grpc_cpp_plugin
-GRPC_CPP_PLUGIN_PATH ?= `which $(GRPC_CPP_PLUGIN)`
+GRPC_CPP_PLUGIN = $(GRPC_INSTALL_DIR)/bin/grpc_cpp_plugin
 PROTOS_PATH = .
-PKG_CONFIG_PATH = /ouster/install/lib/pkgconfig
-export PKG_CONFIG_PATH
 
 all: stress test_client test_server tcp_test
 	
@@ -64,6 +79,12 @@ homa_api.o: /users/ouster/homaModule/homa_api.c
 clean:
 	rm -f test_client test_server unit tcp_test *.o *.pb.* .deps
 	
+install: all
+	rsync -avz stress test_client test_server node-1:
+	rsync -avz stress test_client test_server node-2:
+	rsync -avz stress test_client test_server node-3:
+	rsync -avz stress test_client test_server node-4:
+	
 %.o: %.cc
 	$(CXX) -c $(CXXFLAGS) $< -o $@
 	
@@ -71,7 +92,7 @@ clean:
 	cc -c $(CFLAGS) $< -o $@
 
 %.grpc.pb.cc %.grpc.pb.h: %.proto %.pb.cc
-	$(PROTOC) -I $(PROTOS_PATH) --grpc_out=. --plugin=protoc-gen-grpc=$(GRPC_CPP_PLUGIN_PATH) $<
+	$(PROTOC) -I $(PROTOS_PATH) --grpc_out=. --plugin=protoc-gen-grpc=$(GRPC_CPP_PLUGIN) $<
 
 %.pb.cc %.pb.h: %.proto
 	$(PROTOC) -I $(PROTOS_PATH) --cpp_out=. $<
@@ -91,3 +112,8 @@ stress.o: stress.grpc.pb.h stress.pb.h
 	@mkdir -p $(@D)
 	perl mergedep.pl $@ $^
 -include .deps
+
+# The following target is useful for debugging Makefiles; it
+# prints the value of a make variable.
+print-%:
+	@echo $* = $($*)
