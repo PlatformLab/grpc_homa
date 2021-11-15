@@ -196,6 +196,10 @@ extern void (*recordFunc)(const char* format, uint64_t arg0,
 
 #define tt TimeTrace::record
 
+/**
+ * Records time trace record indirectly through recordFunc; used to
+ * add time tracing to the gRPC core.
+ */
 inline void tt2(const char* format, uint64_t arg0 = 0,
         uint64_t arg1 = 0, uint64_t arg2 = 0, uint64_t arg3 = 0)
 {

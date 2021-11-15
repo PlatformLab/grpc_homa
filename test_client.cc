@@ -171,6 +171,9 @@ public:
 void measureRtt(TestClient *client)
 {
 #define NUM_REQUESTS 1000
+    for (int i = 0; i < 5; i++) {
+        client->Sum(1, 2);
+    }
     uint64_t start = TimeTrace::rdtsc();
     for (int i = 0; i < NUM_REQUESTS; i++) {
         tt("Starting request");

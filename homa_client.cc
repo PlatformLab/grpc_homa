@@ -177,7 +177,7 @@ grpc_channel *HomaClient::createChannel(const char* target,
             args, to_remove, 2, to_add, 3);
     
     grpc_channel *channel = grpc_channel_create(target, new_args,
-            GRPC_CLIENT_CHANNEL, nullptr);
+            GRPC_CLIENT_CHANNEL, nullptr, nullptr, 0, nullptr);
     grpc_channel_args_destroy(new_args);
     
     return channel;

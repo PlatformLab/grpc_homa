@@ -176,7 +176,7 @@ HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags,
             break;
         }
         gpr_log(GPR_INFO,
-                "Discarding dummy response for Homa id %lu, stream id %d",
+                "Discarding dummy response for homaId %lu, stream id %d",
                 *homaId, ntohl(msg->hdr()->streamId));
     }
     
