@@ -9,6 +9,7 @@ service Stress {
     rpc StreamOut(stream StreamOutRequest) returns (Response) {}
     rpc StreamIn(StreamInRequest) returns (stream Response) {}
     rpc Stream2Way(stream StreamOutRequest) returns (stream Response) {}
+    rpc PrintLog(Empty) returns (Empty) {}
 }
 
 message Request {

@@ -33,6 +33,123 @@ bool useHoma = true;
 
 static thread_local const char *lastOp = "none";
 
+// Dynamically allocated buffer used to hold circular log in memory.
+char *logMemory = nullptr;
+
+// Amount of memory allocated at logMemory.
+size_t logSize = 0;
+
+// Offset within logMemory at which to write the next bytes.
+size_t logOffset = 0;
+
+// True means the log has wrapped (so information after logOffset is valid).
+bool logWrapped = false;
+
+// True means the log has been printed at least once.
+bool logPrinted = false;
+
+/**
+ * Add information to the in-memory log. Note: this function is not
+ * thread-safe.
+ * \param p
+ *      First byte of information to add to the log.
+ * \param length
+ *      Number of bytes to add to the log.
+ */
+void appendToLog(const char *p, size_t length)
+{
+    if (logPrinted) {
+        return;
+    }
+    if (logMemory == nullptr) {
+        logSize = 1000000000;
+        logMemory = new char[logSize];
+    }
+    while (length > (logSize - logOffset)) {
+        size_t chunkSize = logSize - logOffset;
+        memcpy(logMemory + logOffset, p, chunkSize);
+        length -= chunkSize;
+        p += chunkSize;
+        logOffset = 0;
+        logWrapped = true;
+    }
+    if (length > 0) {
+        memcpy(logMemory + logOffset, p, length);
+        logOffset += length;
+        if (logOffset >= logSize) {
+            logOffset = 0;
+            logWrapped = true;
+        }
+    }
+}
+
+/**
+ * This function captures calls to gpr_log and logs the information in
+ * the in-memory log.
+ * \param args
+ *      Information from the original gpr_log call.
+ */
+void logToMemory(gpr_log_func_args* args)
+{
+    static std::mutex mutex;
+    std::lock_guard<std::mutex> guard(mutex);
+    
+    thread_local int tid = 0;
+    if (tid == 0) {
+        tid = gettid();
+    }
+    
+    gpr_timespec now = gpr_now(GPR_CLOCK_REALTIME);
+    
+    const char *file;
+    const char *lastSlash = strrchr(args->file, '/');
+    if (lastSlash == nullptr) {
+      file = args->file;
+    } else {
+      file = lastSlash + 1;
+    }
+    
+    char buffer[58];
+    size_t size = snprintf(buffer, sizeof(buffer), "%s %lu.%u %7d %s:%d]",
+            gpr_log_severity_string(args->severity), now.tv_sec, now.tv_nsec,
+            tid, file, args->line);
+    if (size < sizeof(buffer)) {
+        memset(buffer+size, ' ', sizeof(buffer) - size);
+    }
+    appendToLog(buffer, sizeof(buffer));
+    appendToLog(args->message, strlen(args->message));
+    appendToLog("\n", 1);
+}
+
+/**
+ * Print out the contents of the in-memory log to a file.
+ * \param file
+ *      Name of the file in which to print the log.
+ */
+void printLog(const char *file)
+{
+    if (logMemory == NULL) {
+        fprintf(stderr, "Can't print log: in-memory logging isn't enabled\n");
+        return;
+    }
+    logPrinted = true;
+    FILE *f = fopen(file, "w");
+    if (f == nullptr) {
+        fprintf(stderr, "Couldn't open %s to print log: %s\n", file,
+                strerror(errno));
+        return;
+    }
+    
+    if (logWrapped) {
+        fwrite(logMemory + logOffset, 1, logSize - logOffset, f);
+    }
+    fwrite(logMemory, 1, logOffset, f);
+    if (ferror(f)) {
+        fprintf(stderr, "Error writing log to %s: %s\n", file, strerror(errno));
+    }
+    fclose(f);
+}
+
 // An instance of this class will make a random choice among small
 // integers, but with some values more likely to be chosen than
 // others.
@@ -345,11 +462,29 @@ public:
                     stringForStatus(&status).c_str());
         }
     }
+    
+    /**
+     * Ask the peer to print its in-memory log, if it hasn't already
+     * done so.
+     */
+    void PrintLog()
+    {
+        stress::Empty request;
+        stress::Empty response;
+        grpc::ClientContext context;
+        
+        grpc::Status status = stub->PrintLog(&context, request, &response);
+        if (!status.ok()) {
+            printf("PrintLog RPC to %s failed: %s\n",
+                    server, stringForStatus(&status).c_str());
+            usleep(1000000);
+        }
+    }
 };
 
 // This class implements the server side of the benchmark RPCs
 class StressService : public stress::Stress::Service {   
-public:    
+public:
     grpc::Status Ping(grpc::ServerContext*context,
             const stress::Request *request,
             stress::Response *response) override
@@ -435,6 +570,18 @@ public:
             }
         }
         return grpc::Status::OK;
+    }  
+    
+    grpc::Status PrintLog(grpc::ServerContext*context,
+            const stress::Empty *request,
+            stress::Empty *response) override
+    {
+        lastOp = "PrintLog";
+        if (!logPrinted) {
+            gpr_log(GPR_INFO, "Printing log because of remote request");
+            printLog("stress.log");
+        }
+        return grpc::Status::OK;
     }
 };
 
@@ -488,7 +635,9 @@ void client(int id)
     int seed;
     std::mt19937 rng;
 
-    getrandom(&seed, sizeof(seed), 0);
+    if (getrandom(&seed, sizeof(seed), 0) != sizeof(seed)) {
+        gpr_log(GPR_ERROR, "getrandom call failed");
+    }
     gpr_log(GPR_INFO, "Client %d starting with random seed %d", id, seed);
     rng.seed(seed);
     
@@ -598,6 +747,8 @@ void printHelp()
     printf("    --is-server          This node should act as server (no "
             "argument,\n");
     printf("                         default is false)\n");
+    printf("    --log-to-mem         Record gRPC log in memory (default: "
+            "false)\n");
     printf("    --server-ports       How many ports will be open on each "
             "server for\n");
     printf("                         receiving requests (default: 1)\n");
@@ -605,8 +756,6 @@ void printHelp()
             "(default: 1)\n");
     printf("    --tcp                Use TCP for transport instead of Homa\n");
 }
-
-
 
 /**
  * Format a string in printf-style and append it to a std::string.
@@ -647,6 +796,16 @@ void appendPrintf(std::string& s, const char *separator, const char* format, ...
 	va_end(ap);
 }
 
+/**
+ * Ask all of the servers to print their logs.
+ */
+void printAllLogs()
+{
+    for (Target& target: targets) {
+        target.PrintLog();
+    }
+}
+
 int main(int argc, char** argv)
 {
     recordFunc = TimeTrace::record2;
@@ -657,6 +816,7 @@ int main(int argc, char** argv)
         args.emplace_back(argv[i]);
     }
     
+    grpc_init();
     for (nextArg = 1; nextArg < args.size(); nextArg++) {
 		const char *option = args[nextArg].c_str();
         if (strcmp(option, "--client-threads") == 0) {
@@ -675,6 +835,9 @@ int main(int argc, char** argv)
             exit(0);
         } else if (strcmp(option, "--is-server") == 0) {
             isServer = true;
+        } else if (strcmp(option, "--log-to-mem") == 0) {
+            gpr_set_log_function(logToMemory);
+            gpr_set_log_verbosity(GPR_LOG_SEVERITY_INFO);
         } else if (strcmp(option, "--server-ports") == 0) {
             if (!parse(args, nextArg+1, &numServerPorts, option, "integer")) {
 				exit(1);
@@ -762,6 +925,11 @@ int main(int argc, char** argv)
     // any old data).
     bool firstTime = true;
     
+    // Number of consecutive iterations where each client appeared to
+    // make no progress.
+    int idle[numClientThreads];
+    memset(idle, 0, sizeof(idle));
+    
     // Each iteration through this loop prints statistics, then sleeps a while.
     while (true) {
         latestStats = 1-latestStats;
@@ -797,6 +965,28 @@ int main(int argc, char** argv)
             for (size_t client = 0; client < clientStats.size(); client++) {
                 ClientStats *cur = &clientStats[client];
                 ClientStats *old = &prevClientStats[client];
+                
+                // First, check for a stuck client.
+                if (op == 0) {
+                    if (cur->ops[op] == old->ops[op]) {
+                        idle[client]++;
+                        printf("*** idle[%lu] is now %d\n", client,
+                                idle[client]);
+                        if (idle[client] == 5) {
+                            printf("*** Printing log because client %lu "
+                                    "is stuck\n", client);
+                            gpr_log(GPR_ERROR, "Client %lu appears to be "
+                                    "stuck!\n", client);
+                            if (!logPrinted) {
+                                printLog("stress.log");
+                                printAllLogs();
+                            }
+                        }
+                    } else {
+                        idle[client] = 0;
+                    }
+                }
+                
                 double opsPerSec = (cur->ops[op] - old->ops[op])/elapsed;
                 appendPrintf(count, " ", "%5.0f", opsPerSec);
                 curTotal->ops[op] += cur->ops[op];
@@ -827,10 +1017,10 @@ int main(int argc, char** argv)
             printf("%s:\n", opNames[op]);
             if (rtts.size() > 0) {
                 std::sort(rtts.begin(), rtts.end());
-                printf("  RTT:        min %.2f ms, P50 %.2f ms, P99 %.2f ms, "
-                        "max %.2f ms\n",
-                        rtts[0]*1e3, rtts[rtts.size()/2]*1e3,
-                        rtts[rtts.size()*99/100]*1e3, rtts[rtts.size()-1]*1e3);
+                printf("  RTT:        min %5.0f us, P50 %5.0f us, P99 %5.0f us, "
+                        "max %5.0f us\n",
+                        rtts[0]*1e6, rtts[rtts.size()/2]*1e6,
+                        rtts[rtts.size()*99/100]*1e6, rtts[rtts.size()-1]*1e6);
             }
 
             if (!firstTime) {
