@@ -1,3 +1,17 @@
+# Makefile for grpc_homa, which allows C++ applications based on gRPC
+# to use Homa for message transport.
+#
+# Configuration: right now you'll need to modify this Makefile by hand
+# to configure for your site. To do that, set the following variables
+# below:
+#
+# HOMA_DIR: location of the top-level directory for the HomaModule repo
+# GRPC_INSTALL_DIR: location where gRPC binaries are installed (note
+#     separate values for debugand release builds).
+# DEBUG: can be set to "yes" to enable compilation with debugging
+#     enabled (must "make clean" after changing this).
+
+HOMA_DIR := /users/ouster/homaModule
 DEBUG := no
 ifeq ($(DEBUG),no)
     GRPC_INSTALL_DIR := /ouster/install.release
@@ -52,15 +66,18 @@ LDFLAGS += -L/usr/local/lib $(GRPC_LIBS)\
 GRPC_CPP_PLUGIN = $(GRPC_INSTALL_DIR)/bin/grpc_cpp_plugin
 PROTOS_PATH = .
 
-all: stress test_client test_server tcp_test
+all: libhoma.a stress test_client test_server tcp_test
 	
-stress: stress.grpc.pb.o stress.pb.o stress.o $(OBJS) $(HOMA_OBJS)
+libhoma.a: $(OBJS) $(HOMA_OBJS)
+	ar rcs libhoma.a $(OBJS) $^
+	
+stress: stress.grpc.pb.o stress.pb.o stress.o libhoma.a
 	$(CXX) $^ $(LDFLAGS) -o $@
 
-test_client: test.grpc.pb.o test.pb.o test_client.o $(OBJS) $(HOMA_OBJS)
+test_client: test.grpc.pb.o test.pb.o test_client.o libhoma.a
 	$(CXX) $^ $(LDFLAGS) -o $@
 	
-test_server: test.grpc.pb.o test.pb.o test_server.o $(OBJS) $(HOMA_OBJS)
+test_server: test.grpc.pb.o test.pb.o test_server.o libhoma.a
 	$(CXX) $^ $(LDFLAGS) -o $@
 	
 tcp_test: test.grpc.pb.o test.pb.o tcp_test.o
@@ -73,11 +90,11 @@ unit: $(OBJS) $(TEST_OBJS) $(GTEST_LIB_PATH)/libgtest_main.a \
 test: unit
 	./unit --gtest_brief=1
 	
-homa_api.o: /users/ouster/homaModule/homa_api.c
+homa_api.o: $(HOMA_DIR)/homa_api.c
 	cc -c $(CFLAGS) $< -o $@
 	
 clean:
-	rm -f test_client test_server unit tcp_test *.o *.pb.* .deps
+	rm -f test_client test_server unit tcp_test *.a *.o *.pb.* .deps
 	
 install: all
 	rsync -avz stress test_client test_server node-1:

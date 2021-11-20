@@ -2,8 +2,6 @@ Miscellaneous notes about a Homa plugin for gRPC:
 -------------------------------------------------
 
 * TODO list:
-  * Figure out TimeTrace cleanup
-  * Create test case with load
   * Add proper channelz support
   * Deal with recv_initial_metadata.recv_flags
   * Make HomaStream instance variables protected
@@ -207,3 +205,11 @@ Other notes from phone call on 12/8:
 * Issues to resolve
   * Poll sets
   * Deadlines
+
+node-3 to node-4
+
+stream id 910602
+
+Missing Homa ids: 4759041 (response) (sequence 1) from node-3
+
+RPCs getting resends to node-4: 4309872 4309824
