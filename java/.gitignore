@@ -16,3 +16,9 @@
 # Ignore IDE files
 /.idea/
 /nbproject/
+
+# Ignore Gradle info
+gradle*
+.gradle
+build
+buildSrc

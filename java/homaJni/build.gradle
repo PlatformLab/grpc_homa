@@ -1,0 +1,24 @@
+/*
+ * This module contains C++ code implementing a JNI interface
+ * for Homa system calls.
+ */
+
+plugins {
+    id 'cpp-library'
+}
+
+library {
+    targetMachines = [machines.linux.x86_64]
+
+    tasks.withType(CppCompile).configureEach {
+        compilerArgs.add '-Wall'
+        compilerArgs.add '-Werror'
+        compilerArgs.add '-fno-strict-aliasing'
+        compilerArgs.add '-fPIC'
+        compilerArgs.add '-I' + System.getenv("JAVA_HOME") + '/include'
+        compilerArgs.add '-I' + System.getenv("JAVA_HOME") + '/include/linux'
+    }
+}
+
+// println("Requested info:")
+// project.plugins.each {println it}

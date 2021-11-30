@@ -1,0 +1,6 @@
+# This file lists directories and files that should not be copied when
+# updating a remote machine with grpc_homa java info.
+.git
+.gradle
+buildSrc
+gradle*

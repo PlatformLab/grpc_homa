@@ -2,4 +2,5 @@
 # to a remote machine by rsync.
 .git
 nbproject
+java
 *.pb.h

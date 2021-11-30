@@ -1,0 +1,7 @@
+#!/bin/sh
+
+# This script copies modified information from this directory to a
+# CloudLab machine.
+
+target=`cat $HOME/.cloudlabNode`
+rsync -rtv --exclude-from=rsync_exclude.txt ./ $target:/ouster/java/
