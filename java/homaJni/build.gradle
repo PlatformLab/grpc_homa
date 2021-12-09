@@ -19,6 +19,3 @@ library {
         compilerArgs.add '-I' + System.getenv("JAVA_HOME") + '/include/linux'
     }
 }
-
-// println("Requested info:")
-// project.plugins.each {println it}

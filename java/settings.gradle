@@ -8,4 +8,4 @@
  */
 
 rootProject.name = 'grpc_homa'
-include('app', 'lib', 'homaJni')
+include('homaJni', 'lib', 'app')

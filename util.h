@@ -52,7 +52,7 @@ inline void parseType(const char *s, char **end, double *value)
  * \param value
  *      The parsed value corresponding to @words[i] is stored here, if the
  *      function completes successfully.
- * \param format
+ * \param option
  *      Name of option being parsed (for use in error messages).
  * \param typeName
  *      Human-readable name for ValueType (for use in error messages).
