@@ -1,8 +1,14 @@
 package grpcHoma;
 
+import java.io.IOException;
 import java.net.*;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
+
+import io.grpc.*;
+
+import basic.BasicClient;
+import basic.BasicServer;
 
 /**
  * This file contains a main program for testing Java-based Homa
@@ -13,13 +19,81 @@ import java.util.Arrays;
 public class Main {
 
     static int firstServer = 1;
+    static int numPings = 10000;
     static boolean isServer = false;
     static boolean useHoma = true;
     
     /**
-     * Issues a small RPC to a server repeatedly, returns timing information.
+     * Returns a gRPC channel that a client can use to communicate
+     * with a given server.
+     * @param id
+     *      Id of the desired server (the actual server will be node-<id>).
+     */
+    static ManagedChannel getChannel(int id) {
+        ManagedChannel channel = ManagedChannelBuilder.forAddress(
+                "node-"+id, 4000).usePlaintext().build();
+        return channel;
+    }
+    
+    /**
+     * Given an array of RTTs, print summary information (min, max, and
+     * a few percentiles).
+     * @param rtts
+     *      Contains raw time measurements, in nanoseconds. The array
+     *      will be modified (by sorting it).
+     * @param message
+     *      Human-readable text identifying the values being printed
+     *      (prepended to output).
+     */
+    static void printRtts(long[] rtts, String message) {
+        Arrays.sort(rtts);
+        double min, p50, p99, max;
+        min = rtts[0];
+        p50 = rtts[rtts.length/2];
+        p99 = rtts[99*rtts.length/100];
+        max = rtts[rtts.length-1];
+        System.out.printf("%s: min %.1f us, p50 %.1f us, "
+                + "p99 %.1f us, max %.1f us", message, min*1e-3, p50*1e-3,
+                p99*1e-3, max*1e-3);
+    }
+    
+    /**
+     * Issue small RPCs sequentially to a server and print timing info.
      */
     static void testPing() {
+        try {
+            if (isServer) {
+                try {
+                    BasicServer server = new BasicServer(4000);
+                } catch (IOException e) {
+                    System.out.printf("Couldn't start gRPC server: %s\n",
+                            e.getMessage());
+                    return;
+                }
+                while (true) {
+                    Thread.sleep(1000);
+                }
+            } else {
+                BasicClient client = new BasicClient(getChannel(firstServer));
+                long rtts[] = new long[numPings];
+                for (int i = -20000; i < numPings; i++) {
+                    long start = System.nanoTime();
+                    client.ping(5, 5);
+                    if (i >= 0) {
+                        rtts[i] = System.nanoTime() - start;
+                    }
+                }
+                printRtts(rtts, "gRPC ping RTT");
+            }
+        } catch (InterruptedException e) {
+        }
+    }
+    
+    /**
+     * Issues a small RPC to a server repeatedly using raw Homa commands
+     * (no gRPC), prints timing information.
+     */
+    static void testRaw() {
         ByteBuffer buffer = ByteBuffer.allocateDirect(10000);
         
         if (isServer) {
@@ -88,15 +162,7 @@ public class Main {
 //                    buffer.limit(), err, buffer.getInt(), buffer.getInt(),
 //                    buffer.getInt(), buffer.getInt());
         }
-        Arrays.sort(rtts);
-        double min, p50, p99, max;
-        min = rtts[0];
-        p50 = rtts[numPings/2];
-        p99 = rtts[99*numPings/100];
-        max = rtts[numPings-1];
-        System.out.printf("Ping results: min %.1f us, p50 %.1f us, "
-                + "p99 %.1f us, max %.1f us", min*1e-3, p50*1e-3,
-                p99*1e-3, max*1e-3);
+        printRtts(rtts, "Raw ping RTTs");
     }
     
     /**
@@ -139,6 +205,10 @@ public class Main {
         System.out.printf("    --is-server          This node should act as "
                 + "server (no argument,\n");
         System.out.printf("                         default: false)\n");
+        System.out.printf("    --num-pings          Number of times to ping "
+                + "server, for tests that do\n");
+        System.out.printf("                         pings (default: %d)\n",
+                numPings);
         System.out.printf("    --tcp                Use TCP for transport instead of Homa\n");
     }
     
@@ -158,6 +228,9 @@ public class Main {
                 System.exit(0);
             } else if (option.equals("--is-server")) {
                 isServer = true;
+            } else if (option.equals("--num-pings")) {
+                nextArg++;
+                numPings = parseInt(args, nextArg);
             } else if (option.equals("--tcp")) {
                 useHoma = false;
             } else {
@@ -172,6 +245,8 @@ public class Main {
             String test = args[nextArg];
             if (test.equals("ping")) {
                 testPing();
+            } else if (test.equals("raw")) {
+                testRaw();
             } else {
                 System.out.printf("Unknown test name '%s'; skipping\n", test);
             }
