@@ -30,9 +30,12 @@ public class Main {
      *      Id of the desired server (the actual server will be node-<id>).
      */
     static ManagedChannel getChannel(int id) {
-        ManagedChannel channel = ManagedChannelBuilder.forAddress(
-                "node-"+id, 4000).usePlaintext().build();
-        return channel;
+        if (useHoma) {
+            return HomaChannelBuilder.forTarget("node-" + id + ":4000").build();
+        } else {
+            return ManagedChannelBuilder.forAddress(
+                    "node-" + id, 4000).usePlaintext().build();
+        }
     }
     
     /**
@@ -76,7 +79,11 @@ public class Main {
             } else {
                 BasicClient client = new BasicClient(getChannel(firstServer));
                 long rtts[] = new long[numPings];
-                for (int i = -20000; i < numPings; i++) {
+                int warmup = 20000;
+                if (numPings < 1000) {
+                    warmup = 0;
+                }
+                for (int i = -warmup; i < numPings; i++) {
                     long start = System.nanoTime();
                     client.ping(5, 5);
                     if (i >= 0) {

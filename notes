@@ -1,6 +1,9 @@
 Miscellaneous notes about a Homa plugin for gRPC:
 -------------------------------------------------
 
+* Notes about java implementation:
+  * Find out what scheduledExecutorService is.
+
 * TODO list:
   * Add proper channelz support
   * Deal with recv_initial_metadata.recv_flags
@@ -206,10 +209,81 @@ Other notes from phone call on 12/8:
   * Poll sets
   * Deadlines
 
-node-3 to node-4
+* Notes on building Java channels for TCP:
+  * NettyChannelBuilder constructed by NettyChannelBuilder.forTarget
+    (called by ManagedChannelBuilder.forAddress)
+  * NettyChannelBuilder.buildTransportFactory creates a NettyTransportFactory
+    (subclass of ClientTransportFactory)
+    (invoked from ManagedChannelBuilder.build)
+  * NettyTransportFactory.newClientTransport creates a NettyClientTransport
+    (subclass of ConnectionClientTransport)
+    (invoked in separate thread...)
+  * Very thin class NettyChannelTransportFactory has one method,
+    buildClientTransportFactory, which invokes
+    NettyChannelBuilder.buildTransportFactory
+    which creates a NettyTransportFactory
 
-stream id 910602
-
-Missing Homa ids: 4759041 (response) (sequence 1) from node-3
-
-RPCs getting resends to node-4: 4309872 4309824
+Modules to read:
+   553   1308  14046 AbstractHttp2Headers.java
+   249    772   8191 AbstractNettyHandler.java
+    45    176   1410 CancelClientStreamCommand.java
+    71    226   1978 CancelServerStreamCommand.java
+    95    295   2612 ClientTransportLifecycleManager.java
+    57    204   1751 CreateStreamCommand.java
+    53    190   1800 FixedKeyManagerFactory.java
+    53    188   1833 FixedTrustManagerFactory.java
+    35    153   1031 ForcefulCloseCommand.java
+    35    149   1009 GracefulCloseCommand.java
+    53    194   1634 GracefulServerCloseCommand.java
+   110    403   3693 GrpcHttp2ConnectionHandler.java
+   520   1749  17125 GrpcHttp2HeadersUtils.java
+   157    513   5125 GrpcHttp2OutboundHeaders.java
+   305   1028  11288 GrpcSslContexts.java
+   118    466   5287 Http2ControlFrameLimitEncoder.java
+    31    158   1192 InsecureFromHttp1ChannelCredentials.java
+    36    148   1192 InternalGracefulServerCloseCommand.java
+   107    366   3806 InternalNettyChannelBuilder.java
+    63    244   2215 InternalNettyChannelCredentials.java
+    83    292   3068 InternalNettyServerBuilder.java
+    69    280   2682 InternalNettyServerCredentials.java
+    46    163   1383 InternalNettySocketSupport.java
+    53    178   1615 InternalProtocolNegotiationEvent.java
+    67    204   2091 InternalProtocolNegotiator.java
+   171    510   5643 InternalProtocolNegotiators.java
+    35    148   1146 InternalWriteBufferingAndExceptionHandlerUtils.java
+   113    355   3423 JettyTlsUtil.java
+   117    441   3682 KeepAliveEnforcer.java
+   130    414   3967 MaxConnectionIdleManager.java
+    41    171   1187 NegotiationType.java
+   763   2612  30239 NettyChannelBuilder.java
+    42    160   1383 NettyChannelCredentials.java
+    55    187   1711 NettyChannelProvider.java
+  1034   3549  41188 NettyClientHandler.java
+   349   1126  12693 NettyClientStream.java
+   432   1504  17263 NettyClientTransport.java
+   133    373   3135 NettyReadableBuffer.java
+   475   1346  18360 NettyServer.java
+   692   2979  29920 NettyServerBuilder.java
+    37    152   1291 NettyServerCredentials.java
+  1073   3069  40867 NettyServerHandler.java
+    53    176   1568 NettyServerProvider.java
+   244    650   7978 NettyServerStream.java
+   282    760   9720 NettyServerTransport.java
+    74    278   2338 NettySocketSupport.java
+    39    189   1616 NettySslContextChannelCredentials.java
+    39    188   1603 NettySslContextServerCredentials.java
+    61    183   1407 NettyWritableBuffer.java
+    53    279   2039 NettyWritableBufferAllocator.java
+    90    262   2572 ProtocolNegotiationEvent.java
+    66    289   2193 ProtocolNegotiator.java
+  1093   3526  43414 ProtocolNegotiators.java
+   132    365   3236 SendGrpcFrameCommand.java
+    41    159   1176 SendPingCommand.java
+    85    284   2585 SendResponseHeadersCommand.java
+    29    122    771 StreamIdHolder.java
+    31    153   1072 UnhelpfulSecurityProvider.java
+   514   1704  20618 Utils.java
+   257   1015   9503 WriteBufferingAndExceptionHandler.java
+   240    838   6861 WriteQueue.java
+    22    121    805 package-info.java
+ 12201  40684 439230 total

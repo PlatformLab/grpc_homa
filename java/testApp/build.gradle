@@ -9,11 +9,25 @@ repositories {
 
 dependencies {
     implementation project(':grpcHoma')
-    implementation "io.grpc:grpc-protobuf:1.41.0"
-    implementation "io.grpc:grpc-stub:1.41.0"
+    // implementation "io.grpc:grpc-protobuf:1.41.0"
+    // implementation "io.grpc:grpc-stub:1.41.0"
     implementation "javax.annotation:javax.annotation-api:1.3.2"
+    implementation("com.google.guava:guava:31.0.1-jre")
 
-    runtimeOnly "io.grpc:grpc-netty-shaded:1.41.0"
+    // Use local copy of gRPC rather than distributions (for debugging).
+    // runtimeOnly "io.grpc:grpc-netty-shaded:1.41.0"
+    implementation files(
+        '/ouster/grpc-java/protobuf/build/libs/grpc-protobuf-1.41.0.jar',
+        '/ouster/grpc-java/api/build/libs/grpc-api-1.41.0.jar',
+        '/ouster/grpc-java/context/build/libs/grpc-context-1.41.0.jar',
+        '/ouster/grpc-java/core/build/libs/grpc-core-1.41.0.jar',
+        '/ouster/grpc-java/netty/shaded/build/libs/grpc-netty-shaded-1.41.0.jar',
+        //'/ouster/grpc-java/netty/build/libs/grpc-netty-1.41.0.jar',
+        '/ouster/grpc-java/stub/build/libs/grpc-stub-1.41.0.jar',
+        '/ouster/grpc-java/protobuf-lite/build/libs/grpc-protobuf-lite-1.41.0.jar',
+        '/ouster/grpc-java/benchmarks/build/install/grpc-benchmarks/lib/protobuf-java-3.17.2.jar'
+    )
+    runtimeOnly "io.perfmark:perfmark-api:0.23.0"
 }
 
 protobuf {

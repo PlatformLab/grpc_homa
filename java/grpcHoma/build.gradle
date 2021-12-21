@@ -9,6 +9,19 @@ repositories {
 dependencies {
     // testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.junit.jupiter:junit-jupiter:5.7.2'
+
+    implementation('com.google.guava:guava:31.0.1-jre')
+
+    implementation files(
+            '/ouster/grpc-java/protobuf/build/libs/grpc-protobuf-1.41.0.jar',
+            '/ouster/grpc-java/api/build/libs/grpc-api-1.41.0.jar',
+            '/ouster/grpc-java/context/build/libs/grpc-context-1.41.0.jar',
+            '/ouster/grpc-java/core/build/libs/grpc-core-1.41.0.jar',
+            '/ouster/grpc-java/netty/shaded/build/libs/grpc-netty-shaded-1.41.0.jar',
+            '/ouster/grpc-java/stub/build/libs/grpc-stub-1.41.0.jar',
+            '/ouster/grpc-java/protobuf-lite/build/libs/grpc-protobuf-lite-1.41.0.jar',
+            '/ouster/grpc-java/benchmarks/build/install/grpc-benchmarks/lib/protobuf-java-3.17.2.jar'
+    )
 }
 
 jar {
