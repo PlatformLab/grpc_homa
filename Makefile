@@ -71,7 +71,7 @@ all: libhoma.a stress test_client test_server tcp_test
 libhoma.a: $(OBJS) $(HOMA_OBJS)
 	ar rcs libhoma.a $(OBJS) $^
 	
-stress: stress.grpc.pb.o stress.pb.o stress.o libhoma.a
+stress: basic.grpc.pb.o basic.pb.o stress.o libhoma.a
 	$(CXX) $^ $(LDFLAGS) -o $@
 
 test_client: test.grpc.pb.o test.pb.o test_client.o libhoma.a
@@ -119,7 +119,7 @@ install: all
 	
 test_client.o test_server.o tcp_test.o : test.grpc.pb.h test.pb.h
 
-stress.o: stress.grpc.pb.h stress.pb.h
+stress.o: basic.grpc.pb.h basic.pb.h
 
 # This magic (along with the -MD gcc option) automatically generates makefile
 # dependencies for header files included from source files we compile,

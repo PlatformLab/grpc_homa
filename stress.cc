@@ -15,7 +15,7 @@
 #include <vector>
 
 #include <grpcpp/grpcpp.h>
-#include "stress.grpc.pb.h"
+#include "basic.grpc.pb.h"
 
 #include "homa.h"
 #include "homa_client.h"
@@ -257,7 +257,7 @@ std::vector<ClientStats> clientStats;
 class Target {
 public:
     // Stub for invoking this server.
-    std::unique_ptr<stress::Stress::Stub> stub;
+    std::unique_ptr<basic::Basic::Stub> stub;
     
     // Name and port for the server node.
     char server[100];
@@ -276,10 +276,10 @@ public:
         snprintf(server, sizeof(server), "node-%d:%d",
                 serverIndex, serverPort);
         if (useHoma) {
-            stub = stress::Stress::NewStub(
+            stub = basic::Basic::NewStub(
                     HomaClient::createInsecureChannel(server));
         } else {
-            stub = stress::Stress::NewStub(grpc::CreateChannel(server,
+            stub = basic::Basic::NewStub(grpc::CreateChannel(server,
                 grpc::InsecureChannelCredentials()));
         }
     }
@@ -295,8 +295,8 @@ public:
      */
     void Ping(int requestLength, int replyLength)
     {
-        stress::Request request;
-        stress::Response response;
+        basic::Request request;
+        basic::Response response;
         grpc::ClientContext context;
         
         request.set_requestitems(requestLength>>2);
@@ -327,10 +327,10 @@ public:
      */
     void StreamOut(std::vector<int> &sizes, int replyLength)
     {
-        stress::StreamOutRequest request;
-        stress::Response response;
+        basic::StreamOutRequest request;
+        basic::Response response;
         grpc::ClientContext context;
-        std::unique_ptr<grpc::ClientWriter<stress::StreamOutRequest>> writer(
+        std::unique_ptr<grpc::ClientWriter<basic::StreamOutRequest>> writer(
                 stub->StreamOut(&context, &response));
         
         for (size_t i = 0; i < sizes.size(); i++) {
@@ -372,14 +372,14 @@ public:
      */
     void StreamIn(std::vector<int> &sizes)
     {
-        stress::StreamInRequest request;
-        stress::Response response;
+        basic::StreamInRequest request;
+        basic::Response response;
         grpc::ClientContext context;
         
         for (int size: sizes) {
             request.add_sizes(size>>2);
         }
-        std::unique_ptr<grpc::ClientReader<stress::Response> > reader(
+        std::unique_ptr<grpc::ClientReader<basic::Response> > reader(
                 stub->StreamIn(&context, request));
         int index = 0;
         while (reader->Read(&response)) {
@@ -414,11 +414,11 @@ public:
      */
     void Stream2Way(std::vector<int> &outSizes, std::vector<int> &inSizes)
     {
-        stress::StreamOutRequest request;
-        stress::Response response;
+        basic::StreamOutRequest request;
+        basic::Response response;
         grpc::ClientContext context;
-        std::shared_ptr<grpc::ClientReaderWriter<stress::StreamOutRequest,
-                stress::Response>> stream(stub->Stream2Way(&context));
+        std::shared_ptr<grpc::ClientReaderWriter<basic::StreamOutRequest,
+                basic::Response>> stream(stub->Stream2Way(&context));
         
         if (outSizes.size() != inSizes.size()) {
             printf("Stream2Way received mismatched sizes: %lu and %lu\n",
@@ -469,8 +469,8 @@ public:
      */
     void PrintLog()
     {
-        stress::Empty request;
-        stress::Empty response;
+        basic::Empty request;
+        basic::Empty response;
         grpc::ClientContext context;
         
         grpc::Status status = stub->PrintLog(&context, request, &response);
@@ -483,11 +483,11 @@ public:
 };
 
 // This class implements the server side of the benchmark RPCs
-class StressService : public stress::Stress::Service {   
+class StressService : public basic::Basic::Service {   
 public:
     grpc::Status Ping(grpc::ServerContext*context,
-            const stress::Request *request,
-            stress::Response *response) override
+            const basic::Request *request,
+            basic::Response *response) override
     {
         lastOp = "Ping";
         if (request->data_size() != request->requestitems()) {
@@ -502,12 +502,12 @@ public:
     }
     
     grpc::Status StreamOut(grpc::ServerContext* context,
-            grpc::ServerReader<stress::StreamOutRequest>* reader,
-            stress::Response *response)
+            grpc::ServerReader<basic::StreamOutRequest>* reader,
+            basic::Response *response)
             override
     {
         lastOp = "StreamOut";
-        stress::StreamOutRequest request;
+        basic::StreamOutRequest request;
         while (reader->Read(&request)) {
             if (request.data_size() != request.requestitems()) {
                 printf("Expected %d items in StreamOut request, got %d\n",
@@ -525,12 +525,12 @@ public:
     }
     
     grpc::Status StreamIn(grpc::ServerContext* context,
-            const stress::StreamInRequest *request,
-            grpc::ServerWriter<stress::Response>* writer)
+            const basic::StreamInRequest *request,
+            grpc::ServerWriter<basic::Response>* writer)
             override
     {
         lastOp = "StreamIn";
-        stress::Response response;
+        basic::Response response;
         for (int i = 0; i < request->sizes_size(); i ++) {
             response.clear_data();
             int size = request->sizes(i);
@@ -545,13 +545,13 @@ public:
     }
     
     grpc::Status Stream2Way(grpc::ServerContext* context,
-            grpc::ServerReaderWriter<stress::Response,
-            stress::StreamOutRequest>* stream)
+            grpc::ServerReaderWriter<basic::Response,
+            basic::StreamOutRequest>* stream)
             override
     {
         lastOp = "Stream2Way";
-        stress::StreamOutRequest request;
-        stress::Response response;
+        basic::StreamOutRequest request;
+        basic::Response response;
         while (stream->Read(&request)) {
             if (request.data_size() != request.requestitems()) {
                 printf("Expected %d items in Stream2Way request, got %d\n",
@@ -573,8 +573,8 @@ public:
     }  
     
     grpc::Status PrintLog(grpc::ServerContext*context,
-            const stress::Empty *request,
-            stress::Empty *response) override
+            const basic::Empty *request,
+            basic::Empty *response) override
     {
         lastOp = "PrintLog";
         if (!logPrinted) {

@@ -1,10 +1,12 @@
-// Protocol buffer definitions used for grpcHoma's stress test.
+// Protocol buffer definitions used for testing grpcHoma; they
+// make basic use of each of the RPC types (streaming in either
+// or both directions)
 
 syntax = "proto3";
 
-package stress;
+package basic;
 
-service Stress {
+service Basic {
     rpc Ping(Request) returns (Response) {}
     rpc StreamOut(stream StreamOutRequest) returns (Response) {}
     rpc StreamIn(StreamInRequest) returns (stream Response) {}
