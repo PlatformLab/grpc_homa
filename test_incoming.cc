@@ -213,9 +213,9 @@ TEST_F(TestIncoming, deserializeMetadata_basics) {
     int destroyCounter = 0;
     msg->destroyCounter = &destroyCounter;
     size_t length = msg->addMetadata(75, 100,
-            "name1", "value1", 100,
-            "name2", "value2", 100,
-            "n3", "abcdefghijklmnop", 100, nullptr);
+            "name1", "value1",
+            "name2", "value2",
+            "n3", "abcdefghijklmnop", nullptr);
     grpc_metadata_batch batch;
     grpc_metadata_batch_init(&batch);
     msg->deserializeMetadata(75, length, &batch, arena);
@@ -235,9 +235,9 @@ TEST_F(TestIncoming, deserializeMetadata_metadataOverrunsSpace) {
     EXPECT_EQ(GRPC_ERROR_NONE, error);
     ASSERT_TRUE(msg);
     size_t length = msg->addMetadata(75, 100,
-            "name1", "value1", 100,
-            "name2", "value2", 100,
-            "n3", "abcdefghijklmnop", 100, nullptr);
+            "name1", "value1",
+            "name2", "value2",
+            "n3", "abcdefghijklmnop", nullptr);
     grpc_metadata_batch batch;
     grpc_metadata_batch_init(&batch);
     msg->deserializeMetadata(75, length-1, &batch, arena);
@@ -254,8 +254,8 @@ TEST_F(TestIncoming, deserializeMetadata_useCallout) {
     EXPECT_EQ(GRPC_ERROR_NONE, error);
     ASSERT_TRUE(msg);
     size_t length = msg->addMetadata(75, 1000,
-            "name1", "value1", GRPC_BATCH_PATH,
-            "name2", "value2", 100, nullptr);
+            ":path", "value1",
+            "name2", "value2", nullptr);
     grpc_metadata_batch batch;
     grpc_metadata_batch_init(&batch);
     msg->deserializeMetadata(75, length, &batch, arena);
@@ -274,8 +274,8 @@ TEST_F(TestIncoming, deserializeMetadata_valueMustBeManaged) {
     int destroyCounter = 0;
     msg->destroyCounter = &destroyCounter;
     size_t length = msg->addMetadata(75, 1000,
-            "name1", "value1", 100,
-            "name2", "0123456789abcdefghij", 100, nullptr);
+            "name1", "value1",
+            "name2", "0123456789abcdefghij", nullptr);
     grpc_metadata_batch batch;
     grpc_metadata_batch_init(&batch);
     msg->maxStaticMdLength = 10;
@@ -297,9 +297,9 @@ TEST_F(TestIncoming, deserializeMetadata_incompleteHeader) {
     EXPECT_EQ(GRPC_ERROR_NONE, error);
     ASSERT_TRUE(msg);
     size_t length = msg->addMetadata(75, 100,
-            "name1", "value1", 100,
-            "name2", "value2", 100,
-            "n3", "abcdefghijklmnop", 100, nullptr);
+            "name1", "value1",
+            "name2", "value2",
+            "n3", "abcdefghijklmnop", nullptr);
     grpc_metadata_batch batch;
     grpc_metadata_batch_init(&batch);
     msg->deserializeMetadata(75, length+3, &batch, arena);

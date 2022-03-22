@@ -3,6 +3,10 @@ Miscellaneous notes about a Homa plugin for gRPC:
 
 * Notes about java implementation:
   * Find out what scheduledExecutorService is.
+  * Check for other client Listener callbacks that need to be made.
+  * Invoke stream tracers.
+  * Support long messages.
+  * No index in Java metadata?
 
 * TODO list:
   * Add proper channelz support

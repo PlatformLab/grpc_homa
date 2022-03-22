@@ -41,6 +41,7 @@ public:
         test::SumResult result;
         grpc::ClientContext context;
         
+        context.AddMetadata("md1", "md1_value");
         args.set_op1(op1);
         args.set_op2(op2);
         grpc::Status status = stub->Sum(&context, args, &result);
@@ -170,7 +171,7 @@ public:
 
 void measureRtt(TestClient *client)
 {
-#define NUM_REQUESTS 1000
+#define NUM_REQUESTS 50000
     for (int i = 0; i < 5; i++) {
         client->Sum(1, 2);
     }

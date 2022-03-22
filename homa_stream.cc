@@ -5,7 +5,6 @@
 #include "time_trace.h"
 #include "util.h"
 
-
 /**
  * This class is needed because grpc_core::SliceBufferByteStream::Orphan
  * doesn't actually delete the object; this class is identical to
@@ -242,9 +241,8 @@ void HomaStream::serializeMetadata(grpc_metadata_batch* batch)
         }
         
         Wire::Mdata* msgMd = reinterpret_cast<Wire::Mdata*>(cur);
-        msgMd->index = GRPC_BATCH_INDEX_OF(key);
-        gpr_log(GPR_INFO, "Outgoing metadata: index %d, key %.*s, value %.*s",
-                msgMd->index, keyLength, GRPC_SLICE_START_PTR(key),
+        gpr_log(GPR_INFO, "Outgoing metadata: key %.*s, value %.*s",
+                keyLength, GRPC_SLICE_START_PTR(key),
                 valueLength, GRPC_SLICE_START_PTR(value));
         msgMd->keyLength = htonl(keyLength);
         msgMd->valueLength = htonl(valueLength);
@@ -566,7 +564,8 @@ messageInserted:
 
 duplicate:   
     gpr_log(GPR_INFO, "Dropping duplicate message, stream id %d, sequence %d, "
-            "homaId %lu", streamId.id, msg->sequence, homaId);         
+            "nextIncomingSequence %d, homaId %lu", streamId.id,
+            msg->sequence, nextIncomingSequence, homaId);         
 }
 
 /**

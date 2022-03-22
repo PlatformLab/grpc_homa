@@ -15,7 +15,10 @@ typedef int64_t be64;
 /**
  * This class defines the on-the-wire format of messages used to implement
  * gRPC over Homa, and also provides methods for serializing and
- * deserializing messages.
+ * deserializing messages. Note: if you make any changes to this class,
+ * you may also need to make changes to HomaWire.java in the Java
+ * implementation of gRPC over Homa, in order to maintain interoperability
+ * between the two implementations.
  */
 class Wire {
 public:
@@ -28,13 +31,13 @@ public:
         // will use the same identifier).
         be32 streamId;
         
-        // Position of this Homa messages among all of those sent on
+        // Position of this Homa message among all of those sent on
         // this stream. Used on the other end to make sure that messages
         // are processed in order. The first number for each stream is 1.
         be32 sequenceNum;
 
         // Number of bytes of initial metadata (may be zero), which
-        // follows this header in the Homa RPC.
+        // follows this header in the Homa message.
         be32 initMdBytes;
 
         // Number of bytes of trailing metadata (may be zero), which
@@ -105,11 +108,6 @@ public:
     
     /** Each metadata value has the following format. */
     struct Mdata {
-        // If this element is a "callout" (one that can be accessed by
-        // index), this is the index value. GRPC_BATCH_CALLOUTS_COUNT
-        // means not a callout.
-        uint8_t index;
-        
         // Number of bytes in the key for this item.
         be32 keyLength;
         

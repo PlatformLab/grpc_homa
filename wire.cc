@@ -46,7 +46,6 @@ void Wire::dumpMetadata(void *buffer, size_t length, gpr_log_severity severity)
                     sizeof(*msgMd), remaining);
              return;
         }
-        int index = msgMd->index;
         uint32_t keyLength = ntohl(msgMd->keyLength);
         uint32_t valueLength = ntohl(msgMd->valueLength);
         remaining -= sizeof(*msgMd);
@@ -58,8 +57,8 @@ void Wire::dumpMetadata(void *buffer, size_t length, gpr_log_severity severity)
              return;
         }
         gpr_log(__FILE__, __LINE__, severity,
-                "Key: %.*s, value: %.*s, index: %d", keyLength, src,
-                valueLength, src+keyLength, index);
+                "Key: %.*s, value: %.*s", keyLength, src, valueLength,
+                src+keyLength);
         remaining -= keyLength + valueLength;
         src += keyLength + valueLength;
     }

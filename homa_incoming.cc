@@ -68,7 +68,7 @@ HomaIncoming::HomaIncoming(int sequence, bool initMd, size_t messageLength,
     
     if (initMd) {
         length = addMetadata(offset, sizeof(initialPayload),
-                "initMd1", "value1", 100, ":path", "/x/y", GRPC_BATCH_PATH,
+                "initMd1", "value1", ":path", "/x/y",
                 nullptr);
         initMdLength = length;
         hdr()->initMdBytes = htonl(length);
@@ -79,7 +79,7 @@ HomaIncoming::HomaIncoming(int sequence, bool initMd, size_t messageLength,
     
     if (trailMd) {
         length = addMetadata(offset, sizeof(initialPayload),
-                "k2", "0123456789", 100, nullptr);
+                "k2", "0123456789", nullptr);
         trailMdLength = length;
         hdr()->trailMdBytes = htonl(length);
         hdr()->flags |= Wire::Header::trailMdPresent;
@@ -198,8 +198,11 @@ HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags,
     uint32_t expected = sizeof(Wire::Header) + msg->initMdLength
             + msg->messageLength + msg->trailMdLength;
     if (msg->length != expected) {
-        gpr_log(GPR_ERROR, "Bad message length %lu (expected %u)",
-                msg->length, expected);
+        gpr_log(GPR_ERROR, "Bad message length %lu (expected %u); "
+                "initMdLength %d, messageLength %d, trailMdLength %d,"
+                "header length %lu",
+                msg->length, expected, msg->initMdLength, msg->messageLength,
+                msg->trailMdLength, sizeof(Wire::Header));
         *error = GRPC_ERROR_CREATE_FROM_STATIC_STRING(
                 "Incoming Homa message length doesn't match header");
         return nullptr;
@@ -374,7 +377,6 @@ void HomaIncoming::deserializeMetadata(size_t offset, size_t length,
         Wire::Mdata* msgMd;
         
         msgMd = getBytes<Wire::Mdata>(offset, &metadataBuffer);
-        int index = msgMd->index;
         uint32_t keyLength = ntohl(msgMd->keyLength);
         uint32_t valueLength = ntohl(msgMd->valueLength);
         remaining -= sizeof(*msgMd);
@@ -397,11 +399,12 @@ void HomaIncoming::deserializeMetadata(size_t offset, size_t length,
         
         ElemData *elemData = arena->New<ElemData>();
         grpc_linked_mdelem* lm = arena->New<grpc_linked_mdelem>();
-        if (index < GRPC_BATCH_CALLOUTS_COUNT) {
-            elemData->key = grpc_static_slice_table()[index];
-        } else {
-            elemData->key = getStaticSlice(offset, keyLength, arena);
-        }
+        
+        // The contortion below is needed to make sure that StaticMetadataSlices
+        // are generated for keys when appropriate.
+        grpc_slice tmpSlice = getStaticSlice(offset, keyLength, arena);
+        elemData->key = grpc_core::ManagedMemorySlice(&tmpSlice);
+        
         if (valueLength <= maxStaticMdLength) {
             elemData->value = getStaticSlice(offset+keyLength, valueLength,
                     arena);
@@ -410,6 +413,7 @@ void HomaIncoming::deserializeMetadata(size_t offset, size_t length,
             lm->md = grpc_mdelem_from_slices(elemData->key,
                     getSlice(offset + keyLength, valueLength));
         }
+        
         grpc_error_handle error = grpc_metadata_batch_link_tail(batch, lm);
         if (error != GRPC_ERROR_NONE) {
             gpr_log(GPR_ERROR, "Error creating metadata for %.*s: %s",
@@ -437,9 +441,9 @@ void HomaIncoming::deserializeMetadata(size_t offset, size_t length,
  *      How many bytes of metadata to store in @payload; the remainder
  *      will go in the tail (an entry may be split across the boundary).
  * \param ...
- *      The remaining arguments come in groups of three, consisting of a
- *      char* key, a char* value, and an int callout index. The list is
- *      terminated by a nullptr key value.
+ *      The remaining arguments come in groups of two, consisting of a
+ *      char* key and a char* value. The list is terminated by a nullptr
+ *      key value.
  * \return
  *      The total number of bytes of new metadata added.
  */
@@ -457,13 +461,11 @@ size_t HomaIncoming::addMetadata(size_t offset, size_t staticLength, ...)
             break;
         }
         char *value = va_arg(ap, char*);
-        int index = va_arg(ap, int);
         size_t keyLength = strlen(key);
         size_t valueLength = strlen(value);
         size_t length = keyLength + valueLength + sizeof(Wire::Mdata);
         buffer.resize(length);
         Wire::Mdata *md = reinterpret_cast<Wire::Mdata*>(buffer.data());
-        md->index = index;
         md->keyLength = htonl(keyLength);
         md->valueLength = htonl(valueLength);
         memcpy(md->data, key, keyLength);
