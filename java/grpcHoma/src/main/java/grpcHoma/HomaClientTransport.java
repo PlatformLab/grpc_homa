@@ -15,57 +15,73 @@
 
 package grpcHoma;
 
+import java.io.InputStream;
+import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledExecutorService;
 
-import io.grpc.*;
-import io.grpc.internal.*;
+import io.grpc.Attributes;
+import io.grpc.CallOptions;
+import io.grpc.ChannelLogger;
+import io.grpc.ClientStreamTracer;
+import io.grpc.InternalLogId;
+import io.grpc.Metadata;
+import io.grpc.MethodDescriptor;
+import io.grpc.Status;
+import io.grpc.internal.ClientStream;
+import io.grpc.internal.ClientTransportFactory.ClientTransportOptions;
+import io.grpc.internal.ConnectionClientTransport;
 import io.grpc.InternalChannelz.SocketStats;
 
 import com.google.common.util.concurrent.ListenableFuture;
 
 /**
  * An instance of this class is used to create streams that can communicate
- * with a given gRPC server.
+ * with a specific gRPC server.
  */
 public class HomaClientTransport implements ConnectionClientTransport {
+    // The following are copies of construtor arguments.
+    HomaClient client;
+    InetSocketAddress serverAddress;
+    ClientTransportOptions options;
+    ChannelLogger logger;
 
     // Unique identifier used for logging.
     InternalLogId logId;
 
+    // Used to notify gRPC of various interesting things happening on
+    // this transport. Null means the transport hasn't been started yet.
+    Listener listener;
+
     /**
      * Constructor for HomaClientTransports; normally invoked indirectly
      * though a HomaChannelBuilder.
+     * @param client
+     *      Shared client state.
      * @param serverAddress
      *      Location of the server for requests.
      * @param options
      *      Various parameters that may be used to configure the channel.
      * @param channelLogger
-     *      Used for logging??
+     *      Used for any log messages related to this transport and its streams.
      */
-    HomaClientTransport(SocketAddress serverAddress,
-            ClientTransportFactory.ClientTransportOptions options,
+    HomaClientTransport(HomaClient client, SocketAddress serverAddress,
+            ClientTransportOptions options,
             ChannelLogger channelLogger) {
-        System.out.printf("Constructing HomaClientTransport\n");
+        System.out.printf("Constructing HomaClientTransport for %s, authority %s\n",
+                serverAddress.toString(), options.getAuthority());
+        this.client = client;
+        this.serverAddress = (InetSocketAddress) serverAddress;
+        this.options = options;
         logId = InternalLogId.allocate(getClass(), "xyzzy");
+        listener = null;
+        logger = channelLogger;
     }
 
     @Override
     public ListenableFuture<SocketStats> getStats() {
         System.out.printf("HomaClientTransport.getStats invoked\n");
-        return null;
-    }
-
-    /**
-     * Returns a Homa-based channel that can be used to communicate with a
-     * given server host.
-     * @param hostName
-     *      Name of the desired server host.
-     * @param port
-     *      Number of the port for the server application.
-     */
-    public static ManagedChannel newChannel(String hostName, int port) {
         return null;
     }
 
@@ -79,7 +95,12 @@ public class HomaClientTransport implements ConnectionClientTransport {
             Metadata headers, CallOptions callOptions,
             ClientStreamTracer[] tracers) {
         System.out.printf("HomaClientTransport.newStream invoked\n");
-        return null;
+        logger.log(ChannelLogger.ChannelLogLevel.ERROR, String.format(
+                "Creating HomaClientStream for %s", serverAddress.toString()));
+        int id = client.nextId;
+        client.nextId++;
+        return new HomaClientStream(this, id, method, headers,
+                callOptions, tracers);
     }
 
     @Override
@@ -96,6 +117,8 @@ public class HomaClientTransport implements ConnectionClientTransport {
     @Override
     public Runnable start(Listener listener) {
         System.out.printf("HomaClientTransport.start invoked\n");
+        this.listener = listener;
+        listener.transportReady();
         return null;
     }
 

@@ -133,14 +133,15 @@ public class Main {
         // record timings.
         HomaSocket client = new HomaSocket(0);
         String serverName = String.format("node-%d", firstServer);
-        InetAddress address;
+        InetSocketAddress dest;
         try {
-            address = InetAddress.getByName(serverName);
+            dest = new InetSocketAddress(InetAddress.getByName(serverName),
+                    4000);
         } catch (UnknownHostException e) {
             System.out.printf("Couldn't lookup host '%s'\n", serverName);
             return;
         }
-        HomaSocket.RpcSpec spec = new HomaSocket.RpcSpec(address, 4000);
+        HomaSocket.RpcSpec spec = new HomaSocket.RpcSpec(dest);
         int numPings = 10000;
         long rtts[] = new long[numPings];
         for (int i = -10; i < numPings; i++) {
@@ -247,7 +248,7 @@ public class Main {
             }
         }
         
-        // Remaining arguments are all tested names.
+        // Remaining arguments are all test names.
         for ( ; nextArg < args.length; nextArg++) {
             String test = args[nextArg];
             if (test.equals("ping")) {

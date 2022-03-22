@@ -113,8 +113,8 @@ extern "C" JNIEXPORT jstring Java_grpcHoma_HomaSocket_strerrorNative(
  *      identify the target for the RPC, and the id will be filled in
  *      by this method.
  * \return
- *      Returns zero for success or a negative errno value if there
- *      was an error.
+ *      Returns the id of the new request on success, or a negative errno value
+ *      if there was an error.
  */
 extern "C" JNIEXPORT jlong Java_grpcHoma_HomaSocket_sendNative(JNIEnv *env,
         jclass jHomaSocket, jint jFd, jobject jBuffer, jint jLength,
@@ -130,9 +130,8 @@ extern "C" JNIEXPORT jlong Java_grpcHoma_HomaSocket_sendNative(JNIEnv *env,
     addr.sin_port = htons(spec->port);
     
     struct sockaddr *saddr = reinterpret_cast<struct sockaddr *> (&addr);
-    if (homa_send(jFd, buffer, jLength, saddr, sizeof(addr), &spec->id)
-            == 0) {
-        return 0;
+    if (homa_send(jFd, buffer, jLength, saddr, sizeof(addr), &spec->id) == 0) {
+        return spec->id;
     } else {
         return -errno;
     }

@@ -71,22 +71,19 @@ public class HomaSocket {
         
         /**
          * Construct an RpcSpec.
-         * @param peer
-         *      Address of the other host that will handle the RPC.
-         * @param port
-         *      Port number on @peer of the application that will handle
-         *      the RPC.
+         * @param dest
+         *      Where to send the RPC.
          */
-        public RpcSpec(InetAddress peer, int port) {
+        public RpcSpec(InetSocketAddress dest) {
             spec = ByteBuffer.allocateDirect(length);
             spec.order(ByteOrder.nativeOrder());
-            byte[] addr = peer.getAddress();
+            byte[] addr = dest.getAddress().getAddress();
             if (addr.length != 4) {
                 throw new HomaError("Invalid address for RpcSpec: had %d "
                         + "bytes (expected 4)", addr.length);
             }
             spec.put(addr, ipOffset, 4);
-            spec.putInt(portOffset, port);
+            spec.putInt(portOffset, dest.getPort());
             spec.putLong(idOffset, 0);
         }
         

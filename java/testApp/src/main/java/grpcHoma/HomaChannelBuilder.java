@@ -90,10 +90,11 @@ public final class HomaChannelBuilder
         public ConnectionClientTransport newClientTransport(SocketAddress addr,
                 ClientTransportOptions options, ChannelLogger channelLogger) {
             if (closed) {
-                throw new IllegalStateException("The Homa transport factory is closed.");
+                throw new IllegalStateException(
+                        "The Homa transport factory is closed.");
             }
-            // TODO(carl-mastrangelo): Pass channelLogger in.
-            return new HomaClientTransport(addr, options, channelLogger);
+            return new HomaClientTransport(HomaClient.getInstance(), addr,
+                    options, channelLogger);
         }
 
         @Override
@@ -102,7 +103,8 @@ public final class HomaChannelBuilder
         }
 
         @Override
-        public SwapChannelCredentialsResult swapChannelCredentials(ChannelCredentials channelCreds) {
+        public SwapChannelCredentialsResult swapChannelCredentials(
+                ChannelCredentials channelCreds) {
             return null;
         }
 
