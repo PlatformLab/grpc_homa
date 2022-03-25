@@ -132,7 +132,7 @@ void HomaIncoming::destroyer(void *arg)
  *      Flags to pass to homa_recv, such as HOMA_RECV_RESPONSE.
  * \param homaId
  *      Homa's id for the received message is stored here. This is
- *      needed to provide that info to caller's in cases where nullptr
+ *      needed to provide that info to callers in cases where nullptr
  *      is returned (e.g. because the RPC failed). 0 means no id.
  * \param error
  *      Error information will be stored here, or GRPC_ERROR_NONE
