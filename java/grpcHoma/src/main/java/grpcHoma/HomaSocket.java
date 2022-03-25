@@ -104,6 +104,23 @@ public class HomaSocket {
         public long getId() {
             return spec.getLong(idOffset);
         }
+
+        /**
+         * Return the network address contained in an RpcSpec.
+         */
+        public InetSocketAddress getInetSocketAddress() {
+            byte[] addr = new byte[4];
+            for (int i = 0; i < 4; i++) {
+                addr[i] = spec.get(ipOffset+i);
+            }
+            try {
+                return new InetSocketAddress(InetAddress.getByAddress(addr),
+                        spec.getInt(portOffset));
+            } catch (UnknownHostException e) {
+                // Shouldn't ever happen, just return garbage.
+                return new InetSocketAddress(spec.getInt(portOffset));
+            }
+        }
         
         /**
          * Reset an RpcSpec to its initial (undefined) state.
@@ -185,7 +202,8 @@ public class HomaSocket {
      * @param buffer
      *      The message will be returned here, and must fit within the
      *      existing length of the buffer. The buffer's position will
-            be set to 0, and its limit to the amount of data returned.
+     *      be set to 0, and its limit to the amount of data returned.
+     *      This must be a direct buffer.
      * @param flags
      *      Various flag bits; see definitions above for details.
      * @param spec

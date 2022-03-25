@@ -93,8 +93,8 @@ public final class HomaChannelBuilder
                 throw new IllegalStateException(
                         "The Homa transport factory is closed.");
             }
-            return new HomaClientTransport(HomaClient.getInstance(), addr,
-                    options, channelLogger);
+            return new HomaClientTransport(HomaClient.getInstance(channelLogger),
+                    addr, options, channelLogger);
         }
 
         @Override

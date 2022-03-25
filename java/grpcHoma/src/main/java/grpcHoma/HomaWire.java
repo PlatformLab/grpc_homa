@@ -16,6 +16,10 @@
 package grpcHoma;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+
+import io.grpc.Metadata;
+import io.grpc.HomaMetadata;
 
 /**
  * This class encapsulates information about how to serialize information into
@@ -102,6 +106,13 @@ class HomaWire {
         }
 
         /**
+         * Construct a new Header, leaving fields undefined (intended for
+         * incoming messages).
+         */
+        Header() {
+        }
+
+        /**
          * Serializes the contents of this object into an outgoing message.
          * @param buf
          *      Used to build and transmit the outgoing message; must have
@@ -123,11 +134,11 @@ class HomaWire {
         /**
          * Extracts header information from incoming Homa message.
          * @param buf
-         *      Holds the contents of an incoming message, positioned at
-         *      the first byte of the header. The position will be advanced
-         *      to the first byte after the header.
+         *      Holds the contents of an incoming message. The position will
+         *      be undefined when this method returns.
          */
         void deserialize(ByteBuffer buf) {
+            buf.position(0);
             streamId = buf.getInt();
             sequenceNum = buf.getInt();
             initMdBytes = buf.getInt();
@@ -151,7 +162,7 @@ class HomaWire {
      *      The total number of bytes of data added to buf.
      */
     static int serializeMetadata(byte[][] md, ByteBuffer buf) {
-        // See Mdata definition in wire.h for wire format of metadata.
+        // See Mdata definition in wire.h (C++) for wire format of metadata.
         int totalBytes = 0;
 
         for (int i = 0; i < md.length; i+= 2) {
@@ -159,8 +170,48 @@ class HomaWire {
             buf.putInt(md[i+1].length);
             buf.put(md[i]);
             buf.put(md[i+1]);
-            totalBytes += 9 + md[i].length + md[i+1].length;
+            totalBytes += 8 + md[i].length + md[i+1].length;
         }
         return totalBytes;
+    }
+
+    /**
+     * Extract metadata from an incoming Homa message.
+     * @param buf
+     *      Contains the raw message. When this method returns, the position
+     *      of this buffer will be undefined.
+     * @param offset
+     *      Location of first byte of metadata within the message.
+     * @param numBytes
+     *      Total bytes of metadata in the message.
+     * @return
+     *      The extracted metadata, in a form suitable for passing to gRPC.
+     */
+    static Metadata deserializeMetadata(ByteBuffer buf, int offset,
+            int numBytes) {
+        // See Mdata definition in wire.h (C++) for wire format of metadata.
+        ArrayList<byte[]> keysAndValues = new ArrayList();
+        int bytesLeft = numBytes;
+        buf.position(offset);
+        while (bytesLeft > 0) {
+            int keyLength = buf.getInt();
+            int valueLength = buf.getInt();
+            if (bytesLeft < (8 + keyLength + valueLength)) {
+                System.out.printf("Bogus incoming metadata\n");
+                break;
+            }
+            byte[] key = new byte[keyLength];
+            for (int i = 0; i < keyLength; i++) {
+                key[i] = buf.get();
+            }
+            keysAndValues.add(key);
+            byte[] value = new byte[valueLength];
+            for (int i = 0; i < valueLength; i++) {
+                value[i] = buf.get();
+            }
+            keysAndValues.add(value);
+        }
+        return HomaMetadata.newMetadata(keysAndValues.size()/2,
+                keysAndValues.toArray());
     }
 }
