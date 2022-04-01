@@ -74,7 +74,7 @@ public class HomaClientTransport implements ConnectionClientTransport {
         this.client = client;
         this.serverAddress = (InetSocketAddress) serverAddress;
         this.options = options;
-        logId = InternalLogId.allocate(getClass(), "xyzzy");
+        logId = InternalLogId.allocate(getClass(), serverAddress.toString());
         listener = null;
         logger = channelLogger;
     }

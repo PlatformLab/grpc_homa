@@ -223,8 +223,9 @@ public class HomaClientStream implements ClientStream {
                 transport.serverAddress);
         long id = transport.client.homa.send(spec, xmitBuf);
         if (id < 0) {
-            System.out.printf("HomaClient.flush could send request: %s\n",
-                    transport.client.homa.strerror((int) -id));
+            transport.client.logger.log(ChannelLogger.ChannelLogLevel.ERROR,
+                    String.format("HomaClient.flush couldn't send request: %s\n",
+                    transport.client.homa.strerror((int) -id)));
         } else {
             System.out.printf("Sent request to %s, id %d, %d bytes, " +
                     "header length %d\n",

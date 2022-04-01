@@ -4,6 +4,10 @@ import java.io.IOException;
 import java.net.*;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
+import java.util.logging.ConsoleHandler;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 import io.grpc.*;
 
@@ -222,6 +226,28 @@ public class Main {
     
     public static void main(String[] args) {
         int nextArg;
+
+        // Set logging levels so that log messages appear (in a real
+        // application, this should be done through properties).
+        Logger logger = Logger.getLogger("io.grpc.ChannelLogger");
+        logger.setLevel(Level.FINER);
+        System.out.printf("io.grpc.ChannelLogger log level: %s\n",
+                logger.getLevel());
+        while (logger != null) {
+            Handler handlers[] = logger.getHandlers();
+            Level newLevel = Level.ALL;
+            String name = logger.getName();
+            if (name == "") {
+                name = "<root>";
+            }
+            for (Handler h : handlers) {
+                System.out.printf("Handler %s for logger %s, level %s -> %s\n",
+                        h.getClass().getName(), name, h.getLevel().toString(),
+                        newLevel.toString());
+                h.setLevel(newLevel);
+            }
+            logger = logger.getParent();
+        }
         
         for (nextArg = 0; nextArg < args.length; nextArg++) {
             String option = args[nextArg];

@@ -17,6 +17,13 @@ package grpcHoma;
 
 import io.grpc.ChannelLogger;
 
+import java.util.ResourceBundle;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
+
+import static io.grpc.ChannelLogger.ChannelLogLevel;
+
 /**
  * A single instance of this class is used to store state shared across
  * all RPCs emanating from a client process.
@@ -87,8 +94,9 @@ public class HomaClient {
                     HomaIncoming msg = new HomaIncoming();
                     int err = msg.read(client.homa, HomaSocket.flagReceiveResponse);
                     if (err != 0) {
-                        System.out.printf("Error receiving Homa message: %s\n",
-                                HomaSocket.strerror(err));
+                        client.logger.log(ChannelLogLevel.ERROR, String.format(
+                                "Error receiving Homa message: %s\n",
+                                HomaSocket.strerror(err)));
                         continue;
                     }
                     System.out.printf("Received response for id %d from %s, " +
@@ -104,8 +112,9 @@ public class HomaClient {
                 if (message == null) {
                     message = "no information about cause";
                 }
-                System.out.printf("HomaClient.ClientThread crashed: %s\n",
-                        message);
+                client.logger.log(ChannelLogLevel.ERROR, String.format(
+                        "HomaClient.ClientThread crashed: %s\n",
+                        message));
             }
         }
     }
