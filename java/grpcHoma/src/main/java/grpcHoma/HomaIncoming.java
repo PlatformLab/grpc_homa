@@ -15,9 +15,13 @@
 
 package grpcHoma;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
+import io.grpc.ChannelLogger;
 import io.grpc.Metadata;
 
 /**
@@ -50,8 +54,19 @@ class HomaIncoming {
     // the Homa RPC's id.
     HomaSocket.RpcSpec peer;
 
-    // Metadata extracted from the message, or null if none.
-    Metadata metadata;
+    // Address corresponding to peer.
+    InetSocketAddress peerAddress;
+
+    // Header metadata extracted from the message; null if there were
+    // none, or if they have already been passed to gRPC.
+    Metadata headers;
+
+    // Trailing metadata extracted from the message; null if there were
+    // none, or if they have already been passed to gRPC.
+    Metadata trailers;
+
+    // The message payload from the message, or null if none.
+    MessageStream message;
 
     HomaIncoming() {
         initialPayload = ByteBuffer.allocateDirect(initialPayloadSize);
@@ -60,6 +75,9 @@ class HomaIncoming {
         baseLength = 0;
         header = new HomaWire.Header();
         peer = new HomaSocket.RpcSpec();
+        headers = null;
+        trailers = null;
+        message = null;
     }
 
     /**
@@ -69,18 +87,75 @@ class HomaIncoming {
      *      Used to receive an incoming message.
      * @param flags
      *      The flags value to pass to HomaSocket.receive.
+     * @param logger
+     *      Used to record information about errors.
      * @return
      *      Zero (for success) or a negative errno after a failure (in which
      *      case only the peer and id fields will be valid).
      */
-    int read(HomaSocket homa, int flags) {
+    int read(HomaSocket homa, int flags, ChannelLogger logger) {
         peer.reset();
         length = homa.receive(initialPayload, flags, peer);
         homaId = peer.getId();
+        peerAddress = peer.getInetSocketAddress();
         if (length < 0) {
             return length;
         }
         header.deserialize(initialPayload);
+        if ((header.flags & HomaWire.Header.initMdPresent) != 0) {
+            headers = HomaWire.deserializeMetadata(initialPayload,
+                    header.initMdBytes);
+        }
+        if ((header.flags & HomaWire.Header.trailMdPresent) != 0) {
+            trailers = HomaWire.deserializeMetadata(initialPayload,
+                    header.trailMdBytes);
+        }
+        if ((header.flags & HomaWire.Header.messageComplete)!= 0) {
+            int remaining = initialPayload.limit() - initialPayload.position();
+            if (header.messageBytes == remaining) {
+                message = new MessageStream(this);
+            } else {
+                logger.log(ChannelLogger.ChannelLogLevel.ERROR, String.format(
+                        "Expected %d message bytes in incoming message from " +
+                        "%s, got %d bytes (discarding data): %s",
+                        peerAddress.toString(), remaining, header.messageBytes));
+            }
+        }
         return 0;
+    }
+
+    /**
+     * An instance of this class represents an incoming gRPC message; it is
+     * passed up to gRPC and used by gRPC to read the contents of the
+     * message.
+     */
+    static private class MessageStream extends InputStream {
+
+        // Information about the incoming message.
+        HomaIncoming incoming;
+
+        /**
+         * Constructor for MessageStream.
+         * @param incoming
+         *      The actual message data is stored here.
+         */
+        public MessageStream(HomaIncoming incoming) {
+            this.incoming = incoming;
+        }
+
+        @Override
+        public int available() throws IOException {
+            return incoming.initialPayload.limit()
+                    - incoming.initialPayload.position();
+        }
+
+        @Override
+        public int read() throws IOException {
+            if (incoming.initialPayload.position()
+                    >= incoming.initialPayload.limit()) {
+                return -1;
+            }
+            return incoming.initialPayload.get();
+        }
     }
 }

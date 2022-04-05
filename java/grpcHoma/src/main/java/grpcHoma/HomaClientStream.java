@@ -20,34 +20,26 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
-import java.util.Iterator;
 
-import io.grpc.Attributes;
-import io.grpc.CallOptions;
-import io.grpc.ChannelLogger;
-import io.grpc.ClientStreamTracer;
-import io.grpc.Compressor;
+import io.grpc.*;
 import io.grpc.Deadline;
-import io.grpc.DecompressorRegistry;
-import io.grpc.InternalMetadata;
-import io.grpc.Metadata;
-import io.grpc.MethodDescriptor;
-import io.grpc.Status;
 import io.grpc.internal.ClientStream;
 import io.grpc.internal.ClientStreamListener;
+import io.grpc.internal.GrpcUtil;
 import io.grpc.internal.InsightBuilder;
 
 /**
  * An instance of this class represents the client state for one active RPC.
  */
-public class HomaClientStream implements ClientStream {
+public class HomaClientStream implements ClientStream,
+        ClientStreamListener.MessageProducer {
     // Transport this stream belongs to.
     HomaClientTransport transport;
 
     // Unique identifier for this stream.
-    int streamId;
+    StreamId streamId;
 
-    // Sequence number for next outgoing message.
+    // Sequence number (within the stream) for next outgoing message.
     int nextXmitSequence;
 
     // Metadata to send to the server for this request.
@@ -65,14 +57,18 @@ public class HomaClientStream implements ClientStream {
     // Value for the ":path" value for outgoing initial metadata.
     String path;
 
+    // Used to pass information from incoming Homa message up into gRPC.
+    ClientStreamListener listener;
+
+    // Current incoming message, or null if none.
+    HomaIncoming incoming;
+
     /**
      * Construct a new HomaClientStream
      * @param transport
      *      State related to server for this RPC.
-     * @param id
-     *      Unique identifier for this stream (among all streams for @client).
      * @param method
-     *      ??
+     *      Identifies the method that will be invoked on the server.
      * @param headers
      *      Headers to include in outgoing message.
      * @param callOptions
@@ -80,23 +76,30 @@ public class HomaClientStream implements ClientStream {
      * @param tracers
      *      ??
      */
-    HomaClientStream(HomaClientTransport transport, int id,
+    HomaClientStream(HomaClientTransport transport,
                      MethodDescriptor<?, ?> method, Metadata headers,
                      CallOptions callOptions, ClientStreamTracer[] tracers) {
+        HomaClient client = transport.client;
         this.transport = transport;
-        streamId = id;
+        synchronized(client) {
+            streamId = new StreamId(transport.serverAddress, client.nextSid);
+            transport.client.nextSid++;
+            transport.client.streams.put(streamId, this);
+        }
         nextXmitSequence = 1;
         this.headers = headers;
         xmitBuf = ByteBuffer.allocateDirect(10000);
         xmitBuf.order(ByteOrder.BIG_ENDIAN);
         xmitBuf.position(HomaWire.Header.length);
-        xmitHeader = new HomaWire.Header(streamId, nextXmitSequence,
+        xmitHeader = new HomaWire.Header(streamId.sid, nextXmitSequence,
                 HomaWire.Header.isRequest);
         path = "/" + method.getFullMethodName();
+        listener = null;
+        incoming = null;
 
         System.out.printf("HomaClientStream constructor invoked, " +
-                "callOptions %s, streamId %d\n", callOptions.toString(),
-                streamId);
+                "callOptions %s, sequence %d\n", callOptions.toString(),
+                streamId.sid);
         int pos = xmitBuf.position();
         byte[][] autoHeaders = new byte[4][];
         autoHeaders[0] = ":path".getBytes(StandardCharsets.US_ASCII);
@@ -149,6 +152,7 @@ public class HomaClientStream implements ClientStream {
     @Override
     public void start(ClientStreamListener listener) {
         System.out.printf("HomaClientStream.start invoked\n");
+        this.listener = listener;
     }
 
     @Override
@@ -237,7 +241,7 @@ public class HomaClientStream implements ClientStream {
     @Override
     public boolean isReady() {
         System.out.printf("HomaClientStream.isReady invoked\n");
-        return false;
+        return true;
     }
 
     @Override
@@ -253,5 +257,67 @@ public class HomaClientStream implements ClientStream {
     @Override
     public void setMessageCompression(boolean enable) {
         System.out.printf("HomaClientStream.setMessageCompression invoked\n");
+    }
+
+    /**
+     * Extract the response status from trailing metadata.
+     * @param trailers
+     *      Metadata that is expected to contain status information.
+     */
+    private Status statusFromTrailers(Metadata trailers) {
+        Status status = trailers.get(InternalStatus.CODE_KEY);
+        if (status != null) {
+            return status.withDescription(trailers.get(InternalStatus.MESSAGE_KEY));
+        }
+        return Status.UNKNOWN.withDescription("missing GRPC status in response");
+    }
+
+    /**
+     * This method is responsible for transferring information about
+     * incoming messages to gRPC at appropriate times. It is invoked in
+     * places where it may have become possible to transfer additional data.
+     */
+    void transferData() {
+        if (listener == null) {
+            return;
+        }
+        if (incoming.headers != null) {
+            listener.headersRead(incoming.headers);
+            incoming.headers = null;
+        }
+        if (incoming.message != null) {
+            listener.messagesAvailable(this);
+        }
+        if ((incoming.headers == null) && (incoming.message == null)
+                && (incoming.trailers != null)) {
+            listener.closed(statusFromTrailers(incoming.trailers),
+                    ClientStreamListener.RpcProgress.PROCESSED,
+                    incoming.trailers);
+            synchronized (transport.client) {
+                transport.client.streams.remove(streamId);
+            }
+        }
+
+    }
+    /**
+     * Do whatever is needed to handle a Homa message that has just arrived for
+     * this stream.
+     * @param incoming
+     *      Information about the incoming message.
+     */
+    void handleIncoming(HomaIncoming incoming) {
+        this.incoming = incoming;
+        transferData();
+    }
+
+    @Override
+    public InputStream next() {
+        InputStream result = null;
+        if (incoming != null) {
+            result = incoming.message;
+            incoming.message = null;
+            transferData();
+        }
+        return result;
     }
 }

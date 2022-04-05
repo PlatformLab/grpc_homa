@@ -35,12 +35,12 @@ class HomaWire {
     static public class Header {
         // Unique identifier for this stream (all messages in the stream will
         // contain this value).
-        int streamId = 0;
+        int sid = 0;
 
         // Position of this Homa message among all of those sent on the
         // stream. Used on the other end to make sure that messages are
         // processed in order. The first number for each stream is 1.
-        int sequenceNum = 0;
+        int sequence = 0;
 
         // Number of bytes of initial metadata (may be zero), which follows
         // the header in the Homa message.
@@ -89,16 +89,16 @@ class HomaWire {
 
         /**
          * Construct a new Header
-         * @param streamId
+         * @param sid
          *      Identifer for the client stream this message belongs to.
-         * @param sequenceNum
+         * @param sequence
          *      Sequence number of this message within the stream.
          * @param flags
          *      Initial value for the flags field.
          */
-        Header(int streamId, int sequenceNum, byte flags) {
-            this.streamId = streamId;
-            this.sequenceNum = sequenceNum;
+        Header(int sid, int sequence, byte flags) {
+            this.sid = sid;
+            this.sequence = sequence;
             initMdBytes = 0;
             trailMdBytes = 0;
             messageBytes = 0;
@@ -122,9 +122,9 @@ class HomaWire {
         void serialize(ByteBuffer buf) {
             // Note: the order here must match the order of fields in
             // the C++ header wire.h.
-            buf.putInt(streamId);
-            System.out.printf("serialized streamId %d in header\n", streamId);
-            buf.putInt(sequenceNum);
+            buf.putInt(sid);
+            System.out.printf("serialized streamId %d in header\n", sid);
+            buf.putInt(sequence);
             buf.putInt(initMdBytes);
             buf.putInt(trailMdBytes);
             buf.putInt(messageBytes);
@@ -134,13 +134,14 @@ class HomaWire {
         /**
          * Extracts header information from incoming Homa message.
          * @param buf
-         *      Holds the contents of an incoming message. The position will
-         *      be undefined when this method returns.
+         *      Holds the contents of an incoming message. Buf will be
+         *      positioned at the first byte of data after the header
+         *      when this method returns.
          */
         void deserialize(ByteBuffer buf) {
             buf.position(0);
-            streamId = buf.getInt();
-            sequenceNum = buf.getInt();
+            sid = buf.getInt();
+            sequence = buf.getInt();
             initMdBytes = buf.getInt();
             trailMdBytes = buf.getInt();
             messageBytes = buf.getInt();
@@ -178,21 +179,18 @@ class HomaWire {
     /**
      * Extract metadata from an incoming Homa message.
      * @param buf
-     *      Contains the raw message. When this method returns, the position
-     *      of this buffer will be undefined.
-     * @param offset
-     *      Location of first byte of metadata within the message.
+     *      Contains the raw message. Must be positioned at the first byte of
+     *      metadata within the message. Upon return, the position will be
+     *      the first byte of data after the metadata.
      * @param numBytes
      *      Total bytes of metadata in the message.
      * @return
      *      The extracted metadata, in a form suitable for passing to gRPC.
      */
-    static Metadata deserializeMetadata(ByteBuffer buf, int offset,
-            int numBytes) {
+    static Metadata deserializeMetadata(ByteBuffer buf, int numBytes) {
         // See Mdata definition in wire.h (C++) for wire format of metadata.
         ArrayList<byte[]> keysAndValues = new ArrayList();
         int bytesLeft = numBytes;
-        buf.position(offset);
         while (bytesLeft > 0) {
             int keyLength = buf.getInt();
             int valueLength = buf.getInt();
@@ -210,6 +208,7 @@ class HomaWire {
                 value[i] = buf.get();
             }
             keysAndValues.add(value);
+            bytesLeft = bytesLeft - keyLength - valueLength - 8;
         }
         return HomaMetadata.newMetadata(keysAndValues.size()/2,
                 keysAndValues.toArray());

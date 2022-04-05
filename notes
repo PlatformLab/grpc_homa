@@ -8,6 +8,7 @@ Miscellaneous notes about a Homa plugin for gRPC:
   * Support long messages.
   * Log error in RpcSpec.getInetSocketAddress (find all System.out refs)
   * Add count of entries to metadata wire format?
+  * Need to eventually invoke onReady to send client messages?
 
 * TODO list:
   * Add proper channelz support

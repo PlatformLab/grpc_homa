@@ -95,11 +95,9 @@ public class HomaClientTransport implements ConnectionClientTransport {
             Metadata headers, CallOptions callOptions,
             ClientStreamTracer[] tracers) {
         System.out.printf("HomaClientTransport.newStream invoked\n");
-        logger.log(ChannelLogger.ChannelLogLevel.ERROR, String.format(
-                "Creating HomaClientStream for %s", serverAddress.toString()));
-        int id = client.nextId;
-        client.nextId++;
-        return new HomaClientStream(this, id, method, headers,
+        System.out.printf("Creating HomaClientStream for %s",
+                serverAddress);
+        return new HomaClientStream(this, method, headers,
                 callOptions, tracers);
     }
 

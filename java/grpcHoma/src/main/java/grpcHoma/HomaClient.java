@@ -17,10 +17,7 @@ package grpcHoma;
 
 import io.grpc.ChannelLogger;
 
-import java.util.ResourceBundle;
-import java.util.logging.Level;
-import java.util.logging.LogRecord;
-import java.util.logging.Logger;
+import java.util.HashMap;
 
 import static io.grpc.ChannelLogger.ChannelLogLevel;
 
@@ -35,8 +32,13 @@ public class HomaClient {
     // Singleton instance, shared across all transports and streams.
     static HomaClient instance;
 
-    // Identifier to use for next client stream.
-    int nextId;
+    // Identifies the stream object for each outstanding RPC. Access only
+    // with the lock for this object.
+    HashMap<StreamId, HomaClientStream> streams;
+
+    // Identifier to use for next client stream. Access only when holding
+    // the lock for this object.
+    int nextSid;
 
     // Receives responses.
     ClientThread receiver;
@@ -51,7 +53,8 @@ public class HomaClient {
      */
     HomaClient(ChannelLogger logger) {
         homa = new HomaSocket();
-        nextId = 1;
+        streams = new HashMap<>();
+        nextSid = 1;
         receiver = new ClientThread(this);
         this.logger = logger;
         receiver.start();
@@ -92,7 +95,9 @@ public class HomaClient {
             try {
                 while (true) {
                     HomaIncoming msg = new HomaIncoming();
-                    int err = msg.read(client.homa, HomaSocket.flagReceiveResponse);
+                    HomaClientStream stream;
+                    int err = msg.read(client.homa,
+                            HomaSocket.flagReceiveResponse, client.logger);
                     if (err != 0) {
                         client.logger.log(ChannelLogLevel.ERROR, String.format(
                                 "Error receiving Homa message: %s\n",
@@ -106,6 +111,14 @@ public class HomaClient {
                             msg.length, msg.header.initMdBytes,
                             msg.header.messageBytes, msg.header.trailMdBytes,
                             msg.header.flags);
+                    synchronized(this) {
+                        StreamId streamId = new StreamId(msg.peerAddress,
+                                msg.header.sid);
+                        stream = client.streams.get(streamId);
+                    }
+                    if (stream != null) {
+                        stream.handleIncoming(msg);
+                    }
                 }
             } catch (Exception e) {
                 String message = e.getMessage();
@@ -113,7 +126,7 @@ public class HomaClient {
                     message = "no information about cause";
                 }
                 client.logger.log(ChannelLogLevel.ERROR, String.format(
-                        "HomaClient.ClientThread crashed: %s\n",
+                        "HomaClient.ClientThread crashed: %s",
                         message));
             }
         }
