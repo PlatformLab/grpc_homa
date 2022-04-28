@@ -96,12 +96,9 @@ public class HomaClient {
                 while (true) {
                     HomaIncoming msg = new HomaIncoming();
                     HomaClientStream stream;
-                    int err = msg.read(client.homa,
-                            HomaSocket.flagReceiveResponse, client.logger);
-                    if (err != 0) {
-                        client.logger.log(ChannelLogLevel.ERROR, String.format(
-                                "Error receiving Homa message: %s\n",
-                                HomaSocket.strerror(err)));
+                    String err = msg.read(client.homa, HomaSocket.flagReceiveResponse);
+                    if (err != null) {
+                        client.logger.log(ChannelLogLevel.ERROR, err);
                         continue;
                     }
                     System.out.printf("Received response for id %d from %s, " +
@@ -112,7 +109,7 @@ public class HomaClient {
                             msg.header.messageBytes, msg.header.trailMdBytes,
                             msg.header.flags);
                     synchronized(this) {
-                        StreamId streamId = new StreamId(msg.peerAddress,
+                        StreamId streamId = new StreamId(msg.streamId.address,
                                 msg.header.sid);
                         stream = client.streams.get(streamId);
                     }
@@ -126,8 +123,8 @@ public class HomaClient {
                     message = "no information about cause";
                 }
                 client.logger.log(ChannelLogLevel.ERROR, String.format(
-                        "HomaClient.ClientThread crashed: %s",
-                        message));
+                        "HomaClient.ClientThread crashed with %s: %s",
+                        e.getClass().getName(), message));
             }
         }
     }

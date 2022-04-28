@@ -20,6 +20,7 @@ import java.io.InputStream;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.logging.Logger;
 
 import io.grpc.ChannelLogger;
 import io.grpc.Metadata;
@@ -54,16 +55,18 @@ class HomaIncoming {
     // the Homa RPC's id.
     HomaSocket.RpcSpec peer;
 
-    // Address corresponding to peer.
-    InetSocketAddress peerAddress;
+    // Unique identifier for this stream.
+    StreamId streamId;
 
-    // Header metadata extracted from the message; null if there were
-    // none, or if they have already been passed to gRPC.
-    Metadata headers;
+    // Raw initial metadata extracted from the message (alternating keys and
+    // values); null means there were none, or they have already been passed
+    // to gRPC.
+    byte[][] headers;
 
-    // Trailing metadata extracted from the message; null if there were
-    // none, or if they have already been passed to gRPC.
-    Metadata trailers;
+    // Raw trailing metadata extracted from the message (alternating keys and
+    // values); null means there were none, or they have already been passed
+    // to gRPC.
+    byte[][] trailers;
 
     // The message payload from the message, or null if none.
     MessageStream message;
@@ -87,21 +90,21 @@ class HomaIncoming {
      *      Used to receive an incoming message.
      * @param flags
      *      The flags value to pass to HomaSocket.receive.
-     * @param logger
-     *      Used to record information about errors.
      * @return
-     *      Zero (for success) or a negative errno after a failure (in which
-     *      case only the peer and id fields will be valid).
+     *      Null (for success) or a string containing an error message (for
+     *      logging) if there was a problem.
      */
-    int read(HomaSocket homa, int flags, ChannelLogger logger) {
+    String read(HomaSocket homa, int flags) {
         peer.reset();
         length = homa.receive(initialPayload, flags, peer);
         homaId = peer.getId();
-        peerAddress = peer.getInetSocketAddress();
         if (length < 0) {
-            return length;
+            return String.format("Error receiving Homa id %d from %s: %s",
+                    homaId, peer.getInetSocketAddress().toString(),
+                    HomaSocket.strerror(-length));
         }
         header.deserialize(initialPayload);
+        streamId = new StreamId(peer.getInetSocketAddress(), header.sid);
         if ((header.flags & HomaWire.Header.initMdPresent) != 0) {
             headers = HomaWire.deserializeMetadata(initialPayload,
                     header.initMdBytes);
@@ -110,18 +113,22 @@ class HomaIncoming {
             trailers = HomaWire.deserializeMetadata(initialPayload,
                     header.trailMdBytes);
         }
-        if ((header.flags & HomaWire.Header.messageComplete)!= 0) {
+        if ((header.flags & HomaWire.Header.messageComplete) != 0) {
             int remaining = initialPayload.limit() - initialPayload.position();
             if (header.messageBytes == remaining) {
                 message = new MessageStream(this);
             } else {
-                logger.log(ChannelLogger.ChannelLogLevel.ERROR, String.format(
-                        "Expected %d message bytes in incoming message from " +
-                        "%s, got %d bytes (discarding data): %s",
-                        peerAddress.toString(), remaining, header.messageBytes));
+                System.out.printf("Incoming with initMdBytes %d, messageBytes " +
+                        "%d, trailMdBytes %d, total length %d\n",
+                        header.initMdBytes, header.trailMdBytes,
+                        header.messageBytes, length);
+                return String.format("Expected %d message bytes in Homa " +
+                        "message from %s, got %d bytes (discarding data)",
+                        remaining, streamId.address.toString(),
+                        header.messageBytes);
             }
         }
-        return 0;
+        return null;
     }
 
     /**

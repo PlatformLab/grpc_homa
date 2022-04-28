@@ -16,6 +16,7 @@
 package grpcHoma;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 
 import io.grpc.Metadata;
@@ -73,7 +74,7 @@ class HomaWire {
         static final byte trailMdPresent = 4;
 
         // Indicates that this message is a Homa request (meaning it that it
-        // requires an eventual response).
+        // requires an eventual response). 0 means this is a Homa response.
         static final byte isRequest = 8;
 
         // Indicates that there is no useful information in this message;
@@ -123,7 +124,9 @@ class HomaWire {
             // Note: the order here must match the order of fields in
             // the C++ header wire.h.
             buf.putInt(sid);
-            System.out.printf("serialized streamId %d in header\n", sid);
+            System.out.printf("serialized streamId %d in header: initMdBytes " +
+                    "%d, trailMdBytes %s, messageBytes %d\n", sid, initMdBytes,
+                    trailMdBytes, messageBytes);
             buf.putInt(sequence);
             buf.putInt(initMdBytes);
             buf.putInt(trailMdBytes);
@@ -185,9 +188,11 @@ class HomaWire {
      * @param numBytes
      *      Total bytes of metadata in the message.
      * @return
-     *      The extracted metadata, in a form suitable for passing to gRPC.
+     *      The extracted metadata, in an array of byte arrays; at the
+     *      outer array, even elements contain keys and odd elements the
+     *      corresponding values.
      */
-    static Metadata deserializeMetadata(ByteBuffer buf, int numBytes) {
+    static byte[][] deserializeMetadata(ByteBuffer buf, int numBytes) {
         // See Mdata definition in wire.h (C++) for wire format of metadata.
         ArrayList<byte[]> keysAndValues = new ArrayList();
         int bytesLeft = numBytes;
@@ -208,9 +213,15 @@ class HomaWire {
                 value[i] = buf.get();
             }
             keysAndValues.add(value);
+            System.out.printf("Incoming metadata: key %s, value %s\n",
+                    new String(key, StandardCharsets.US_ASCII),
+                    new String(value, StandardCharsets.US_ASCII));
             bytesLeft = bytesLeft - keyLength - valueLength - 8;
         }
-        return HomaMetadata.newMetadata(keysAndValues.size()/2,
-                keysAndValues.toArray());
+        byte[][] result = new byte[keysAndValues.size()][];
+        for (int i = 0; i < keysAndValues.size(); i++) {
+            result[i] = keysAndValues.get(i);
+        }
+        return result;
     }
 }

@@ -205,7 +205,6 @@ public class HomaClientStream implements ClientStream,
                     length);
         }
         catch (IOException e) {
-
         }
     }
 
@@ -282,7 +281,8 @@ public class HomaClientStream implements ClientStream,
             return;
         }
         if (incoming.headers != null) {
-            listener.headersRead(incoming.headers);
+            listener.headersRead(HomaMetadata.newMetadata(
+                    incoming.headers.length/2, incoming.headers));
             incoming.headers = null;
         }
         if (incoming.message != null) {
@@ -290,9 +290,10 @@ public class HomaClientStream implements ClientStream,
         }
         if ((incoming.headers == null) && (incoming.message == null)
                 && (incoming.trailers != null)) {
-            listener.closed(statusFromTrailers(incoming.trailers),
-                    ClientStreamListener.RpcProgress.PROCESSED,
-                    incoming.trailers);
+            Metadata trailers = HomaMetadata.newMetadata(
+                    incoming.trailers.length/2, incoming.trailers);
+            listener.closed(statusFromTrailers(trailers),
+                    ClientStreamListener.RpcProgress.PROCESSED, trailers);
             synchronized (transport.client) {
                 transport.client.streams.remove(streamId);
             }
