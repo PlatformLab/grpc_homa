@@ -123,9 +123,9 @@ void HomaIncoming::destroyer(void *arg)
 }
 
 /**
- * Read (the first part of) an incoming Homa request or response message.
- * This method also takes care of sending automatic response for
- * streaming RPCs, and for discarding those responses.
+ * Read an incoming Homa request or response message. This method also
+ * takes care of sending automatic responses for streaming RPCs, and for
+ * discarding those responses.
  * \param fd
  *      File descriptor of Homa socket from which to read the message
  * \param flags

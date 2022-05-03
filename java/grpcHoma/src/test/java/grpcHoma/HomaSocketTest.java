@@ -1,4 +1,4 @@
-/* Copyright (c) 2021 Stanford University
+/* Copyright (c) 2021-2022 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -54,14 +54,14 @@ public class HomaSocketTest {
         serverSock = new HomaSocket(5555);
         clientSock = new HomaSocket(0);
         HomaSocket.RpcSpec outgoingSpec = new HomaSocket.RpcSpec(
-                InetAddress.getByName("localhost"), 5555);
+                new InetSocketAddress("localhost", 5555));
         HomaSocket.RpcSpec incomingSpec = new HomaSocket.RpcSpec();
         ByteBuffer clientBuffer = ByteBuffer.allocateDirect(100);
         ByteBuffer serverBuffer = ByteBuffer.allocateDirect(100);
         clientBuffer.putInt(11111);
         clientBuffer.putInt(22222);
         
-        assertEquals(0, clientSock.send(outgoingSpec, clientBuffer));
+        assertTrue(clientSock.send(outgoingSpec, clientBuffer) > 0);
         int result = serverSock.receive(serverBuffer,
                 HomaSocket.flagReceiveRequest, incomingSpec);
         assertEquals(8, result);
@@ -85,7 +85,7 @@ public class HomaSocketTest {
             throws UnknownHostException {
         clientSock = new HomaSocket(0);
         HomaSocket.RpcSpec spec = new HomaSocket.RpcSpec(
-                InetAddress.getByName("localhost"), 9876);
+                new InetSocketAddress("localhost", 9876));
         ByteBuffer buffer = ByteBuffer.allocateDirect(100);
         buffer.putInt(12345);
         
@@ -103,7 +103,7 @@ public class HomaSocketTest {
             throws UnknownHostException {
         clientSock = new HomaSocket(0);
         HomaSocket.RpcSpec spec = new HomaSocket.RpcSpec(
-                InetAddress.getByName("localhost"), 9876);
+                new InetSocketAddress("localhost", 9876));
         ByteBuffer buffer = ByteBuffer.allocateDirect(100);
         buffer.putInt(12345);
         
@@ -119,13 +119,13 @@ public class HomaSocketTest {
         serverSock = new HomaSocket(5555);
         clientSock = new HomaSocket(0);
         HomaSocket.RpcSpec outgoingSpec = new HomaSocket.RpcSpec(
-                InetAddress.getByName("localhost"), 5555);
+                new InetSocketAddress("localhost", 5555));
         ByteBuffer sendBuffer = ByteBuffer.allocateDirect(100);
         sendBuffer.putInt(11111);
         sendBuffer.putInt(22222);
         sendBuffer.putInt(33333);
         sendBuffer.putInt(44444);
-        assertEquals(0, clientSock.send(outgoingSpec, sendBuffer));
+        assertTrue(clientSock.send(outgoingSpec, sendBuffer) > 0);
         
         HomaSocket.RpcSpec incomingSpec = new HomaSocket.RpcSpec();
         ByteBuffer receiveBuffer = ByteBuffer.allocateDirect(100);

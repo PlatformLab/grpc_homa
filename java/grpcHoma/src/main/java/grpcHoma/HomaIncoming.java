@@ -37,6 +37,10 @@ class HomaIncoming {
     static final int initialPayloadSize = 10000;
     ByteBuffer initialPayload;
 
+    // If the message is longer than initialPayloadSize, holds all of the
+    // bytes after those in initialPayload.
+    ByteBuffer tail;
+
     // Homa's identifier for the incoming message (or a negative errno if
     // there was an error receiving the message; in this case, no other
     // fields are valid except peer).
@@ -84,8 +88,10 @@ class HomaIncoming {
     }
 
     /**
-     * Read the first part of an incoming Homa request or response message,
-     * and populate the structure with information for that message.
+     * Read an incoming Homa request or response message and populate the
+     * structure with information about that message. This method also
+     * takes care of sending automatic responses for streaming RPCs and
+     * discarding those responses.
      * @param homa
      *      Used to receive an incoming message.
      * @param flags
@@ -95,40 +101,95 @@ class HomaIncoming {
      *      logging) if there was a problem.
      */
     String read(HomaSocket homa, int flags) {
-        peer.reset();
-        length = homa.receive(initialPayload, flags, peer);
-        homaId = peer.getId();
-        if (length < 0) {
-            return String.format("Error receiving Homa id %d from %s: %s",
-                    homaId, peer.getInetSocketAddress().toString(),
-                    HomaSocket.strerror(-length));
-        }
-        header.deserialize(initialPayload);
-        streamId = new StreamId(peer.getInetSocketAddress(), header.sid);
-        if ((header.flags & HomaWire.Header.initMdPresent) != 0) {
-            headers = HomaWire.deserializeMetadata(initialPayload,
-                    header.initMdBytes);
-        }
-        if ((header.flags & HomaWire.Header.trailMdPresent) != 0) {
-            trailers = HomaWire.deserializeMetadata(initialPayload,
-                    header.trailMdBytes);
-        }
-        if ((header.flags & HomaWire.Header.messageComplete) != 0) {
-            int remaining = initialPayload.limit() - initialPayload.position();
-            if (header.messageBytes == remaining) {
-                message = new MessageStream(this);
-            } else {
-                System.out.printf("Incoming with initMdBytes %d, messageBytes " +
-                        "%d, trailMdBytes %d, total length %d\n",
-                        header.initMdBytes, header.trailMdBytes,
-                        header.messageBytes, length);
-                return String.format("Expected %d message bytes in Homa " +
-                        "message from %s, got %d bytes (discarding data)",
-                        remaining, streamId.address.toString(),
-                        header.messageBytes);
+        // This loop takes care of discarding automatic responses.
+        while (true) {
+            peer.reset();
+            length = homa.receive(initialPayload,
+                    flags | HomaSocket.flagReceivePartial, peer);
+            homaId = peer.getId();
+            if (length < 0) {
+                return String.format("Error receiving Homa id %d from %s: %s",
+                        homaId, peer.getInetSocketAddress().toString(),
+                        HomaSocket.strerror(-length));
+            }
+            header.deserialize(initialPayload);
+            if ((header.flags & HomaWire.Header.emptyResponse) == 0) {
+                break;
             }
         }
+        baseLength = initialPayload.limit();
+        streamId = new StreamId(peer.getInetSocketAddress(), header.sid);
+        int expected = HomaWire.Header.length + header.initMdBytes
+                + header.messageBytes + header.trailMdBytes;
+        if (length != expected) {
+            return String.format("Bad message length %d (expected " +
+                    "%d); initMdLength %d, messageLength %d, trailMdLength %d " +
+                    "header length %d", length, expected, header.initMdBytes,
+                    header.messageBytes, header.trailMdBytes,
+                    HomaWire.Header.length);
+        }
+
+        // Read the tail of the message, if needed.
+        if (length != baseLength) {
+            tail = ByteBuffer.allocateDirect(length - baseLength);
+            tail.order(ByteOrder.BIG_ENDIAN);
+            int tailLength = homa.receive(initialPayload, flags, peer);
+            if (tailLength < 0) {
+                return String.format("Error while receiving tail of Homa id " +
+                                "%d from %s: %s", homaId,
+                        peer.getInetSocketAddress().toString(),
+                        HomaSocket.strerror(-tailLength));
+            }
+            if (tailLength != (length - baseLength)) {
+                return String.format("Tail of Homa message has wrong length: " +
+                                "expected %d bytes, got %d bytes", length - baseLength,
+                        tailLength);
+            }
+        }
+
+        // Separate the three major sections of payload (headers, message,
+        // trailers).
+        if ((header.flags & HomaWire.Header.initMdPresent) != 0) {
+            headers = HomaWire.deserializeMetadata(
+                    getBuffer(header.initMdBytes), header.initMdBytes);
+        }
+        if ((header.flags & HomaWire.Header.trailMdPresent) != 0) {
+            trailers = HomaWire.deserializeMetadata(
+                    getBuffer(header.trailMdBytes), header.trailMdBytes);
+        }
+        if ((header.flags & HomaWire.Header.messageComplete) != 0) {
+            message = new MessageStream(this);
+        }
         return null;
+    }
+
+    /**
+     * Returns a ByteBuffer that can be used to extract the next numBytes of
+     * data from the message. It normally returns either initialPayload or
+     * tail, but if the desired range crosses the boundary between these
+     * two then it creates a new ByteBuffer by copying data from these two.
+     * @param numBytes
+     *      The caller wants this many bytes contiguous in a single
+     *      ByteBuffer. The caller must ensure that at least this many
+     *      bytes are available, between initialPayload and tail together.
+     */
+    ByteBuffer getBuffer(int numBytes) {
+        int initSize = initialPayload.remaining();
+        if (numBytes <= initSize) {
+            return initialPayload;
+        }
+        if (initSize == 0) {
+            return tail;
+        }
+        ByteBuffer spliced = ByteBuffer.allocate(numBytes);
+        spliced.order(ByteOrder.BIG_ENDIAN);
+        spliced.put(initialPayload);
+        int oldLimit = tail.limit();
+        tail.limit(numBytes - initSize);
+        spliced.put(tail);
+        tail.limit(oldLimit);
+        spliced.flip();
+        return spliced;
     }
 
     /**
@@ -140,6 +201,11 @@ class HomaIncoming {
 
         // Information about the incoming message.
         HomaIncoming incoming;
+
+        // Keeps track of whether the two parts of the payload have
+        // already been read.
+        boolean initialSent = false;
+        boolean tailSent = false;
 
         /**
          * Constructor for MessageStream.

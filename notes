@@ -2,10 +2,14 @@ Miscellaneous notes about a Homa plugin for gRPC:
 -------------------------------------------------
 
 * Notes about java implementation:
+  * Support long messages.
+  * Need to keep track of many outstanding requests
+  * Eliminate duplicate code between 
+  * Handle EAGAIN in HomaIncoming.read?
+  * Change all invocations of System.out.printf to log instead.
   * Find out what scheduledExecutorService is.
   * Check for other client Listener callbacks that need to be made.
   * Invoke stream tracers.
-  * Support long messages.
   * Log error in RpcSpec.getInetSocketAddress (find all System.out refs)
   * Add count of entries to metadata wire format?
   * Need to eventually invoke onReady to send client messages?
