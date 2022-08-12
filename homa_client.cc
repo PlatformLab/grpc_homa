@@ -37,11 +37,13 @@ std::shared_ptr<grpc::Channel> HomaClient::InsecureCredentials::CreateChannelImp
  *      Arguments associated with the channel.
  */
 grpc_core::RefCountedPtr<grpc_core::Subchannel>
-HomaClient::SubchannelFactory::CreateSubchannel(const grpc_channel_args* args)
+HomaClient::SubchannelFactory::CreateSubchannel(
+    const grpc_resolved_address& address,
+    const grpc_channel_args* args)
 {
     grpc_core::RefCountedPtr<grpc_core::Subchannel> s =
             grpc_core::Subchannel::Create(
-            grpc_core::MakeOrphanable<HomaClient::Connector>(), args);
+            grpc_core::MakeOrphanable<HomaClient::Connector>(), address, args);
     return s;
 }
 
@@ -59,9 +61,6 @@ void HomaClient::Connector::Connect(const HomaClient::Connector::Args& args,
         HomaClient::Connector::Result* result, grpc_closure* notify)
 {
     // Homa doesn't use connections, so there isn't much to do here.
-    grpc_resolved_address addr;
-    grpc_core::Subchannel::GetAddressFromSubchannelAddressArg(
-            args.channel_args, &addr);
     result->Reset();
     {
         grpc_core::MutexLock lock(&refCountMutex);
@@ -72,17 +71,17 @@ void HomaClient::Connector::Connect(const HomaClient::Connector::Args& args,
         sharedClient->numPeers++;
     }
     result->transport = &(new HomaClient::Peer(HomaClient::sharedClient,
-            &addr))->transport;
+            *args.address))->transport;
     result->channel_args = grpc_channel_args_copy(args.channel_args);
 
     // Notify immediately, since there's no connection to create.
     grpc_core::ExecCtx::Run(DEBUG_LOCATION, notify, GRPC_ERROR_NONE);
 }
 
-HomaClient::Peer::Peer(HomaClient *hc, grpc_resolved_address *addr)
+HomaClient::Peer::Peer(HomaClient *hc, grpc_resolved_address addr)
         : transport()
         , hc(hc)
-        , addr(*addr)
+        , addr(addr)
 {
     transport.vtable = &hc->vtable;
 }

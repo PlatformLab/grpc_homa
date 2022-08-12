@@ -201,12 +201,11 @@ void HomaStream::saveCallbacks(grpc_transport_stream_op_batch* op)
 size_t HomaStream::metadataLength(grpc_metadata_batch* batch)
 {
     size_t length = 0;
-    for (grpc_linked_mdelem* md = batch->list.head; md != nullptr;
-            md = md->next) {
-        uint32_t keyLength = GRPC_SLICE_LENGTH(GRPC_MDKEY(md->md));
-        uint32_t valueLength = GRPC_SLICE_LENGTH(GRPC_MDVALUE(md->md));
+    batch->ForEach([&length](grpc_mdelem& md) {
+        uint32_t keyLength = GRPC_SLICE_LENGTH(GRPC_MDKEY(md));
+        uint32_t valueLength = GRPC_SLICE_LENGTH(GRPC_MDVALUE(md));
         length += keyLength + valueLength + sizeof(Wire::Mdata);
-    }
+    });
     return length;
 }
 
@@ -220,10 +219,9 @@ void HomaStream::serializeMetadata(grpc_metadata_batch* batch)
 {
     struct iovec *vec = &vecs.back();
     uint8_t *cur = static_cast<uint8_t *>(vec->iov_base) + vec->iov_len;
-    for (grpc_linked_mdelem* md = batch->list.head; md != nullptr;
-            md = md->next) {
-        const grpc_slice& key = GRPC_MDKEY(md->md);
-        const grpc_slice& value = GRPC_MDVALUE(md->md);
+    batch->ForEach([&](grpc_mdelem &md) {
+        const grpc_slice& key = GRPC_MDKEY(md);
+        const grpc_slice& value = GRPC_MDVALUE(md);
         uint32_t keyLength = GRPC_SLICE_LENGTH(key);
         uint32_t valueLength = GRPC_SLICE_LENGTH(value);
         uint32_t elemLength = keyLength + valueLength + sizeof(Wire::Mdata);
@@ -254,7 +252,7 @@ void HomaStream::serializeMetadata(grpc_metadata_batch* batch)
         vec->iov_len += elemLength;
         lastVecAvail -= elemLength;
         xmitSize += elemLength;
-    }
+    });
 }
 
 /**
