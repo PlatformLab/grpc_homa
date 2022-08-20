@@ -70,7 +70,7 @@ void HomaClient::Connector::Connect(const HomaClient::Connector::Args& args,
         }
         sharedClient->numPeers++;
     }
-    result->transport = &(new HomaClient::Peer(HomaClient::sharedClient,
+    result->transport = &(new HomaClient::HomaPeer(HomaClient::sharedClient,
             *args.address))->transport;
     result->channel_args = grpc_channel_args_copy(args.channel_args);
 
@@ -78,7 +78,7 @@ void HomaClient::Connector::Connect(const HomaClient::Connector::Args& args,
     grpc_core::ExecCtx::Run(DEBUG_LOCATION, notify, GRPC_ERROR_NONE);
 }
 
-HomaClient::Peer::Peer(HomaClient *hc, grpc_resolved_address addr)
+HomaClient::HomaPeer::HomaPeer(HomaClient *hc, grpc_resolved_address addr)
         : transport()
         , hc(hc)
         , addr(addr)
@@ -220,7 +220,7 @@ int HomaClient::init_stream(grpc_transport* gt, grpc_stream* gs,
         grpc_stream_refcount* refcount, const void* server_data,
         grpc_core::Arena* arena)
 {
-    Peer *peer = containerOf(gt, &HomaClient::Peer::transport);
+    HomaPeer *peer = containerOf(gt, &HomaClient::HomaPeer::transport);
     HomaClient* hc = peer->hc;
     HomaStream *stream = reinterpret_cast<HomaStream *>(gs);
     grpc_core::MutexLock lock(&hc->mutex);
@@ -235,7 +235,7 @@ int HomaClient::init_stream(grpc_transport* gt, grpc_stream* gs,
  * Invoked by gRPC to add any file descriptors for a transport to
  * a pollset so that we'll get callbacks when messages arrive.
  * \param gt
- *      Identifies a particular Peer.
+ *      Identifies a particular HomaPeer.
  * \param gs
  *      Info for a particular RPC.
  * \param pollset
@@ -244,7 +244,7 @@ int HomaClient::init_stream(grpc_transport* gt, grpc_stream* gs,
 void HomaClient::set_pollset(grpc_transport* gt, grpc_stream* gs,
         grpc_pollset* pollset)
 {
-    Peer *peer = containerOf(gt, &HomaClient::Peer::transport);
+    HomaPeer *peer = containerOf(gt, &HomaClient::HomaPeer::transport);
     HomaClient* hc = peer->hc;
     
     if (hc->gfd) {
@@ -257,7 +257,7 @@ void HomaClient::set_pollset(grpc_transport* gt, grpc_stream* gs,
  * Invoked by gRPC to add any file descriptors for a transport to
  * a pollset_set so that we'll get callbacks when messages arrive.
  * \param gt
- *      Identifies a particular Peer.
+ *      Identifies a particular HomaPeer.
  * \param gs
  *      Info for a particular RPC.
  * \param pollset_set
@@ -266,7 +266,7 @@ void HomaClient::set_pollset(grpc_transport* gt, grpc_stream* gs,
 void HomaClient::set_pollset_set(grpc_transport* gt, grpc_stream* gs,
         grpc_pollset_set* pollset_set)
 {
-    Peer *peer = containerOf(gt, &HomaClient::Peer::transport);
+    HomaPeer *peer = containerOf(gt, &HomaClient::HomaPeer::transport);
     HomaClient* hc = peer->hc;
     
     if (hc->gfd) {
@@ -313,7 +313,7 @@ void HomaClient::perform_stream_op(grpc_transport* gt, grpc_stream* gs,
 }
 
 /**
- * Invoked by gRPC to perform various operations on a transport (i.e. Peer).
+ * Invoked by gRPC to perform various operations on a transport (i.e. HomaPeer).
  * \param gt
  *      The peer to manipulate.
  * \param op
@@ -371,7 +371,7 @@ void HomaClient::perform_op(grpc_transport* gt, grpc_transport_op* op)
 /**
  * Destructor for Streams.
  * \param gt
- *      Transport (Peer) associated with the stream.
+ *      Transport (HomaPeer) associated with the stream.
  * \param gs
  *      HomaStream to destroy.
  * \param closure
@@ -380,7 +380,7 @@ void HomaClient::perform_op(grpc_transport* gt, grpc_transport_op* op)
 void HomaClient::destroy_stream(grpc_transport* gt, grpc_stream* gs,
         grpc_closure* closure)
 {
-    Peer *peer = containerOf(gt, &HomaClient::Peer::transport);
+    HomaPeer *peer = containerOf(gt, &HomaClient::HomaPeer::transport);
     HomaClient *hc = peer->hc;
     HomaStream *stream = reinterpret_cast<HomaStream*>(gs);
     
@@ -402,7 +402,7 @@ void HomaClient::destroy_stream(grpc_transport* gt, grpc_stream* gs,
  */
 void HomaClient::destroy(grpc_transport* gt)
 {
-    Peer *peer = containerOf(gt, &HomaClient::Peer::transport);
+    HomaPeer *peer = containerOf(gt, &HomaClient::HomaPeer::transport);
     delete peer;
     {
         grpc_core::MutexLock lock(&refCountMutex);

@@ -75,7 +75,7 @@ protected:
      * transports for TCP, there's no network connection info here,
      * since Homa is connectionless.
      */
-    struct Peer {
+    struct HomaPeer {
         // Contains a virtual function table for use by the rest of gRPC.
         // gRPC uses this as a transport handle.
         grpc_transport transport;
@@ -86,7 +86,7 @@ protected:
         // Linux struct sockaddr containing the IP address and port of the peer.
         grpc_resolved_address addr;
 
-        Peer(HomaClient *hc, grpc_resolved_address addr);
+        HomaPeer(HomaClient *hc, grpc_resolved_address addr);
     };
 
     static void     destroy(grpc_transport* gt);
