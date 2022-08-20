@@ -76,7 +76,10 @@ public:
 
         // Synchronizes access to this structure.
         std::mutex mutex;
-        
+
+        // @transport refers to this.
+        struct grpc_transport_vtable vtable;
+
         Shared() : ports(), mutex() {}
     };
 
@@ -97,9 +100,6 @@ public:
     // as a generic handle for the object.
     grpc_transport transport;
 
-    // @transport refers to this.
-    struct grpc_transport_vtable vtable;
-    
     // Associated gRPC server. Not owned by this object.
     grpc_core::Server* server;
 
