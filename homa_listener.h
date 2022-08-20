@@ -100,8 +100,8 @@ public:
     // @transport refers to this.
     struct grpc_transport_vtable vtable;
     
-    // Associated gRPC server.
-    grpc_core::OrphanablePtr<grpc_core::Server> server;
+    // Associated gRPC server. Not owned by this object.
+    grpc_core::Server* server;
     
     // Keeps track of all RPCs currently in some stage of processing;
     // used to look up the Stream for an RPC based on its id.

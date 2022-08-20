@@ -77,7 +77,7 @@ HomaListener::HomaListener(grpc_server* server, int port)
     , accept_stream_data(nullptr)
 {
     if (server) {
-        this->server.reset(server->core_server.get());
+        this->server = server->core_server.get();
     }
     transport.vtable = &vtable;
     vtable.sizeof_stream =       sizeof(HomaStream);
