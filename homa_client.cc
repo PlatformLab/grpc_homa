@@ -140,6 +140,7 @@ HomaClient::~HomaClient()
     grpc_fd_shutdown(gfd,
             GRPC_ERROR_CREATE_FROM_STATIC_STRING("Destroying HomaClient"));
     grpc_fd_orphan(gfd, nullptr, nullptr, "Destroying HomaClient");
+    grpc_core::ExecCtx::Get()->Flush();
 }
 
 /**
