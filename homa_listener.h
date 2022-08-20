@@ -30,7 +30,7 @@ public:
     grpc_core::channelz::ListenSocketNode* channelz_listen_socket_node()
             const override;
     ~HomaListener();
-    
+
 // protected:
     /**
      * This class provides credentials to create Homa listeners.
@@ -45,8 +45,8 @@ public:
              GPR_ASSERT(0);  // Should not be called on insecure credentials.
          }
     };
-   
-	HomaListener(grpc_server* server, int port);
+
+    HomaListener(grpc_server* server, int port);
     HomaStream *    getStream(HomaIncoming *msg,
                             std::optional<grpc_core::MutexLock>& streamLock);
     static void     InitShared(void);
@@ -91,49 +91,49 @@ public:
         // Used to return the HomaStream address back through callbacks.
         HomaStream *stream;
     };
-    
+
     // Points to a virtual function table for use by the rest of gRPC to
     // treat this object as a transport. gRPC uses a pointer to this field
-    // as a generic handle for the object. 
+    // as a generic handle for the object.
     grpc_transport transport;
-    
+
     // @transport refers to this.
     struct grpc_transport_vtable vtable;
     
     // Associated gRPC server. Not owned by this object.
     grpc_core::Server* server;
-    
+
     // Keeps track of all RPCs currently in some stage of processing;
     // used to look up the Stream for an RPC based on its id.
     std::unordered_map<StreamId, HomaStream*, StreamId::Hasher> activeRpcs;
-    
+
     typedef std::unordered_map<StreamId, HomaStream*,
             StreamId::Hasher>::iterator ActiveIterator;
-    
+
     // Must be held when accessing @activeRpcs. Must not be acquired while
     // holding a stream lock.
     grpc_core::Mutex mutex;
-    
+
     // Homa port number managed by this object.
     int port;
 	
     // File descriptor for a Homa socket; -1 means none.
     int fd;
-    
+
     // Used by grpc to manage the socket in various ways, such as epoll.
     grpc_fd *gfd;
-    
+
     // Used to call us back when fd is readable.
     grpc_closure read_closure;
-    
+
     // Used to notify gRPC of new incoming requests.
     void (*accept_stream_cb)(void* user_data, grpc_transport* transport,
                              const void* server_data);
     void* accept_stream_data;
-    
+
     // Singleton object with common info.
     static std::optional<Shared> shared;
-    
+
     // Used to synchronize initialization of shared.
     static gpr_once shared_once;
 };
