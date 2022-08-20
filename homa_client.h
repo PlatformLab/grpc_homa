@@ -20,18 +20,89 @@
  * clients using Homa. There is just one of these structures for
  * each application.
  */
+class SharedHomaClient {
+public:
+    SharedHomaClient();
+    ~SharedHomaClient();
+
+    // Used by gRPC to invoke transport-specific functions on all
+    // HomaPeer objects.
+    struct grpc_transport_vtable vtable;
+
+private:
+    // Methods referenced from the above vtable:
+    static void     destroy(grpc_transport* gt);
+    static void     destroy_stream(grpc_transport* gt, grpc_stream* gs,
+                            grpc_closure* then_schedule_closure);
+    static int      init_stream(grpc_transport* gt, grpc_stream* gs,
+                            grpc_stream_refcount* refcount,
+                            const void* server_data, grpc_core::Arena* arena);
+    static void     onRead(void* arg, grpc_error* error);
+    static void     perform_op(grpc_transport* gt, grpc_transport_op* op);
+    static void     perform_stream_op(grpc_transport* gt, grpc_stream* gs,
+                            grpc_transport_stream_op_batch* op);
+    static void     set_pollset(grpc_transport* gt, grpc_stream* gs,
+                            grpc_pollset* pollset);
+    static void     set_pollset_set(grpc_transport* gt, grpc_stream* gs,
+                            grpc_pollset_set* pollset_set);
+    static grpc_endpoint* get_endpoint(grpc_transport* gt);
+
+    // File descriptor for Homa socket; used for all outgoing RPCs.
+    // < 0 means socket isn't currently open.
+    int fd;
+
+    // Corresponds to fd.
+    grpc_fd *gfd;
+
+    // Used to call us back when fd is readable.
+    grpc_closure readClosure;
+
+    // Must be held when accessing @streams or @nextId. Must not be
+    // acquired while holding a stream lock.
+    grpc_core::Mutex mutex;
+
+    // Id to use for the next outgoing RPC.
+    int nextId ABSL_GUARDED_BY(mutex);
+
+    // Holds all streams with outstanding requests.
+    std::unordered_map<StreamId, HomaStream*, StreamId::Hasher> streams
+        ABSL_GUARDED_BY(mutex);
+};
+
+/**
+ * An instance of this class contains information specific to a
+ * peer. These objects are used as "transports" in gRPC, but unlike
+ * transports for TCP, there's no network connection info here,
+ * since Homa is connectionless.
+ */
+struct HomaPeer {
+    HomaPeer(SharedHomaClient *shc, grpc_resolved_address addr);
+
+    // Contains a virtual function table for use by the rest of gRPC.
+    // gRPC uses this as a transport handle.
+    grpc_transport transport;
+
+    // Shared client state.
+    SharedHomaClient *shc;
+
+    // Linux struct sockaddr containing the IP address and port of the peer.
+    grpc_resolved_address addr;
+};
+
 class HomaClient {
 public:
     static std::shared_ptr<grpc::Channel> createInsecureChannel(
             const char* target);
-    
+
+    static void DestroyPeer(HomaPeer* peer);
+
 protected:
     HomaClient();
     ~HomaClient();
     static void init();
     static grpc_channel *createChannel(const char* target,
             const grpc_channel_args* args);
-    
+
     /**
      * This class provides credentials used to create Homa channels.
      */
@@ -56,7 +127,7 @@ protected:
             const grpc_resolved_address& address,
             const grpc_channel_args* args) override;
     };
-    
+
     /**
      * An instance of this class creates "connections" for subchannels
      * of a given channel. It doesn't do much, since Homa doesn't have
@@ -69,77 +140,16 @@ protected:
         void Shutdown(grpc_error_handle error) override;
     };
 
-    /**
-     * An instance of this class contains information specific to a
-     * peer. These objects are used as "transports" in gRPC, but unlike
-     * transports for TCP, there's no network connection info here,
-     * since Homa is connectionless.
-     */
-    struct HomaPeer {
-        // Contains a virtual function table for use by the rest of gRPC.
-        // gRPC uses this as a transport handle.
-        grpc_transport transport;
-
-        // Shared client state.
-        HomaClient *hc;
-
-        // Linux struct sockaddr containing the IP address and port of the peer.
-        grpc_resolved_address addr;
-
-        HomaPeer(HomaClient *hc, grpc_resolved_address addr);
-    };
-
-    static void     destroy(grpc_transport* gt);
-    static void     destroy_stream(grpc_transport* gt, grpc_stream* gs,
-                            grpc_closure* then_schedule_closure);
-    static int      init_stream(grpc_transport* gt, grpc_stream* gs,
-                            grpc_stream_refcount* refcount,
-                            const void* server_data, grpc_core::Arena* arena);
-    static void     onRead(void* arg, grpc_error* error);
-    static void     perform_op(grpc_transport* gt, grpc_transport_op* op);
-    static void     perform_stream_op(grpc_transport* gt, grpc_stream* gs,
-                            grpc_transport_stream_op_batch* op);
-    static void     set_pollset(grpc_transport* gt, grpc_stream* gs,
-                            grpc_pollset* pollset);
-    static void     set_pollset_set(grpc_transport* gt, grpc_stream* gs,
-                            grpc_pollset_set* pollset_set);
-    static grpc_endpoint*
-                    get_endpoint(grpc_transport* gt);
-    
-    // Used by gRPC to invoke transport-specific functions on all
-    // HomaPeer objects associated with this HomaClient.
-    struct grpc_transport_vtable vtable;
-    
-    // Holds all streams with outstanding requests.
-    std::unordered_map<StreamId, HomaStream*, StreamId::Hasher> streams;
-    
-    // Id to use for the next outgoing RPC.
-    int nextId;
-    
-    // Must be held when accessing @streams or @nextId. Must not be
-    // acquired while holding a stream lock.
-    grpc_core::Mutex mutex;
-    
-    // File descriptor for Homa socket; used for all outgoing RPCs.
-    // < 0 means socket isn't currently open.
-    int fd;
-    
-    // Corresponds to fd.
-    grpc_fd *gfd;
-        
-    // Used to call us back when fd is readable.
-    grpc_closure readClosure;
-    
-    // Number of peers that exist for this object.
-    int numPeers;
-    
     // Single shared HomaClient used for all channels.  Nullptr means
     // not created yet.
-    static HomaClient *sharedClient;
-    
+    static SharedHomaClient *sharedClient ABSL_GUARDED_BY(refCountMutex);
+
+    // Number of peers that exist for this object.
+    static int numPeers ABSL_GUARDED_BY(refCountMutex);
+
     // Held when creating or deleting sharedClient and when updating numPeers.
     static grpc_core::Mutex refCountMutex;
-    
+
     // Used to create subchannels for all Homa channels.
     static SubchannelFactory factory;
 };

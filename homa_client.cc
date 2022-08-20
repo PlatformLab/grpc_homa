@@ -13,8 +13,9 @@
 #include "src/core/lib/surface/channel.h"
 
 HomaClient::SubchannelFactory HomaClient::factory;
-HomaClient *HomaClient::sharedClient = nullptr;
+SharedHomaClient *HomaClient::sharedClient = nullptr;
 grpc_core::Mutex HomaClient::refCountMutex;
+int HomaClient::numPeers;
 
 /**
  * This method is invoked indirectly by HomaClient::createSecureChannel;
@@ -65,12 +66,12 @@ void HomaClient::Connector::Connect(const HomaClient::Connector::Args& args,
     {
         grpc_core::MutexLock lock(&refCountMutex);
         if (sharedClient == nullptr) {
-            sharedClient = new HomaClient();
+            sharedClient = new SharedHomaClient();
             Wire::init();
         }
-        sharedClient->numPeers++;
+        numPeers++;
     }
-    result->transport = &(new HomaClient::HomaPeer(HomaClient::sharedClient,
+    result->transport = &(new HomaPeer(HomaClient::sharedClient,
             *args.address))->transport;
     result->channel_args = grpc_channel_args_copy(args.channel_args);
 
@@ -78,12 +79,12 @@ void HomaClient::Connector::Connect(const HomaClient::Connector::Args& args,
     grpc_core::ExecCtx::Run(DEBUG_LOCATION, notify, GRPC_ERROR_NONE);
 }
 
-HomaClient::HomaPeer::HomaPeer(HomaClient *hc, grpc_resolved_address addr)
+HomaPeer::HomaPeer(SharedHomaClient *shc, grpc_resolved_address addr)
         : transport()
-        , hc(hc)
+        , shc(shc)
         , addr(addr)
 {
-    transport.vtable = &hc->vtable;
+    transport.vtable = &shc->vtable;
 }
 
 /**
@@ -99,19 +100,18 @@ void HomaClient::Connector::Shutdown(grpc_error_handle error)
 }
 
 /**
- * Constructor for HomaTransports.
- * \param port
- *      The Homa port number that this object will manage.
+ * Constructor for HomaClient.
  */
 HomaClient::HomaClient()
+{
+}
+
+SharedHomaClient::SharedHomaClient()
     : vtable()
-    , streams()
-    , nextId(1)
-    , mutex()
-    , fd(-1)
     , gfd(nullptr)
     , readClosure()
-    , numPeers(0)
+    , mutex()
+    , nextId(1)
 {
     vtable.sizeof_stream =       sizeof(HomaStream);
     vtable.name =                "homa_client";
@@ -135,7 +135,7 @@ HomaClient::HomaClient()
     }
 }
 
-HomaClient::~HomaClient()
+SharedHomaClient::~SharedHomaClient()
 {
     grpc_fd_shutdown(gfd,
             GRPC_ERROR_CREATE_FROM_STATIC_STRING("Destroying HomaClient"));
@@ -216,18 +216,18 @@ std::shared_ptr<grpc::Channel> HomaClient::createInsecureChannel(
  * \return
  *      Zero means success, nonzero means failure.
  */
-int HomaClient::init_stream(grpc_transport* gt, grpc_stream* gs,
+int SharedHomaClient::init_stream(grpc_transport* gt, grpc_stream* gs,
         grpc_stream_refcount* refcount, const void* server_data,
         grpc_core::Arena* arena)
 {
-    HomaPeer *peer = containerOf(gt, &HomaClient::HomaPeer::transport);
-    HomaClient* hc = peer->hc;
+    HomaPeer *peer = containerOf(gt, &HomaPeer::transport);
+    SharedHomaClient* shc = peer->shc;
     HomaStream *stream = reinterpret_cast<HomaStream *>(gs);
-    grpc_core::MutexLock lock(&hc->mutex);
-    uint32_t id = hc->nextId;
-    hc->nextId++;
-    new (stream) HomaStream(StreamId(&peer->addr, id), hc->fd, refcount, arena);
-    hc->streams.emplace(stream->streamId, stream);
+    grpc_core::MutexLock lock(&shc->mutex);
+    uint32_t id = shc->nextId;
+    shc->nextId++;
+    new (stream) HomaStream(StreamId(&peer->addr, id), shc->fd, refcount, arena);
+    shc->streams.emplace(stream->streamId, stream);
     return 0;
 }
 
@@ -241,14 +241,14 @@ int HomaClient::init_stream(grpc_transport* gt, grpc_stream* gs,
  * \param pollset
  *      Where to add polling information.
  */
-void HomaClient::set_pollset(grpc_transport* gt, grpc_stream* gs,
+void SharedHomaClient::set_pollset(grpc_transport* gt, grpc_stream* gs,
         grpc_pollset* pollset)
 {
-    HomaPeer *peer = containerOf(gt, &HomaClient::HomaPeer::transport);
-    HomaClient* hc = peer->hc;
+    HomaPeer *peer = containerOf(gt, &HomaPeer::transport);
+    SharedHomaClient* shc = peer->shc;
     
-    if (hc->gfd) {
-        grpc_pollset_add_fd(pollset, hc->gfd);
+    if (shc->gfd) {
+        grpc_pollset_add_fd(pollset, shc->gfd);
     }
     
 }
@@ -263,14 +263,14 @@ void HomaClient::set_pollset(grpc_transport* gt, grpc_stream* gs,
  * \param pollset_set
  *      Where to add polling information.
  */
-void HomaClient::set_pollset_set(grpc_transport* gt, grpc_stream* gs,
+void SharedHomaClient::set_pollset_set(grpc_transport* gt, grpc_stream* gs,
         grpc_pollset_set* pollset_set)
 {
-    HomaPeer *peer = containerOf(gt, &HomaClient::HomaPeer::transport);
-    HomaClient* hc = peer->hc;
+    HomaPeer *peer = containerOf(gt, &HomaPeer::transport);
+    SharedHomaClient* shc = peer->shc;
     
-    if (hc->gfd) {
-        grpc_pollset_set_add_fd(pollset_set, hc->gfd);
+    if (shc->gfd) {
+        grpc_pollset_set_add_fd(pollset_set, shc->gfd);
     }
     gpr_log(GPR_INFO, "HomaClient::set_pollset_set invoked");
     
@@ -286,7 +286,7 @@ void HomaClient::set_pollset_set(grpc_transport* gt, grpc_stream* gs,
  * \param op
  *      Describes one or more operations to perform on the stream.
  */
-void HomaClient::perform_stream_op(grpc_transport* gt, grpc_stream* gs,
+void SharedHomaClient::perform_stream_op(grpc_transport* gt, grpc_stream* gs,
         grpc_transport_stream_op_batch* op)
 {
     HomaStream *stream = reinterpret_cast<HomaStream*>(gs);
@@ -319,7 +319,7 @@ void HomaClient::perform_stream_op(grpc_transport* gt, grpc_stream* gs,
  * \param op
  *      What to do on the peer.
  */
-void HomaClient::perform_op(grpc_transport* gt, grpc_transport_op* op)
+void SharedHomaClient::perform_op(grpc_transport* gt, grpc_transport_op* op)
 {
     if (op->start_connectivity_watch) {
         gpr_log(GPR_INFO, "HomaClient::perform_op invoked with "
@@ -377,47 +377,45 @@ void HomaClient::perform_op(grpc_transport* gt, grpc_transport_op* op)
  * \param closure
  *      Invoke this once destruction is complete.
  */
-void HomaClient::destroy_stream(grpc_transport* gt, grpc_stream* gs,
+void SharedHomaClient::destroy_stream(grpc_transport* gt, grpc_stream* gs,
         grpc_closure* closure)
 {
-    HomaPeer *peer = containerOf(gt, &HomaClient::HomaPeer::transport);
-    HomaClient *hc = peer->hc;
+    HomaPeer *peer = containerOf(gt, &HomaPeer::transport);
+    SharedHomaClient *shc = peer->shc;
     HomaStream *stream = reinterpret_cast<HomaStream*>(gs);
     
     {
-        grpc_core::MutexLock lock(&hc->mutex);
-        hc->streams.erase(stream->streamId);
+        grpc_core::MutexLock lock(&shc->mutex);
+        shc->streams.erase(stream->streamId);
     }
-    {
-        grpc_core::MutexLock lock(&stream->mutex);
-        stream->~HomaStream();
-    }
+    stream->~HomaStream();
     grpc_core::ExecCtx::Run(DEBUG_LOCATION, closure, GRPC_ERROR_NONE);
 }
 
 /**
- * Destructor for transports (Peers).
+ * Destructor for transports (HomaPeers).
  * \param gt
  *      Transport to destroy.
  */
-void HomaClient::destroy(grpc_transport* gt)
+void SharedHomaClient::destroy(grpc_transport* gt)
 {
-    HomaPeer *peer = containerOf(gt, &HomaClient::HomaPeer::transport);
-    delete peer;
-    {
-        grpc_core::MutexLock lock(&refCountMutex);
-        sharedClient->numPeers--;
-        if (sharedClient->numPeers == 0) {
-            delete sharedClient;
-            sharedClient = nullptr;
-        }
-    }
-    
+    HomaPeer *peer = containerOf(gt, &HomaPeer::transport);
+    HomaClient::DestroyPeer(peer);
 }
 
-grpc_endpoint* HomaClient::get_endpoint(grpc_transport* gt)
+void HomaClient::DestroyPeer(HomaPeer* peer) {
+    grpc_core::MutexLock lock(&refCountMutex);
+    numPeers--;
+    if (numPeers == 0) {
+        delete sharedClient;
+        sharedClient = nullptr;
+    }
+    delete peer;
+}
+
+grpc_endpoint* SharedHomaClient::get_endpoint(grpc_transport* gt)
 {
-    gpr_log(GPR_INFO, "HomaClient::get_endpoint invoked");
+    gpr_log(GPR_INFO, "SharedHomaClient::get_endpoint invoked");
     return nullptr;
 }
 
@@ -430,13 +428,13 @@ grpc_endpoint* HomaClient::get_endpoint(grpc_transport* gt)
  *      Indicates whether the socket has an error condition.
  * 
  */
-void HomaClient::onRead(void* arg, grpc_error* sockError)
+void SharedHomaClient::onRead(void* arg, grpc_error* sockError)
 {
     uint64_t homaId;
-    HomaClient *hc = static_cast<HomaClient*>(arg);
+    SharedHomaClient *hc = static_cast<SharedHomaClient*>(arg);
     
     if (sockError != GRPC_ERROR_NONE) {
-        gpr_log(GPR_ERROR, "HomaClient::onRead invoked with error: %s",
+        gpr_log(GPR_INFO, "HomaClient::onRead invoked with error: %s",
                 grpc_error_string(sockError));
         return;
     }
