@@ -123,6 +123,7 @@ HomaListener::~HomaListener()
 {
     std::lock_guard<std::mutex> guard(shared->mutex);
     shared->ports.erase(transport->port);
+    transport->state_tracker.SetState(GRPC_CHANNEL_SHUTDOWN, absl::OkStatus(), "error");
     if (transport->fd >= 0) {
         grpc_fd_shutdown(transport->gfd,
                 GRPC_ERROR_CREATE_FROM_STATIC_STRING(
@@ -403,7 +404,9 @@ void HomaListener::HomaTransport::perform_stream_op(grpc_transport* gt, grpc_str
     }
 }
 
-HomaListener::HomaTransport::HomaTransport() {}
+HomaListener::HomaTransport::HomaTransport()
+    : state_tracker("homa_transport", GRPC_CHANNEL_READY) {
+    }
 
 /**
  * Implements transport ops on the overall Homa listener.
@@ -418,10 +421,14 @@ void HomaListener::HomaTransport::perform_op(grpc_transport* gt, grpc_transport_
     if (op->start_connectivity_watch) {
         gpr_log(GPR_INFO, "HomaTransport::perform_op invoked with "
                 "start_connectivity_watch");
+        trans->state_tracker.AddWatcher(
+                op->start_connectivity_watch_state,
+                std::move(op->start_connectivity_watch));
     }
     if (op->stop_connectivity_watch) {
         gpr_log(GPR_INFO, "HomaTransport::perform_op invoked with "
                 "stop_connectivity_watch");
+        trans->state_tracker.RemoveWatcher(op->stop_connectivity_watch);
     }
     if (op->disconnect_with_error != GRPC_ERROR_NONE) {
         gpr_log(GPR_INFO, "HomaTransport::perform_op got "

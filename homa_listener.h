@@ -114,6 +114,7 @@ protected:
 
         // Used to call us back when fd is readable.
         grpc_closure read_closure;
+        grpc_core::ConnectivityStateTracker state_tracker;
 
         // Associated gRPC server.
         grpc_core::Server *server_;
