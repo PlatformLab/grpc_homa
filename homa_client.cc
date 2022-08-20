@@ -123,11 +123,11 @@ HomaClient::HomaClient()
     vtable.destroy_stream =      destroy_stream;
     vtable.destroy =             destroy;
     vtable.get_endpoint =        get_endpoint;
-    
+
     fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_HOMA);
-	if (fd < 0) {
+    if (fd < 0) {
         gpr_log(GPR_ERROR, "Couldn't open Homa socket: %s", strerror(errno));
-	} else {
+    } else {
         gfd = grpc_fd_create(fd, "homa-socket", true);
         GRPC_CLOSURE_INIT(&readClosure, onRead, this,
                 grpc_schedule_on_exec_ctx);
@@ -166,22 +166,22 @@ grpc_channel *HomaClient::createChannel(const char* target,
     to_add[0].type = GRPC_ARG_STRING;
     to_add[0].key = (char *) GRPC_ARG_DEFAULT_AUTHORITY;
     to_add[0].value.string = (char *) "homa.authority";
-    
+
     grpc_core::UniquePtr<char> canonical_target =
             grpc_core::ResolverRegistry::AddDefaultPrefixIfNeeded(target);
     to_add[1] = grpc_channel_arg_string_create(
             const_cast<char*>(GRPC_ARG_SERVER_URI), canonical_target.get());
-    
+
     to_add[2] = grpc_core::ClientChannelFactory::CreateChannelArg(&factory);
-    
+
     const char* to_remove[] = {GRPC_ARG_SERVER_URI, to_add[2].key};
     grpc_channel_args* new_args = grpc_channel_args_copy_and_add_and_remove(
             args, to_remove, 2, to_add, 3);
-    
+
     grpc_channel *channel = grpc_channel_create(target, new_args,
             GRPC_CLIENT_CHANNEL, nullptr, nullptr, 0, nullptr);
     grpc_channel_args_destroy(new_args);
-    
+
     return channel;
 }
 
@@ -214,7 +214,7 @@ std::shared_ptr<grpc::Channel> HomaClient::createInsecureChannel(
  * \param arena
  *      Use this for allocating storage for use by the stream (will
  *      be freed when the stream is destroyed).
- * 
+ *
  * \return
  *      Zero means success, nonzero means failure.
  */
@@ -252,7 +252,7 @@ void HomaClient::set_pollset(grpc_transport* gt, grpc_stream* gs,
     if (hc->gfd) {
         grpc_pollset_add_fd(pollset, hc->gfd);
     }
-    
+
 }
 
 /**
@@ -275,7 +275,7 @@ void HomaClient::set_pollset_set(grpc_transport* gt, grpc_stream* gs,
         grpc_pollset_set_add_fd(pollset_set, hc->gfd);
     }
     gpr_log(GPR_INFO, "HomaClient::set_pollset_set invoked");
-    
+
 }
 
 /**
@@ -293,7 +293,7 @@ void HomaClient::perform_stream_op(grpc_transport* gt, grpc_stream* gs,
 {
     HomaStream *stream = reinterpret_cast<HomaStream*>(gs);
     grpc_core::MutexLock lock(&stream->mutex);
-    
+
     if (op->send_initial_metadata || op->send_message
             || op->send_trailing_metadata) {
         stream->xmit(op);
@@ -385,7 +385,7 @@ void HomaClient::destroy_stream(grpc_transport* gt, grpc_stream* gs,
     Peer *peer = containerOf(gt, &HomaClient::Peer::transport);
     HomaClient *hc = peer->hc;
     HomaStream *stream = reinterpret_cast<HomaStream*>(gs);
-    
+
     {
         grpc_core::MutexLock lock(&hc->mutex);
         hc->streams.erase(stream->streamId);
@@ -430,7 +430,7 @@ grpc_endpoint* HomaClient::get_endpoint(grpc_transport* gt)
  *      Pointer to the HomaClient structure associated with the socket.
  * \param sockError
  *      Indicates whether the socket has an error condition.
- * 
+ *
  */
 void HomaClient::onRead(void* arg, grpc_error* sockError)
 {
