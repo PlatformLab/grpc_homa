@@ -24,7 +24,7 @@ public:
     void Orphan() override ;
     void Start(grpc_core::Server* server,
             const std::vector<grpc_pollset*>* pollsets) override;
-    static HomaListener *Get(grpc_server* server, int port);
+    static HomaListener *Get(grpc_server* server, int* port);
     static std::shared_ptr<grpc::ServerCredentials> insecureCredentials(void);
     void SetOnDestroyDone(grpc_closure* on_destroy_done) override;
     grpc_core::channelz::ListenSocketNode* channelz_listen_socket_node()
@@ -46,7 +46,7 @@ public:
          }
     };
 
-    HomaListener(grpc_server* server, int port);
+    HomaListener(grpc_server* server, int* port);
     HomaStream *    getStream(HomaIncoming *msg,
                             std::optional<grpc_core::MutexLock>& streamLock);
     static void     InitShared(void);
