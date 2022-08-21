@@ -136,8 +136,8 @@ protected:
         std::unordered_map<int, HomaListener *> ports;
 
         // Synchronizes access to this structure.
-        std::mutex mutex;
-	//
+        grpc_core::Mutex mutex;
+
 	// @transport refers to this.
 	struct grpc_transport_vtable vtable;
 
