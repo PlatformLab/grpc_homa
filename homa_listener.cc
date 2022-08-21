@@ -124,13 +124,13 @@ HomaListener::~HomaListener()
     grpc_core::MutexLock lock(&shared->mutex);
     shared->ports.erase(transport->port);
     transport->state_tracker.SetState(GRPC_CHANNEL_SHUTDOWN, absl::OkStatus(), "error");
-    if (transport->fd >= 0) {
+    if (transport->gfd) {
         grpc_fd_shutdown(transport->gfd,
                 GRPC_ERROR_CREATE_FROM_STATIC_STRING(
                 "Homa listener destroyed"));
         grpc_fd_orphan(transport->gfd, nullptr, nullptr, "goodbye");
+        grpc_core::ExecCtx::Get()->Flush();
     }
-    grpc_core::ExecCtx::Get()->Flush();
     if (on_destroy_done) {
         grpc_core::ExecCtx::Run(DEBUG_LOCATION, on_destroy_done, GRPC_ERROR_NONE);
         grpc_core::ExecCtx::Get()->Flush();
