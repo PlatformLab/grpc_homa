@@ -564,7 +564,7 @@ messageInserted:
     return;
 
 duplicate:   
-    gpr_log(GPR_INFO, "Dropping duplicate message, stream id %d, sequence %d, "
+    gpr_log(GPR_ERROR, "Dropping duplicate message, stream id %d, sequence %d, "
             "nextIncomingSequence %d, homaId %lu", streamId.id,
             msg->sequence, nextIncomingSequence, homaId);         
 }
