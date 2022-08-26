@@ -433,7 +433,7 @@ grpc_endpoint* SharedHomaClient::get_endpoint(grpc_transport* gt)
 void SharedHomaClient::onRead(void* arg, grpc_error* sockError)
 {
     uint64_t homaId;
-    SharedHomaClient *hc = static_cast<SharedHomaClient*>(arg);
+    SharedHomaClient *shc = static_cast<SharedHomaClient*>(arg);
 
     if (sockError != GRPC_ERROR_NONE) {
         gpr_log(GPR_INFO, "HomaClient::onRead invoked with error: %s",
@@ -442,15 +442,16 @@ void SharedHomaClient::onRead(void* arg, grpc_error* sockError)
     }
     while (true) {
         grpc_error_handle error;
-        HomaIncoming::UniquePtr msg = HomaIncoming::read(hc->fd,
+        HomaStream *stream = nullptr;
+        HomaIncoming::UniquePtr msg = HomaIncoming::read(shc->fd,
                 HOMA_RECV_RESPONSE|HOMA_RECV_REQUEST|HOMA_RECV_NONBLOCKING,
                 &homaId, &error);
         if (error != GRPC_ERROR_NONE) {
             if (homaId != 0) {
                 // An outgoing RPC failed. Find the stream for it and record
                 // the error on that stream.
-                grpc_core::MutexLock lock(&hc->mutex);
-                for (std::pair<const StreamId, HomaStream *> p: hc->streams) {
+                grpc_core::MutexLock lock(&shc->mutex);
+                for (std::pair<const StreamId, HomaStream *> p: shc->streams) {
                     HomaStream *stream = p.second;
                     if (stream->sentHomaId == homaId) {
                         stream->notifyError(GRPC_ERROR_REF(error));
@@ -466,11 +467,10 @@ void SharedHomaClient::onRead(void* arg, grpc_error* sockError)
             break;
         }
 
-        HomaStream *stream;
         std::optional<grpc_core::MutexLock> streamLock;
         try {
-            grpc_core::MutexLock lock(&hc->mutex);
-            stream = hc->streams.at(msg->getStreamId());
+            grpc_core::MutexLock lock(&shc->mutex);
+            stream = shc->streams.at(msg->getStreamId());
             streamLock.emplace(&stream->mutex);
         } catch (std::out_of_range& e) {
             gpr_log(GPR_ERROR, "Ignoring message for unknown RPC, stream id %d",
@@ -479,5 +479,5 @@ void SharedHomaClient::onRead(void* arg, grpc_error* sockError)
         }
         stream->handleIncoming(std::move(msg), homaId);
     }
-    grpc_fd_notify_on_read(hc->gfd, &hc->readClosure);
+    grpc_fd_notify_on_read(shc->gfd, &shc->readClosure);
 }
