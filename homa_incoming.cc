@@ -146,7 +146,7 @@ void HomaIncoming::destroyer(void *arg)
  *      *homaId is nonzero, it means that that particular RPC failed.
  */
 HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags,
-        uint64_t *homaId, grpc_error_handle *error)
+        uint64_t *homaId, grpc_error_handle *error, uint64_t* cookie)
 {
     UniquePtr msg(new HomaIncoming);
     ssize_t result;
@@ -162,7 +162,7 @@ HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags,
         result = homa_recv(fd, &msg->initialPayload,
                 sizeof(msg->initialPayload),
                 flags | HOMA_RECV_PARTIAL, msg->streamId.sockaddr(),
-                &msg->streamId.addrSize, homaId, &msg->length);
+                &msg->streamId.addrSize, homaId, &msg->length, cookie);
         if (result < 0) {
             if (errno == EAGAIN) {
                 return nullptr;
@@ -213,7 +213,7 @@ HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags,
         msg->tail.resize(msg->length - msg->baseLength);
         ssize_t tail_length = homa_recv(fd, msg->tail.data(),
                 msg->length - msg->baseLength, flags, msg->streamId.sockaddr(),
-                &msg->streamId.addrSize, homaId, nullptr);
+                &msg->streamId.addrSize, homaId, nullptr, cookie);
         if (tail_length < 0) {
             gpr_log(GPR_ERROR, "Error in homa_recv for tail of id %lu: %s",
                     *homaId, strerror(errno));

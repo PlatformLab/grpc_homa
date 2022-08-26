@@ -103,7 +103,8 @@ void HomaStream::flush()
         hdr()->flags |= Wire::Header::request;
         status = homa_sendv(fd, vecs.data(), vecs.size(),
                 reinterpret_cast<struct sockaddr *>(streamId.addr),
-                streamId.addrSize, &sentHomaId);
+                streamId.addrSize, &sentHomaId,
+                reinterpret_cast<int64_t>(this));
         gpr_log(GPR_INFO, "Sent Homa request to host 0x%x, port %d for "
                 "stream id %d, "
                 "sequence %d with homaId %lu, %d initial metadata bytes, "

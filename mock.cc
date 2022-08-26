@@ -283,7 +283,7 @@ Mock::substr(const std::string& s, const std::string& substring)
 
 ssize_t homa_recv(int sockfd, void *buf, size_t len, int flags,
         struct sockaddr *srcAddr, size_t *addrlen, uint64_t *id,
-        size_t *msglen)
+        size_t *msglen, int64_t completion_cookie)
 {
     Wire::Header *h = static_cast<Wire::Header *>(buf);
     if (Mock::checkError(&Mock::homaRecvErrors)) {

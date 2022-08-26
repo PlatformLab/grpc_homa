@@ -41,7 +41,7 @@ public:
                             grpc_core::Arena *arena);
     
     static UniquePtr  read(int fd, int flags, uint64_t *homaId,
-                            grpc_error_handle *error);
+                            grpc_error_handle *error, uint64_t* cookie);
     
     /**
      * Make a range of bytes from a message addressable in a contiguous

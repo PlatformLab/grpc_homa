@@ -110,15 +110,8 @@ protected:
     // HomaPeer objects associated with this HomaClient.
     struct grpc_transport_vtable vtable;
     
-    // Holds all streams with outstanding requests.
-    std::unordered_map<StreamId, HomaStream*, StreamId::Hasher> streams;
-    
     // Id to use for the next outgoing RPC.
-    int nextId;
-    
-    // Must be held when accessing @streams or @nextId. Must not be
-    // acquired while holding a stream lock.
-    grpc_core::Mutex mutex;
+    std::atomic<int> nextId;
     
     // File descriptor for Homa socket; used for all outgoing RPCs.
     // < 0 means socket isn't currently open.

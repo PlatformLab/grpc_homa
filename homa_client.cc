@@ -105,9 +105,7 @@ void HomaClient::Connector::Shutdown(grpc_error_handle error)
  */
 HomaClient::HomaClient()
     : vtable()
-    , streams()
     , nextId(1)
-    , mutex()
     , fd(-1)
     , gfd(nullptr)
     , readClosure()
@@ -225,11 +223,9 @@ int HomaClient::init_stream(grpc_transport* gt, grpc_stream* gs,
     Peer *peer = containerOf(gt, &HomaClient::Peer::transport);
     HomaClient* hc = peer->hc;
     HomaStream *stream = reinterpret_cast<HomaStream *>(gs);
-    grpc_core::MutexLock lock(&hc->mutex);
-    uint32_t id = hc->nextId;
-    hc->nextId++;
+    uint32_t id = atomic_fetch_add_explicit(
+        &hc->nextId, 1, std::memory_order_relaxed);
     new (stream) HomaStream(StreamId(&peer->addr, id), hc->fd, refcount, arena);
-    hc->streams.emplace(stream->streamId, stream);
     return 0;
 }
 
@@ -382,14 +378,8 @@ void HomaClient::perform_op(grpc_transport* gt, grpc_transport_op* op)
 void HomaClient::destroy_stream(grpc_transport* gt, grpc_stream* gs,
         grpc_closure* closure)
 {
-    Peer *peer = containerOf(gt, &HomaClient::Peer::transport);
-    HomaClient *hc = peer->hc;
     HomaStream *stream = reinterpret_cast<HomaStream*>(gs);
 
-    {
-        grpc_core::MutexLock lock(&hc->mutex);
-        hc->streams.erase(stream->streamId);
-    }
     {
         grpc_core::MutexLock lock(&stream->mutex);
         stream->~HomaStream();
@@ -443,22 +433,16 @@ void HomaClient::onRead(void* arg, grpc_error* sockError)
         return;
     }
     while (true) {
+        HomaStream *stream;
         grpc_error_handle error;
         HomaIncoming::UniquePtr msg = HomaIncoming::read(hc->fd,
                 HOMA_RECV_RESPONSE|HOMA_RECV_REQUEST|HOMA_RECV_NONBLOCKING,
-                &homaId, &error);
+                &homaId, &error, (uint64_t*)&stream);
         if (error != GRPC_ERROR_NONE) {
             if (homaId != 0) {
                 // An outgoing RPC failed. Find the stream for it and record
                 // the error on that stream.
-                grpc_core::MutexLock lock(&hc->mutex);
-                for (std::pair<const StreamId, HomaStream *> p: hc->streams) {
-                    HomaStream *stream = p.second;
-                    if (stream->sentHomaId == homaId) {
-                        stream->notifyError(GRPC_ERROR_REF(error));
-                        break;
-                    }
-                }
+                stream->notifyError(GRPC_ERROR_REF(error));
                 GRPC_ERROR_UNREF(error);
                 continue;
             }
@@ -468,17 +452,7 @@ void HomaClient::onRead(void* arg, grpc_error* sockError)
             break;
         }
 
-        HomaStream *stream;
-        std::optional<grpc_core::MutexLock> streamLock;
-        try {
-            grpc_core::MutexLock lock(&hc->mutex);
-            stream = hc->streams.at(msg->getStreamId());
-            streamLock.emplace(&stream->mutex);
-        } catch (std::out_of_range& e) {
-            gpr_log(GPR_ERROR, "Ignoring message for unknown RPC, stream id %d",
-                    msg->getStreamId().id);
-            continue;
-        }
+        grpc_core::MutexLock lock(&stream->mutex);
         stream->handleIncoming(std::move(msg), homaId);
     }
     grpc_fd_notify_on_read(hc->gfd, &hc->readClosure);

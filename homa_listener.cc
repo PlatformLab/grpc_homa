@@ -359,7 +359,7 @@ void HomaListener::Transport::onRead(void* arg, grpc_error* error)
         grpc_error_handle error;
         HomaIncoming::UniquePtr msg = HomaIncoming::read(trans->fd,
                 HOMA_RECV_REQUEST|HOMA_RECV_RESPONSE|HOMA_RECV_NONBLOCKING,
-                &homaId, &error);
+                &homaId, &error, nullptr);
         if ((error != GRPC_ERROR_NONE) || !msg) {
             break;
         }
