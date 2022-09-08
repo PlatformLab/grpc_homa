@@ -96,7 +96,7 @@ HomaListener::HomaListener(grpc_server* server, int *port_p)
     transport->base.vtable = &shared->vtable;
     GRPC_CLOSURE_INIT(&transport->read_closure, transport->onRead, transport,
             grpc_schedule_on_exec_ctx);
-    transport->fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_HOMA);
+    transport->fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_HOMA);
     if (transport->fd < 0) {
         gpr_log(GPR_ERROR, "Couldn't open Homa socket: %s\n", strerror(errno));
         *port_p = 0;
