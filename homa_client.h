@@ -26,7 +26,7 @@ public:
             const char* target);
     
 protected:
-    HomaClient();
+    HomaClient(bool ipv6);
     ~HomaClient();
     static void init();
     static grpc_channel *createChannel(const char* target,

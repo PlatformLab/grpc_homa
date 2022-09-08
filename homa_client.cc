@@ -57,7 +57,8 @@ HomaClient::SubchannelFactory::CreateSubchannel(
  * \param notify
  *      Closure to invoke once the connection has been established.
  */
-void HomaClient::Connector::Connect(const HomaClient::Connector::Args& args,
+void HomaClient::Connector::Connect(
+        const grpc_core::SubchannelConnector::Args& args,
         HomaClient::Connector::Result* result, grpc_closure* notify)
 {
     // Homa doesn't use connections, so there isn't much to do here.
@@ -65,7 +66,8 @@ void HomaClient::Connector::Connect(const HomaClient::Connector::Args& args,
     {
         grpc_core::MutexLock lock(&refCountMutex);
         if (sharedClient == nullptr) {
-            sharedClient = new HomaClient();
+            sharedClient = new HomaClient(
+                    args.address->len == sizeof(struct sockaddr_in6));
             Wire::init();
         }
         sharedClient->numPeers++;
@@ -103,7 +105,7 @@ void HomaClient::Connector::Shutdown(grpc_error_handle error)
  * \param port
  *      The Homa port number that this object will manage.
  */
-HomaClient::HomaClient()
+HomaClient::HomaClient(bool ipv6)
     : vtable()
     , nextId(1)
     , fd(-1)
@@ -122,7 +124,8 @@ HomaClient::HomaClient()
     vtable.destroy =             destroy;
     vtable.get_endpoint =        get_endpoint;
 
-    fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_HOMA);
+    fd = socket(
+        ipv6 ? AF_INET6 : AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_HOMA);
     if (fd < 0) {
         gpr_log(GPR_ERROR, "Couldn't open Homa socket: %s", strerror(errno));
     } else {
@@ -437,7 +440,7 @@ void HomaClient::onRead(void* arg, grpc_error* sockError)
         grpc_error_handle error;
         HomaIncoming::UniquePtr msg = HomaIncoming::read(hc->fd,
                 HOMA_RECV_RESPONSE|HOMA_RECV_REQUEST|HOMA_RECV_NONBLOCKING,
-                &homaId, &error, (uint64_t*)&stream);
+                &homaId, &error, reinterpret_cast<uint64_t*>(&stream));
         if (error != GRPC_ERROR_NONE) {
             if (homaId != 0) {
                 // An outgoing RPC failed. Find the stream for it and record

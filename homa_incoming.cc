@@ -129,7 +129,7 @@ void HomaIncoming::destroyer(void *arg)
  * \param fd
  *      File descriptor of Homa socket from which to read the message
  * \param flags
- *      Flags to pass to homa_recv, such as HOMA_RECV_RESPONSE.
+ *      Flags to pass to homa_recv_helper, such as HOMA_RECV_RESPONSE.
  * \param homaId
  *      Homa's id for the received message is stored here. This is
  *      needed to provide that info to callers in cases where nullptr
@@ -157,19 +157,18 @@ HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags,
     // The following loop executes multiple times if it receives (and
     // discards) streaming responses.
     while (true) {
-        msg->streamId.addrSize = sizeof(streamId.addr);
         *homaId = 0;
-        result = homa_recv(fd, &msg->initialPayload,
+        result = homa_recv_helper(fd, &msg->initialPayload,
                 sizeof(msg->initialPayload),
-                flags | HOMA_RECV_PARTIAL, msg->streamId.sockaddr(),
-                &msg->streamId.addrSize, homaId, &msg->length, cookie);
+                flags | HOMA_RECV_PARTIAL, &msg->streamId.addr,
+                homaId, &msg->length, cookie);
         if (result < 0) {
             if (errno == EAGAIN) {
                 return nullptr;
             }
-            gpr_log(GPR_DEBUG, "Error in homa_recv (homaId %lu): %s",
+            gpr_log(GPR_DEBUG, "Error in homa_recv_helper (homaId %lu): %s",
                     *homaId, strerror(errno));
-            *error = GRPC_OS_ERROR(errno, "homa_recv");
+            *error = GRPC_OS_ERROR(errno, "homa_recv_helper");
             return nullptr;
         }
         if (!(msg->hdr()->flags & Wire::Header::emptyResponse)) {
@@ -211,13 +210,13 @@ HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags,
     if (msg->length > msg->baseLength) {
         // Must read the tail of the message.
         msg->tail.resize(msg->length - msg->baseLength);
-        ssize_t tail_length = homa_recv(fd, msg->tail.data(),
-                msg->length - msg->baseLength, flags, msg->streamId.sockaddr(),
-                &msg->streamId.addrSize, homaId, nullptr, cookie);
+        ssize_t tail_length = homa_recv_helper(fd, msg->tail.data(),
+                msg->length - msg->baseLength, flags,
+                &msg->streamId.addr, homaId, nullptr, cookie);
         if (tail_length < 0) {
-            gpr_log(GPR_ERROR, "Error in homa_recv for tail of id %lu: %s",
+            gpr_log(GPR_ERROR, "Error in homa_recv_helper for tail of id %lu: %s",
                     *homaId, strerror(errno));
-            *error = GRPC_OS_ERROR(errno, "homa_recv");
+            *error = GRPC_OS_ERROR(errno, "homa_recv_helper");
             return nullptr;
         }
         if ((msg->baseLength + tail_length) != msg->length) {
@@ -229,10 +228,10 @@ HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags,
             return nullptr;
         }
     }
-    gpr_log(GPR_INFO, "Received Homa message from host 0x%x, port %d with "
+    gpr_log(GPR_INFO, "Received Homa message from host %s, port %d with "
             "homaId %lu, stream id %d, sequence %d, %u initMd bytes, "
             "%u message bytes, %u trailMd bytes, flags 0x%x",
-            msg->streamId.ipv4Addr(), msg->streamId.port(), *homaId,
+            msg->streamId.IpToString().c_str(), msg->streamId.port(), *homaId,
             msg->streamId.id, msg->sequence, msg->initMdLength,
             msg->messageLength, msg->trailMdLength, msg->hdr()->flags);
     TimeTrace::record(startTime, "HomaIncoming::read starting");

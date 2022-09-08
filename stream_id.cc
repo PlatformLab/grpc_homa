@@ -1,3 +1,5 @@
+#include <arpa/inet.h>
+
 #include "stream_id.h"
 
 /**
@@ -9,14 +11,11 @@
  */
 StreamId::StreamId(grpc_resolved_address *gaddr, uint32_t id)
     : addr()
-    , addrSize(gaddr->len)
     , id(id)
 {
-    // Homa currently understands only ipv4 addresses.
-    GPR_ASSERT(reinterpret_cast<struct sockaddr*>(gaddr)->sa_family == AF_INET);
-    GPR_ASSERT(addrSize <= sizeof(addr));
-    
-    memcpy(addr, gaddr->addr, addrSize);
+    GPR_ASSERT(gaddr->len <= sizeof(addr));
+    memset(reinterpret_cast<void*>(&addr.in6), 0, sizeof(addr.in6));
+    memcpy(reinterpret_cast<void*>(&addr.in6), gaddr->addr, gaddr->len);
 }
 
 /**
@@ -26,26 +25,22 @@ StreamId::StreamId(grpc_resolved_address *gaddr, uint32_t id)
  */
 StreamId::StreamId(uint32_t id)
     : addr()
-    , addrSize()
     , id(id)
 {
-    inaddr()->sin_family = AF_INET;
-    inaddr()->sin_addr.s_addr = 0x01020304;
-    inaddr()->sin_port = htons(40);
-    addrSize = sizeof(struct sockaddr_in);
+    addr.in6.sin6_family = AF_UNSPEC;
+    addr.in6.sin6_addr = in6addr_any;
+    addr.in6.sin6_port = htons(40);
 }
 
 StreamId::StreamId(const StreamId &other)
 {
-    addrSize = other.addrSize;
-    memcpy(addr, other.addr, addrSize);
+    addr.in6 = other.addr.in6;
     id = other.id;
 }
 
 StreamId& StreamId::operator=(const StreamId &other)
 {
-    addrSize = other.addrSize;
-    memcpy(addr, other.addr, addrSize);
+    addr.in6 = other.addr.in6;
     id = other.id;
     return *this;
 }
@@ -59,6 +54,30 @@ StreamId& StreamId::operator=(const StreamId &other)
  */
 bool StreamId::operator==(const StreamId& other) const
 {
-    return (id == other.id) && (addrSize == other.addrSize)
-            && (bcmp(addr, other.addr, addrSize) == 0);
+    if (addr.in6.sin6_family == AF_INET6) {
+        return (id == other.id) &&
+            (bcmp(reinterpret_cast<const void*>(&addr.in6),
+                  reinterpret_cast<const void*>(&other.addr.in6),
+                  sizeof(struct sockaddr_in6)) == 0);
+    } else {
+        return (id == other.id) &&
+            (bcmp(reinterpret_cast<const void*>(&addr.in4),
+                  reinterpret_cast<const void*>(&other.addr.in4),
+                  sizeof(struct sockaddr_in)) == 0);
+    }
+}
+
+std::string StreamId::IpToString() {
+    char buf[128] = {};
+    if (addr.in6.sin6_family == AF_INET6) {
+        if (inet_ntop(AF_INET6, &addr.in6.sin6_addr, buf, sizeof(buf))) {
+            return buf;
+        }
+    }
+    if (addr.in4.sin_family == AF_INET) {
+        if (inet_ntop(AF_INET, &addr.in4.sin_addr, buf, sizeof(buf))) {
+            return buf;
+        }
+    }
+    return "invalid address";
 }

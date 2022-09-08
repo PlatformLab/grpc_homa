@@ -101,30 +101,27 @@ void HomaStream::flush()
     // request. This makes the most efficient use of Homa messages.
     if (isRequest) {
         hdr()->flags |= Wire::Header::request;
-        status = homa_sendv(fd, vecs.data(), vecs.size(),
-                reinterpret_cast<struct sockaddr *>(streamId.addr),
-                streamId.addrSize, &sentHomaId,
-                reinterpret_cast<int64_t>(this));
-        gpr_log(GPR_INFO, "Sent Homa request to host 0x%x, port %d for "
+        status = homa_sendv_helper(fd, vecs.data(), vecs.size(),
+                &streamId.addr, &sentHomaId, reinterpret_cast<uint64_t>(this));
+        gpr_log(GPR_INFO, "Sent Homa request to host %s, port %d for "
                 "stream id %d, "
                 "sequence %d with homaId %lu, %d initial metadata bytes, "
                 "%d payload bytes, %d trailing metadata bytes",
-                streamId.ipv4Addr(), streamId.port(), streamId.id,
+                streamId.IpToString().c_str(), streamId.port(), streamId.id,
                 ntohl(hdr()->sequenceNum), sentHomaId,
                 ntohl(hdr()->initMdBytes), ntohl(hdr()->messageBytes),
                 ntohl(hdr()->trailMdBytes));
     } else {
-        gpr_log(GPR_INFO, "Sending Homa response to host 0x%x, port %d "
+        gpr_log(GPR_INFO, "Sending Homa response to host %s, port %d "
                 "for stream id %d, "
                 "sequence %d with homaId %lu, %d initial metadata bytes, "
                 "%d payload bytes, %d trailing metadata bytes",
-                streamId.ipv4Addr(), streamId.port(), streamId.id,
+                streamId.IpToString().c_str(), streamId.port(), streamId.id,
                 ntohl(hdr()->sequenceNum), homaRequestId,
                 ntohl(hdr()->initMdBytes), ntohl(hdr()->messageBytes),
                 ntohl(hdr()->trailMdBytes));
-        status = homa_replyv(fd, vecs.data(), vecs.size(),
-                reinterpret_cast<struct sockaddr *>(streamId.addr),
-                streamId.addrSize, homaRequestId);
+        status = homa_replyv_helper(fd, vecs.data(), vecs.size(),
+                &streamId.addr, homaRequestId);
         homaRequestId = 0;
     }
     if (status < 0) {
@@ -385,8 +382,8 @@ void HomaStream::sendDummyResponse()
     response.flags |= Wire::Header::emptyResponse;
     gpr_log(GPR_INFO, "Sending dummy response for homaId %lu, stream id %d",
             homaRequestId, streamId.id);
-    if (homa_reply(fd, &response, sizeof(response), streamId.sockaddr(),
-            streamId.addrSize, homaRequestId) < 0) {
+    if (homa_reply_helper(fd, &response, sizeof(response), &streamId.addr,
+            homaRequestId) < 0) {
         gpr_log(GPR_ERROR, "Couldn't send dummy Homa response: %s",
                 strerror(errno));
     }
