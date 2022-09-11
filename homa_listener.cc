@@ -12,10 +12,12 @@ gpr_once HomaListener::shared_once = GPR_ONCE_INIT;
  * Adds a Homa listening port to a server.
  * \param addr
  *      Has the syntax "homa:<port>"; indicates the port on which to listen.
+ *      Also accepts "addr:port" for IPv4, but the IP address is ignored.
+ *      Also accepts "[addr]:port" for IPv6, but the IP address is ignored.
  * \param server
  *      Add the listening port to this server.
  * \return
- *      Returns nonzero on success, zero on failure.
+ *      Returns the port number on success, zero on failure.
  */
 int HomaListener::InsecureCredentials::AddPortToServer(const std::string& addr,
         grpc_server* server)
@@ -23,15 +25,28 @@ int HomaListener::InsecureCredentials::AddPortToServer(const std::string& addr,
     int port;
     char* end;
     
-    if (strncmp("homa:", addr.c_str(), 5) != 0) {
-        gpr_log(GPR_ERROR, "bad Homa port specifier '%s', must be 'homa:port'",
+    const char* cursor = addr.c_str();
+    if (*cursor == '[') {
+        cursor = strchr(cursor, ']');
+    }
+    if (cursor != nullptr) {
+        cursor = strchr(cursor, ':');
+    }
+    if (cursor == nullptr) {
+        gpr_log(GPR_ERROR, "bad Homa listener spec '%s', must be 'homa|IP:port'",
                 addr.c_str());
         return 0;
     };
-    port = strtol(addr.c_str()+5, &end, 0);
+    port = strtol(cursor+1, &end, 10);
     if ((*end != '\0') || (port <= 0)) {
-        gpr_log(GPR_ERROR, "bad Homa port number '%s', must be between 1 and %d",
-                addr.c_str()+5, HOMA_MIN_DEFAULT_PORT-1);
+        gpr_log(GPR_ERROR,
+                "bad Homa listener spec '%s', must be between 1 and %d, "
+                "in decimal", addr.c_str(), HOMA_MIN_DEFAULT_PORT-1);
+        return 0;
+    }
+    if (end == cursor+1) {
+        gpr_log(GPR_ERROR, "bad Homa listener spec '%s' (no port number)",
+                addr.c_str());
         return 0;
     }
     HomaListener *listener = HomaListener::Get(server, port);
@@ -39,7 +54,7 @@ int HomaListener::InsecureCredentials::AddPortToServer(const std::string& addr,
         server->core_server->AddListener(grpc_core::OrphanablePtr
                 <grpc_core::Server::ListenerInterface>(listener));
     }
-    return 1;
+    return port;
 }
 
 /**
