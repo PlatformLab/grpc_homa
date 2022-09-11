@@ -234,7 +234,7 @@ public class HomaServerStream implements ServerStream {
 
     @Override
     public int streamId() {
-        System.out.printf("HomaServerStream.statsTraceContext invoked\n");
+        System.out.printf("HomaServerStream.streamId invoked\n");
         return 0;
     }
 

@@ -96,7 +96,8 @@ public class HomaClient {
                 while (true) {
                     HomaIncoming msg = new HomaIncoming();
                     HomaClientStream stream;
-                    String err = msg.read(client.homa, HomaSocket.flagReceiveResponse);
+                    String err = msg.read(client.homa,
+                            HomaSocket.flagReceiveResponse);
                     if (err != null) {
                         client.logger.log(ChannelLogLevel.ERROR, err);
                         continue;
