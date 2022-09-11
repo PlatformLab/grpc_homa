@@ -147,15 +147,21 @@ void Mock::logData(const char *separator, void *data, int length)
  */
 void Mock::logMetadata(const char *separator, const grpc_metadata_batch *batch)
 {
-    for (grpc_linked_mdelem* md = batch->list.head; md != nullptr;
-            md = md->next) {
-        const grpc_slice& key = GRPC_MDKEY(md->md);
-        const grpc_slice& value = GRPC_MDVALUE(md->md);
-        logPrintf(separator, "metadata %.*s: %.*s (%d)",
-                GRPC_SLICE_LENGTH(key), GRPC_SLICE_START_PTR(key),
-                GRPC_SLICE_LENGTH(value), GRPC_SLICE_START_PTR(value),
-                GRPC_BATCH_INDEX_OF(key));
-    }
+    batch->ForEach([&separator](grpc_mdelem& md) {
+        const grpc_slice& key = GRPC_MDKEY(md);
+        const grpc_slice& value = GRPC_MDVALUE(md);
+        int index = GRPC_BATCH_INDEX_OF(key);
+        if (index != GRPC_BATCH_CALLOUTS_COUNT) {
+            logPrintf(separator, "metadata %.*s: %.*s (%d)",
+                    GRPC_SLICE_LENGTH(key), GRPC_SLICE_START_PTR(key),
+                    GRPC_SLICE_LENGTH(value), GRPC_SLICE_START_PTR(value),
+                    index);
+        } else {
+            logPrintf(separator, "metadata %.*s: %.*s",
+                    GRPC_SLICE_LENGTH(key), GRPC_SLICE_START_PTR(key),
+                    GRPC_SLICE_LENGTH(value), GRPC_SLICE_START_PTR(value));
+        }
+    });
 }
 
 /**

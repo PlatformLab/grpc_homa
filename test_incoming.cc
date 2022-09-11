@@ -216,16 +216,15 @@ TEST_F(TestIncoming, deserializeMetadata_basics) {
             "name1", "value1",
             "name2", "value2",
             "n3", "abcdefghijklmnop", nullptr);
-    grpc_metadata_batch batch;
-    grpc_metadata_batch_init(&batch);
+    grpc_metadata_batch batch(arena);
     msg->deserializeMetadata(75, length, &batch, arena);
     Mock::logMetadata("; ", &batch);
-    EXPECT_STREQ("metadata name1: value1 (24); "
-            "metadata name2: value2 (24); "
-            "metadata n3: abcdefghijklmnop (24)", Mock::log.c_str());
+    EXPECT_STREQ("metadata name1: value1; "
+            "metadata name2: value2; "
+            "metadata n3: abcdefghijklmnop", Mock::log.c_str());
     msg.reset(nullptr);
     EXPECT_EQ(1, destroyCounter);
-    grpc_metadata_batch_destroy(&batch);
+    batch.Clear();
     arena->Destroy();
 }
 TEST_F(TestIncoming, deserializeMetadata_metadataOverrunsSpace) {
@@ -238,13 +237,12 @@ TEST_F(TestIncoming, deserializeMetadata_metadataOverrunsSpace) {
             "name1", "value1",
             "name2", "value2",
             "n3", "abcdefghijklmnop", nullptr);
-    grpc_metadata_batch batch;
-    grpc_metadata_batch_init(&batch);
+    grpc_metadata_batch batch(arena);
     msg->deserializeMetadata(75, length-1, &batch, arena);
     EXPECT_STREQ("gpr_log: Metadata format error: key (2 bytes) and "
             "value (16 bytes) exceed remaining space (17 bytes)",
             Mock::log.c_str());
-    grpc_metadata_batch_destroy(&batch);
+    batch.Clear();
     arena->Destroy();
 }
 TEST_F(TestIncoming, deserializeMetadata_useCallout) {
@@ -256,13 +254,12 @@ TEST_F(TestIncoming, deserializeMetadata_useCallout) {
     size_t length = msg->addMetadata(75, 1000,
             ":path", "value1",
             "name2", "value2", nullptr);
-    grpc_metadata_batch batch;
-    grpc_metadata_batch_init(&batch);
+    grpc_metadata_batch batch(arena);
     msg->deserializeMetadata(75, length, &batch, arena);
     Mock::logMetadata("; ", &batch);
-    EXPECT_STREQ("metadata :path: value1 (0); metadata name2: value2 (24)",
+    EXPECT_STREQ("metadata :path: value1 (0); metadata name2: value2",
             Mock::log.c_str());
-    grpc_metadata_batch_destroy(&batch);
+    batch.Clear();
     arena->Destroy();
 }
 TEST_F(TestIncoming, deserializeMetadata_valueMustBeManaged) {
@@ -276,17 +273,16 @@ TEST_F(TestIncoming, deserializeMetadata_valueMustBeManaged) {
     size_t length = msg->addMetadata(75, 1000,
             "name1", "value1",
             "name2", "0123456789abcdefghij", nullptr);
-    grpc_metadata_batch batch;
-    grpc_metadata_batch_init(&batch);
+    grpc_metadata_batch batch(arena);
     msg->maxStaticMdLength = 10;
     msg->deserializeMetadata(75, length, &batch, arena);
     Mock::logMetadata("; ", &batch);
-    EXPECT_STREQ("metadata name1: value1 (24); "
-            "metadata name2: 0123456789abcdefghij (24)",
+    EXPECT_STREQ("metadata name1: value1; "
+            "metadata name2: 0123456789abcdefghij",
             Mock::log.c_str());
     msg.reset(nullptr);
     EXPECT_EQ(0, destroyCounter);
-    grpc_metadata_batch_destroy(&batch);
+    batch.Clear();
     EXPECT_EQ(1, destroyCounter);
     arena->Destroy();
 }
@@ -300,11 +296,10 @@ TEST_F(TestIncoming, deserializeMetadata_incompleteHeader) {
             "name1", "value1",
             "name2", "value2",
             "n3", "abcdefghijklmnop", nullptr);
-    grpc_metadata_batch batch;
-    grpc_metadata_batch_init(&batch);
+    grpc_metadata_batch batch(arena);
     msg->deserializeMetadata(75, length+3, &batch, arena);
     EXPECT_SUBSTR("only 3 bytes available", Mock::log.c_str());
-    grpc_metadata_batch_destroy(&batch);
+    batch.Clear();
     arena->Destroy();
 }
 

@@ -43,8 +43,8 @@ public:
         , stream(streamId, 3, &refcount, arena)
         , closure1()
         , closure2()
-        , batch()
-        , batch2()
+        , batch(arena)
+        , batch2(arena)
         , op()
         , payload(nullptr)
     {
@@ -53,15 +53,13 @@ public:
                 reinterpret_cast<void *>(123), dummy);
         GRPC_CLOSURE_INIT(&closure2, closureFunc2,
                 reinterpret_cast<void *>(456), dummy);
-        grpc_metadata_batch_init(&batch);
-        grpc_metadata_batch_init(&batch2);
         op.payload = &payload;
     }
     
     ~TestStream()
     {
-        grpc_metadata_batch_destroy(&batch);
-        grpc_metadata_batch_destroy(&batch2);
+        batch.Clear();
+        batch2.Clear();
         arena->Destroy();
     }
 };
@@ -159,7 +157,7 @@ TEST_F(TestStream, saveCallbacks_transferData) {
     EXPECT_STREQ("closure1 invoked with 123", Mock::log.c_str());
     Mock::log.clear();
     Mock::logMetadata("; ", &batch);
-    EXPECT_STREQ("metadata initMd1: value1 (24); metadata :path: /x/y (0)",
+    EXPECT_STREQ("metadata initMd1: value1; metadata :path: /x/y (0)",
             Mock::log.c_str());
     EXPECT_EQ(nullptr, stream.initMdClosure);
     EXPECT_EQ(0U, stream.incoming.size());
@@ -554,7 +552,7 @@ TEST_F(TestStream, transferData_initialMetadata) {
     EXPECT_STREQ("closure1 invoked with 123", Mock::log.c_str());
     Mock::log.clear();
     Mock::logMetadata("; ", &batch);
-    EXPECT_STREQ("metadata initMd1: value1 (24); metadata :path: /x/y (0)",
+    EXPECT_STREQ("metadata initMd1: value1; metadata :path: /x/y (0)",
             Mock::log.c_str());
     EXPECT_EQ(nullptr, stream.initMdClosure);
     EXPECT_EQ(0U, stream.incoming.size());
@@ -573,7 +571,7 @@ TEST_F(TestStream, transferData_initialMetadataSetTrailMdAvail) {
     EXPECT_STREQ("closure1 invoked with 123", Mock::log.c_str());
     Mock::log.clear();
     Mock::logMetadata("; ", &batch);
-    EXPECT_STREQ("metadata initMd1: value1 (24); metadata :path: /x/y (0)",
+    EXPECT_STREQ("metadata initMd1: value1; metadata :path: /x/y (0)",
             Mock::log.c_str());
     EXPECT_EQ(nullptr, stream.initMdClosure);
     EXPECT_EQ(1U, stream.incoming.size());
@@ -633,7 +631,7 @@ TEST_F(TestStream, transferData_trailingMetadata) {
     EXPECT_STREQ("closure1 invoked with 123", Mock::log.c_str());
     Mock::log.clear();
     Mock::logMetadata("; ", &batch);
-    EXPECT_STREQ("metadata k2: 0123456789 (24)", Mock::log.c_str());
+    EXPECT_STREQ("metadata k2: 0123456789", Mock::log.c_str());
     EXPECT_EQ(0U, stream.incoming.size());
     EXPECT_TRUE(stream.eof);
 }
@@ -653,11 +651,11 @@ TEST_F(TestStream, transferData_multipleMessages) {
             Mock::log.c_str());
     Mock::log.clear();
     Mock::logMetadata("; ", &batch);
-    EXPECT_STREQ("metadata initMd1: value1 (24); metadata :path: /x/y (0)",
+    EXPECT_STREQ("metadata initMd1: value1; metadata :path: /x/y (0)",
             Mock::log.c_str());
     Mock::log.clear();
     Mock::logMetadata("; ", &batch2);
-    EXPECT_STREQ("metadata k2: 0123456789 (24)", Mock::log.c_str());
+    EXPECT_STREQ("metadata k2: 0123456789", Mock::log.c_str());
     EXPECT_EQ(0U, stream.incoming.size());
 }
 TEST_F(TestStream, transferData_useEof) {
@@ -740,7 +738,7 @@ TEST_F(TestStream, handleIncoming_basics) {
     
     Mock::log.clear();
     Mock::logMetadata("; ", &batch);
-    EXPECT_STREQ("metadata initMd1: value1 (24); metadata :path: /x/y (0)",
+    EXPECT_STREQ("metadata initMd1: value1; metadata :path: /x/y (0)",
             Mock::log.c_str());
     
     Mock::log.clear();
@@ -749,7 +747,7 @@ TEST_F(TestStream, handleIncoming_basics) {
     
     Mock::log.clear();
     Mock::logMetadata("; ", &batch2);
-    EXPECT_STREQ("metadata k2: 0123456789 (24)", Mock::log.c_str());
+    EXPECT_STREQ("metadata k2: 0123456789", Mock::log.c_str());
 }
 TEST_F(TestStream, handleIncoming_duplicate_lt_nextIncomingSequence) {
     stream.initMdClosure = &closure1;

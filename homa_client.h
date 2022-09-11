@@ -53,7 +53,8 @@ protected:
     class SubchannelFactory : public grpc_core::ClientChannelFactory {
     public:
         grpc_core::RefCountedPtr<grpc_core::Subchannel> CreateSubchannel(
-                const grpc_channel_args* args) override;
+            const grpc_resolved_address& address,
+            const grpc_channel_args* args) override;
     };
     
     /**
@@ -85,7 +86,7 @@ protected:
         // Linux struct sockaddr containing the IP address and port of the peer.
         grpc_resolved_address addr;
 
-        Peer(HomaClient *hc, grpc_resolved_address *addr);
+        Peer(HomaClient *hc, grpc_resolved_address addr);
     };
 
     static void     destroy(grpc_transport* gt);

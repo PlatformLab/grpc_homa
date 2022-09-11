@@ -35,18 +35,17 @@ void fillData(void *data, int length, int firstValue)
  */
 void logMetadata(const grpc_metadata_batch* mdBatch, const char *info)
 {
-    if (!mdBatch->list.head) {
+    if (mdBatch->empty()) {
         gpr_log(GPR_INFO, "%s: metadata empty", info);
     }
-    for (grpc_linked_mdelem* md = mdBatch->list.head; md != nullptr;
-            md = md->next) {
-        char* key = grpc_slice_to_c_string(GRPC_MDKEY(md->md));
-        char* value = grpc_slice_to_c_string(GRPC_MDVALUE(md->md));
+    mdBatch->ForEach([&](grpc_mdelem& md) {
+        char* key = grpc_slice_to_c_string(GRPC_MDKEY(md));
+        char* value = grpc_slice_to_c_string(GRPC_MDVALUE(md));
         gpr_log(GPR_INFO, "%s: %s: %s (index %d)", info, key, value,
-                GRPC_BATCH_INDEX_OF(GRPC_MDKEY(md->md)));
+                GRPC_BATCH_INDEX_OF(GRPC_MDKEY(md)));
         gpr_free(key);
         gpr_free(value);
-    }
+    });
 }
 
 /**

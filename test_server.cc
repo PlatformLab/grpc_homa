@@ -17,13 +17,13 @@ public:
 //        printf("Sum invoked with arguments %d and %d\n",
 //                args->op1(), args->op2());
         tt("Sum service method invoked");
-        printf("%lu metadata values from client\n",
-                context->client_metadata().size());
-        for (auto md: context->client_metadata()) {
-            printf("Incoming metadata: name '%.*s', value '%.*s'\n",
-                    static_cast<int>(md.first.length()), md.first.data(),
-                    static_cast<int>(md.second.length()), md.second.data());
-        }
+//        printf("%lu metadata values from client\n",
+//                context->client_metadata().size());
+//        for (auto md: context->client_metadata()) {
+//            printf("Incoming metadata: name '%.*s', value '%.*s'\n",
+//                    static_cast<int>(md.first.length()), md.first.data(),
+//                    static_cast<int>(md.second.length()), md.second.data());
+//        }
         result->set_sum(args->op1() + args->op2());
         return grpc::Status::OK;
     }
