@@ -76,7 +76,10 @@ public:
 
         // Synchronizes access to this structure.
         std::mutex mutex;
-        
+
+        // Function table shared across all HomaListeners.
+        struct grpc_transport_vtable vtable;
+
         Shared() : ports(), mutex() {}
     };
 
@@ -92,14 +95,11 @@ public:
         HomaStream *stream;
     };
 
-    // Points to a virtual function table for use by the rest of gRPC to
-    // treat this object as a transport. gRPC uses a pointer to this field
-    // as a generic handle for the object.
+    // Points to the virtual function table in Shared::vtable. Used by the
+    // rest of gRPC to treat this object as a transport: gRPC uses a pointer
+    // to this field as a generic handle for the object.
     grpc_transport transport;
 
-    // @transport refers to this.
-    struct grpc_transport_vtable vtable;
-    
     // Associated gRPC server. Not owned by this object.
     grpc_core::Server* server;
 

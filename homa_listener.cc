@@ -80,8 +80,7 @@ std::shared_ptr<grpc::ServerCredentials> HomaListener::insecureCredentials(void)
  */
 HomaListener::HomaListener(grpc_server* server, int port)
     : transport()
-    , vtable()
-    , server()
+    , server(nullptr)
     , activeRpcs()
     , mutex()
     , port(port)
@@ -94,17 +93,7 @@ HomaListener::HomaListener(grpc_server* server, int port)
     if (server) {
         this->server = server->core_server.get();
     }
-    transport.vtable = &vtable;
-    vtable.sizeof_stream =       sizeof(HomaStream);
-    vtable.name =                "homa_server";
-    vtable.init_stream =         init_stream;
-    vtable.set_pollset =         set_pollset;
-    vtable.set_pollset_set =     set_pollset_set;
-    vtable.perform_stream_op =   perform_stream_op;
-    vtable.perform_op =          perform_op;
-    vtable.destroy_stream =      destroy_stream;
-    vtable.destroy =             destroy;
-    vtable.get_endpoint =        get_endpoint;
+    transport.vtable = &shared->vtable;
     GRPC_CLOSURE_INIT(&read_closure, onRead, this,
             grpc_schedule_on_exec_ctx);
 }
@@ -121,12 +110,21 @@ HomaListener::~HomaListener()
 }
 
 /**
- * Invoked through the gpr_once mechanism to initialize the ports_mu
- * mutex.
+ * Invoked through the gpr_once mechanism to initialize shared info.
  */
 void HomaListener::InitShared(void)
 {
     shared.emplace();
+    shared->vtable.sizeof_stream =       sizeof(HomaStream);
+    shared->vtable.name =                "homa_server";
+    shared->vtable.init_stream =         HomaListener::init_stream;
+    shared->vtable.set_pollset =         HomaListener::set_pollset;
+    shared->vtable.set_pollset_set =     HomaListener::set_pollset_set;
+    shared->vtable.perform_stream_op =   HomaListener::perform_stream_op;
+    shared->vtable.perform_op =          HomaListener::perform_op;
+    shared->vtable.destroy_stream =      HomaListener::destroy_stream;
+    shared->vtable.destroy =             HomaListener::destroy;
+    shared->vtable.get_endpoint =        HomaListener::get_endpoint;
     Wire::init();
 }
 
