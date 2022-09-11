@@ -30,9 +30,10 @@ public:
         , refcount()
         , msg(2, true, 100, 0, 0, true, true)
     {
+        int port = 4000;
         gpr_once_init(&HomaListener::shared_once, HomaListener::InitShared);
         Mock::setUp();
-        lis = new HomaListener(nullptr, 4000);
+        lis = new HomaListener(nullptr, &port);
         lis->accept_stream_cb = acceptStreamCallback;
         lis->accept_stream_data = this;
         GRPC_CLOSURE_INIT(&closure1, closureFunc1,

@@ -49,7 +49,7 @@ int HomaListener::InsecureCredentials::AddPortToServer(const std::string& addr,
                 addr.c_str());
         return 0;
     }
-    HomaListener *listener = HomaListener::Get(server, port);
+    HomaListener *listener = HomaListener::Get(server, &port);
     if (listener) {
         server->core_server->AddListener(grpc_core::OrphanablePtr
                 <grpc_core::Server::ListenerInterface>(listener));
@@ -76,14 +76,16 @@ std::shared_ptr<grpc::ServerCredentials> HomaListener::insecureCredentials(void)
  *      Server that this listener will be associated with (nullptr for
  *      testing).
  * \param port
- *      The Homa port number that this object will manage.
+ *      The Homa port number that this object will manage. If zero, then
+ *      the port number is chosen by Homa; the chosen value will be
+ *      returned here. Zero is returned if the socket couldn't be opened.
  */
-HomaListener::HomaListener(grpc_server* server, int port)
+HomaListener::HomaListener(grpc_server* server, int* port)
     : transport()
     , server(nullptr)
     , activeRpcs()
     , mutex()
-    , port(port)
+    , port(0)
     , fd(-1)
     , gfd(nullptr)
     , read_closure()
@@ -92,17 +94,37 @@ HomaListener::HomaListener(grpc_server* server, int port)
 {
     if (server) {
         this->server = server->core_server.get();
+        fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_HOMA);
+        if (fd < 0) {
+            gpr_log(GPR_ERROR, "Couldn't open Homa socket: %s\n", strerror(errno));
+           *port = 0;
+           return;
+        }
+        struct sockaddr_in addr_in{};
+        addr_in.sin_family = AF_INET;
+        addr_in.sin_port = htons(*port);
+        if (bind(fd, (struct sockaddr *) &addr_in,
+                   sizeof(addr_in)) != 0) {
+           gpr_log(GPR_ERROR, "Couldn't bind Homa socket to port %d: %s\n", *port,
+                   strerror(errno));
+           *port = 0;
+           return;
+        }
+        socklen_t addr_size = sizeof(addr_in);
+        getsockname(fd, reinterpret_cast<sockaddr*>(&addr_in), &addr_size);
+        *port = ntohs(addr_in.sin_port);
     }
     transport.vtable = &shared->vtable;
     GRPC_CLOSURE_INIT(&read_closure, onRead, this,
             grpc_schedule_on_exec_ctx);
+    this->port = *port;
 }
 
 HomaListener::~HomaListener()
 {
     std::lock_guard<std::mutex> guard(shared->mutex);
     shared->ports.erase(port);
-    if (fd >= 0) {
+    if (gfd) {
         grpc_fd_shutdown(gfd,
                 GRPC_ERROR_CREATE_FROM_STATIC_STRING(
                 "Homa listener destroyed"));
@@ -134,48 +156,46 @@ void HomaListener::InitShared(void)
  *      gRPC server associated with this listener.
  * \param port
  *      The port number through which clients will make requests of
- *      this server.
- * 
+ *      this server. Zero means that Homa will allocate a port number;
+ *      the actual value will be returned here.
+ *
  * \return
  *      Either a new HomaListener, or an existing one, if there was one for
  *      the given port. If an error occurs while initializing the port,
  *      a message is logged and nullptr is returned.
  */
-HomaListener *HomaListener::Get(grpc_server* server, int port)
+HomaListener *HomaListener::Get(grpc_server* server, int *port)
 {
-    HomaListener *lis;
+    HomaListener *lis = nullptr;
     gpr_once_init(&shared_once, InitShared);
+    if (*port) {
+        std::lock_guard<std::mutex> guard(shared->mutex);
+
+        std::unordered_map<int, HomaListener *>::iterator it
+                = shared->ports.find(*port);
+        if (it != shared->ports.end())
+            return it->second;
+    }
+    lis = new HomaListener(server, port);
+    if (*port == 0) {
+        delete lis;
+        return nullptr;
+    }
     {
         std::lock_guard<std::mutex> guard(shared->mutex);
 
         std::unordered_map<int, HomaListener *>::iterator it
-                = shared->ports.find(port);
-        if (it != shared->ports.end())
+                = shared->ports.find(*port);
+        if (it != shared->ports.end()) {
+            delete lis;
             return it->second;
-        lis = new HomaListener(server, port);
-        shared->ports[port] = lis;
+        }
+        shared->ports[*port] = lis;
     }
-    
-    lis->fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_HOMA);
-	if (lis->fd < 0) {
-        gpr_log(GPR_ERROR, "Couldn't open Homa socket: %s\n", strerror(errno));
-		return nullptr;
-	}
-    struct sockaddr_in addr_in;
-    memset(&addr_in, 0, sizeof(addr_in));
-    addr_in.sin_family = AF_INET;
-    addr_in.sin_port = htons(port);
-    if (bind(lis->fd, (struct sockaddr *) &addr_in,
-            sizeof(addr_in)) != 0) {
-        gpr_log(GPR_ERROR, "Couldn't bind Homa socket to port %d: %s\n", port,
-                strerror(errno));
-        return nullptr;
-    }
-    
+
     char name[30];
-    snprintf(name, sizeof(name), "homa-socket:%d", port);
+    snprintf(name, sizeof(name), "homa-socket:%d", *port);
     lis->gfd = grpc_fd_create(lis->fd, name, true);
-    
     return lis;
 }
 
