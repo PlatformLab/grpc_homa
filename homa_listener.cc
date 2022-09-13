@@ -224,7 +224,7 @@ HomaListener::Transport::Transport(grpc_server* server, int *port)
     vtable.vtable = &shared->vtable;
     if (server) {
         this->server = server->core_server.get();
-        fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_HOMA);
+        fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_HOMA);
         if (fd < 0) {
             gpr_log(GPR_ERROR, "Couldn't open Homa socket: %s\n", strerror(errno));
            *port = 0;

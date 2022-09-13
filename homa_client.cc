@@ -124,7 +124,7 @@ HomaClient::HomaClient()
     vtable.destroy =             destroy;
     vtable.get_endpoint =        get_endpoint;
 
-    fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_HOMA);
+    fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_HOMA);
     if (fd < 0) {
         gpr_log(GPR_ERROR, "Couldn't open Homa socket: %s", strerror(errno));
     } else {
