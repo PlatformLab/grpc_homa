@@ -1,3 +1,4 @@
+#define __UNIT_TEST__ 1
 #include "homa_listener.h"
 #include "mock.h"
 
@@ -7,6 +8,7 @@ class TestListener : public ::testing::Test {
 public:
     grpc_core::Arena *arena;
     HomaListener *lis;
+    HomaListener::Transport *trans;
     std::vector<HomaStream *> streams;
     grpc_stream_refcount refcount;
     HomaIncoming msg;
@@ -26,6 +28,7 @@ public:
     TestListener()
         : arena(grpc_core::Arena::Create(2000))
         , lis(nullptr)
+        , trans(nullptr)
         , streams()
         , refcount()
         , msg(2, true, 100, 0, 0, true, true)
@@ -34,14 +37,16 @@ public:
         gpr_once_init(&HomaListener::shared_once, HomaListener::InitShared);
         Mock::setUp();
         lis = new HomaListener(nullptr, &port);
-        lis->accept_stream_cb = acceptStreamCallback;
-        lis->accept_stream_data = this;
+        trans = lis->transport;
+        trans->accept_stream_cb = acceptStreamCallback;
+        trans->accept_stream_data = this;
         GRPC_CLOSURE_INIT(&closure1, closureFunc1,
                 reinterpret_cast<void *>(123), dummy);
     }
     
     ~TestListener()
     {
+        grpc_core::ExecCtx exec_ctx;
         for (HomaStream *stream: streams) {
             delete stream;
         }
@@ -53,10 +58,10 @@ public:
             const void* initInfo)
     {
         TestListener *test = reinterpret_cast<TestListener *>(fixture);
-        HomaListener::StreamInit *init =
-                static_cast<HomaListener::StreamInit *>(
+        HomaListener::Transport::StreamInit *init =
+                static_cast<HomaListener::Transport::StreamInit *>(
                 const_cast<void*>(initInfo));
-        init->stream = new HomaStream(*init->streamId, test->lis->fd,
+        init->stream = new HomaStream(*init->streamId, test->trans->fd,
                 &test->refcount, test->arena);
         test->streams.push_back(init->stream);
     }
@@ -67,30 +72,30 @@ TEST_F(TestListener, getStream_basics) {
     
     // Id 100: add new stream
     msg.streamId.id = 100;
-    HomaStream *stream1 = lis->getStream(&msg, lockGuard);
-    EXPECT_EQ(1U, lis->activeRpcs.size());
+    HomaStream *stream1 = lis->transport->getStream(&msg, lockGuard);
+    EXPECT_EQ(1U, trans->activeRpcs.size());
     EXPECT_EQ(100U, stream1->streamId.id);
     lockGuard.reset();
     
     // Id 200: add new stream
     msg.streamId.id = 200;
-    HomaStream *stream2 = lis->getStream(&msg, lockGuard);
-    EXPECT_EQ(2U, lis->activeRpcs.size());
+    HomaStream *stream2 = trans->getStream(&msg, lockGuard);
+    EXPECT_EQ(2U, trans->activeRpcs.size());
     EXPECT_EQ(200U, stream2->streamId.id);
     lockGuard.reset();
     
     // Id 100 again
     msg.streamId.id = 100;
-    HomaStream *stream3 = lis->getStream(&msg, lockGuard);
-    EXPECT_EQ(2U, lis->activeRpcs.size());
+    HomaStream *stream3 = trans->getStream(&msg, lockGuard);
+    EXPECT_EQ(2U, trans->activeRpcs.size());
     EXPECT_EQ(100U, stream3->streamId.id);
     EXPECT_EQ(stream1, stream3);
 }
 TEST_F(TestListener, getStream_noCallback) {
     std::optional<grpc_core::MutexLock> lockGuard;
-    lis->accept_stream_cb = nullptr;
-    HomaStream *stream1 = lis->getStream(&msg, lockGuard);
-    EXPECT_EQ(0U, lis->activeRpcs.size());
+    trans->accept_stream_cb = nullptr;
+    HomaStream *stream1 = trans->getStream(&msg, lockGuard);
+    EXPECT_EQ(0U, trans->activeRpcs.size());
     EXPECT_EQ(nullptr, stream1);
 }
 
@@ -100,18 +105,18 @@ TEST_F(TestListener, destroy_stream) {
     {
         std::optional<grpc_core::MutexLock> lockGuard;
         msg.streamId.id = 100;
-        stream = lis->getStream(&msg, lockGuard);
-        EXPECT_EQ(1U, lis->activeRpcs.size());
+        stream = trans->getStream(&msg, lockGuard);
+        EXPECT_EQ(1U, trans->activeRpcs.size());
         EXPECT_EQ(100U, stream->streamId.id);
         ASSERT_EQ(1U, streams.size());
         ASSERT_EQ(stream, streams[0]);
     }
     
-    HomaListener::destroy_stream(&lis->transport,
+    HomaListener::Transport::destroy_stream(&trans->vtable,
             reinterpret_cast <grpc_stream*>(stream), &closure1);
     free(stream);
     streams.clear();
     execCtx.Flush();
-    EXPECT_EQ(0U, lis->activeRpcs.size());
+    EXPECT_EQ(0U, trans->activeRpcs.size());
     EXPECT_STREQ("closure1 invoked with 123", Mock::log.c_str());
 }

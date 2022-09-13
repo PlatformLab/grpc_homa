@@ -35,6 +35,7 @@ TEST_F(TestIncoming, read_noMessageAvailable) {
 TEST_F(TestIncoming, read_firstHomaRecvFails) {
     grpc_error_handle error;
     Mock::homaRecvErrors = 1;
+    gpr_set_log_verbosity(GPR_LOG_SEVERITY_DEBUG);
     HomaIncoming::UniquePtr msg = HomaIncoming::read(2, 5, &homaId, &error);
     EXPECT_NE(GRPC_ERROR_NONE, error);
     EXPECT_EQ(nullptr, msg.get());
