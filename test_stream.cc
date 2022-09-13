@@ -759,7 +759,7 @@ TEST_F(TestStream, handleIncoming_duplicate_lt_nextIncomingSequence) {
             false, false));
     stream.handleIncoming(std::move(msg), 444U);
     execCtx.Flush();
-    EXPECT_STREQ("", Mock::log.c_str());
+    EXPECT_SUBSTR("Dropping duplicate message", Mock::log.c_str());
 }
 TEST_F(TestStream, handleIncoming_duplicate_queued_packet) {
     stream.initMdClosure = &closure1;
@@ -776,7 +776,7 @@ TEST_F(TestStream, handleIncoming_duplicate_queued_packet) {
     msg.reset(new HomaIncoming(2, true, 0, 0, 0, false, false));
     stream.handleIncoming(std::move(msg), 444U);
     execCtx.Flush();
-    EXPECT_STREQ("", Mock::log.c_str());
+    EXPECT_SUBSTR("Dropping duplicate message", Mock::log.c_str());
     EXPECT_EQ(1U, stream.incoming.size());
 }
 
