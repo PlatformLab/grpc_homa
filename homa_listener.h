@@ -158,11 +158,10 @@ PROTECTED:
         std::unordered_map<int, HomaListener *> ports;
 
         // Synchronizes access to this structure.
-        std::mutex mutex;
+        grpc_core::Mutex mutex;
 
         // Function table shared across all HomaListeners.
         struct grpc_transport_vtable vtable;
-
         Shared() : ports(), mutex() {}
     };
     // Singleton object with common info. 

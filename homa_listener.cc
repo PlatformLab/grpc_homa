@@ -109,7 +109,7 @@ HomaListener::HomaListener(grpc_server* server, int *port)
 HomaListener::~HomaListener()
 {
     {
-        std::lock_guard<std::mutex> guard(shared->mutex);
+        grpc_core::MutexLock lock(&shared->mutex);
         shared->ports.erase(port);
     }
     transport->shutdown();
@@ -139,7 +139,7 @@ HomaListener *HomaListener::Get(grpc_server* server, int *port)
     HomaListener *lis = nullptr;
     gpr_once_init(&shared_once, InitShared);
     if (*port) {
-        std::lock_guard<std::mutex> guard(shared->mutex);
+        grpc_core::MutexLock lock(&shared->mutex);
 
         std::unordered_map<int, HomaListener *>::iterator it
                 = shared->ports.find(*port);
@@ -152,7 +152,7 @@ HomaListener *HomaListener::Get(grpc_server* server, int *port)
         return nullptr;
     }
     {
-        std::lock_guard<std::mutex> guard(shared->mutex);
+        grpc_core::MutexLock lock(&shared->mutex);
 
         std::unordered_map<int, HomaListener *>::iterator it
                 = shared->ports.find(*port);
@@ -282,8 +282,6 @@ void HomaListener::Transport::start(grpc_core::Server* server,
  */
 void HomaListener::Transport::shutdown()
 {
-    std::lock_guard<std::mutex> guard(shared->mutex);
-    shared->ports.erase(port);
     state_tracker.SetState(GRPC_CHANNEL_SHUTDOWN, absl::OkStatus(),
             "error");
     if (gfd) {
