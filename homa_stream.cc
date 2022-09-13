@@ -130,6 +130,7 @@ void HomaStream::flush()
         gpr_log(GPR_ERROR, "Couldn't send Homa %s: %s",
                 (isRequest) ? "request" : "response",
                 strerror(errno));
+        GRPC_ERROR_UNREF(error);
         error = GRPC_OS_ERROR(errno, "Couldn't send Homa request/response");
     }
     tt("Homa message sent");
@@ -277,6 +278,7 @@ void HomaStream::xmit(grpc_transport_stream_op_batch* op)
             gpr_log(GPR_ERROR, "Too much initial metadata (%lu bytes): "
                     "limit is %lu bytes", xmitSize - sizeof(Wire::Header),
                     maxMessageLength - sizeof(Wire::Header));
+            GRPC_ERROR_UNREF(error);
             error = GRPC_ERROR_CREATE_FROM_STATIC_STRING(
                     "Too much initial metadata");
             return;
@@ -292,6 +294,7 @@ void HomaStream::xmit(grpc_transport_stream_op_batch* op)
         gpr_log(GPR_ERROR, "Too much trailing metadata (%lu bytes): "
                 "limit is %lu bytes", trailMdLength,
                 maxMessageLength - sizeof(Wire::Header));
+        GRPC_ERROR_UNREF(error);
         error = GRPC_ERROR_CREATE_FROM_STATIC_STRING(
                 "Too much trailing metadata");
         return;
@@ -569,31 +572,31 @@ duplicate:
 /**
  * This method is invoked when a fatal error occurs on a stream. It invokes
  * any callbacks present for the stream.
- * \param error
+ * \param errorInfo
  *      Information about what went wrong. This method takes ownership
  *      of the error.
  */
-void HomaStream::notifyError(grpc_error_handle error)
+void HomaStream::notifyError(grpc_error_handle errorInfo)
 {
-    GRPC_ERROR_UNREF(this->error);
-    this->error = error;
+    GRPC_ERROR_UNREF(error);
+    error = errorInfo;
     gpr_log(GPR_INFO, "Recording error for stream id %u: %s",
         streamId.id, grpc_error_string(error));
     
     if (initMdClosure) {
         grpc_closure *c = initMdClosure;
         initMdClosure = nullptr;
-        grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_REF(this->error));
+        grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_REF(error));
     }
     if (messageClosure) {
         grpc_closure *c = messageClosure;
         messageClosure = nullptr;
-        grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_REF(this->error));
+        grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_REF(error));
     }
     if (trailMdClosure) {
         grpc_closure *c = trailMdClosure;
         trailMdClosure = nullptr;
-        grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_REF(this->error));
+        grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_REF(error));
     }
 }
 
