@@ -57,7 +57,8 @@ HomaClient::SubchannelFactory::CreateSubchannel(
  * \param notify
  *      Closure to invoke once the connection has been established.
  */
-void HomaClient::Connector::Connect(const HomaClient::Connector::Args& args,
+void HomaClient::Connector::Connect(
+        const grpc_core::SubchannelConnector::Args& args,
         HomaClient::Connector::Result* result, grpc_closure* notify)
 {
     // Homa doesn't use connections, so there isn't much to do here.
@@ -65,7 +66,9 @@ void HomaClient::Connector::Connect(const HomaClient::Connector::Args& args,
     {
         grpc_core::MutexLock lock(&refCountMutex);
         if (sharedClient == nullptr) {
-            sharedClient = new HomaClient();
+            sharedClient = new HomaClient(
+                    reinterpret_cast<struct sockaddr *>(args.address)
+                    ->sa_family == AF_INET6);
             Wire::init();
         }
         sharedClient->numPeers++;
@@ -103,7 +106,7 @@ void HomaClient::Connector::Shutdown(grpc_error_handle error)
  * \param port
  *      The Homa port number that this object will manage.
  */
-HomaClient::HomaClient()
+HomaClient::HomaClient(bool ipv6)
     : vtable()
     , streams()
     , nextId(1)
@@ -124,7 +127,8 @@ HomaClient::HomaClient()
     vtable.destroy =             destroy;
     vtable.get_endpoint =        get_endpoint;
 
-    fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_HOMA);
+    fd = socket(
+        ipv6 ? AF_INET6 : AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_HOMA);
     if (fd < 0) {
         gpr_log(GPR_ERROR, "Couldn't open Homa socket: %s", strerror(errno));
     } else {
@@ -455,7 +459,7 @@ void HomaClient::onRead(void* arg, grpc_error* sockError)
                 for (std::pair<const StreamId, HomaStream *> p: hc->streams) {
                     HomaStream *stream = p.second;
                     if (stream->sentHomaId == homaId) {
-                        stream->notifyError(GRPC_ERROR_REF(error));
+                    stream->notifyError(GRPC_ERROR_REF(error));
                         break;
                     }
                 }

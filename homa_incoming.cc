@@ -157,12 +157,10 @@ HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags,
     // The following loop executes multiple times if it receives (and
     // discards) streaming responses.
     while (true) {
-        msg->streamId.addrSize = sizeof(streamId.addr);
         *homaId = 0;
         result = homa_recv(fd, &msg->initialPayload,
-                sizeof(msg->initialPayload),
-                flags | HOMA_RECV_PARTIAL, msg->streamId.sockaddr(),
-                &msg->streamId.addrSize, homaId, &msg->length);
+                sizeof(msg->initialPayload), flags | HOMA_RECV_PARTIAL,
+                &msg->streamId.addr, homaId, &msg->length, nullptr);
         if (result < 0) {
             if (errno == EAGAIN) {
                 return nullptr;
@@ -212,8 +210,8 @@ HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags,
         // Must read the tail of the message.
         msg->tail.resize(msg->length - msg->baseLength);
         ssize_t tail_length = homa_recv(fd, msg->tail.data(),
-                msg->length - msg->baseLength, flags, msg->streamId.sockaddr(),
-                &msg->streamId.addrSize, homaId, nullptr);
+                msg->length - msg->baseLength, flags, &msg->streamId.addr,
+                homaId, nullptr, nullptr);
         if (tail_length < 0) {
             gpr_log(GPR_ERROR, "Error in homa_recv for tail of id %lu: %s",
                     *homaId, strerror(errno));
@@ -229,12 +227,14 @@ HomaIncoming::UniquePtr HomaIncoming::read(int fd, int flags,
             return nullptr;
         }
     }
-    gpr_log(GPR_INFO, "Received Homa message from host 0x%x, port %d with "
-            "homaId %lu, stream id %d, sequence %d, %u initMd bytes, "
-            "%u message bytes, %u trailMd bytes, flags 0x%x",
-            msg->streamId.ipv4Addr(), msg->streamId.port(), *homaId,
-            msg->streamId.id, msg->sequence, msg->initMdLength,
-            msg->messageLength, msg->trailMdLength, msg->hdr()->flags);
+    if (gpr_should_log(GPR_LOG_SEVERITY_INFO)) {
+        gpr_log(GPR_INFO, "Received Homa message from %s, sequence %d "
+                "with homaId %lu, %u initMd bytes, %u message bytes, "
+                "%u trailMd bytes, flags 0x%x",
+                msg->streamId.toString().c_str(), msg->sequence, *homaId,
+                msg->initMdLength, msg->messageLength, msg->trailMdLength,
+                msg->hdr()->flags);
+    }
     TimeTrace::record(startTime, "HomaIncoming::read starting");
     tt("HomaIncoming::read returning");
     return msg;

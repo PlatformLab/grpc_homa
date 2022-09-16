@@ -26,7 +26,7 @@
  */
 class HomaListener : public grpc_core::Server::ListenerInterface {
 public:
-    static HomaListener *Get(grpc_server* server, int *port);
+    static HomaListener *Get(grpc_server* server, int *port, bool ipv6);
     static std::shared_ptr<grpc::ServerCredentials> insecureCredentials(void);
 
 PROTECTED:
@@ -54,7 +54,7 @@ PROTECTED:
      */
     class Transport {
     public:
-        Transport(grpc_server* server, int *port);
+        Transport(grpc_server* server, int *port, bool ipv6);
         ~Transport();
         HomaStream *    getStream(HomaIncoming *msg,
                                 std::optional<grpc_core::MutexLock>& streamLock);
@@ -132,7 +132,7 @@ PROTECTED:
         friend class TestListener;
     };
 
-    HomaListener(grpc_server* server, int *port);
+    HomaListener(grpc_server* server, int *port, bool ipv6);
     ~HomaListener();
     void Orphan() override ;
     void SetOnDestroyDone(grpc_closure* on_destroy_done) override;

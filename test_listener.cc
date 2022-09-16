@@ -36,7 +36,7 @@ public:
         int port = 4000;
         gpr_once_init(&HomaListener::shared_once, HomaListener::InitShared);
         Mock::setUp();
-        lis = new HomaListener(nullptr, &port);
+        lis = new HomaListener(nullptr, &port, false);
         trans = lis->transport;
         trans->accept_stream_cb = acceptStreamCallback;
         trans->accept_stream_data = this;

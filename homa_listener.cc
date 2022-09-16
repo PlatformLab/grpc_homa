@@ -24,9 +24,11 @@ int HomaListener::InsecureCredentials::AddPortToServer(const std::string& addr,
 {
     int port;
     char* end;
+    bool ipv6 = false;
 
     const char* cursor = addr.c_str();
     if (*cursor == '[') {
+        ipv6 = true;
         cursor = strchr(cursor, ']');
     }
     if (cursor != nullptr) {
@@ -49,7 +51,7 @@ int HomaListener::InsecureCredentials::AddPortToServer(const std::string& addr,
                 addr.c_str());
         return 0;
     }
-    HomaListener *listener = HomaListener::Get(server, &port);
+    HomaListener *listener = HomaListener::Get(server, &port, ipv6);
     if (listener) {
         server->core_server->AddListener(grpc_core::OrphanablePtr
                 <grpc_core::Server::ListenerInterface>(listener));
@@ -99,8 +101,8 @@ void HomaListener::InitShared(void)
  *      the port number is chosen by Homa; the chosen value will be
  *      returned here. Zero is returned if the socket couldn't be opened.
  */
-HomaListener::HomaListener(grpc_server* server, int *port)
-    : transport(new Transport(server, port))
+HomaListener::HomaListener(grpc_server* server, int *port, bool ipv6)
+    : transport(new Transport(server, port, ipv6))
     , port(*port)
     , on_destroy_done(nullptr)
 {
@@ -134,7 +136,7 @@ HomaListener::~HomaListener()
  *      the given port. If an error occurs while initializing the port,
  *      a message is logged and nullptr is returned.
  */
-HomaListener *HomaListener::Get(grpc_server* server, int *port)
+HomaListener *HomaListener::Get(grpc_server* server, int *port, bool ipv6)
 {
     HomaListener *lis = nullptr;
     gpr_once_init(&shared_once, InitShared);
@@ -146,7 +148,7 @@ HomaListener *HomaListener::Get(grpc_server* server, int *port)
         if (it != shared->ports.end())
             return it->second;
     }
-    lis = new HomaListener(server, port);
+    lis = new HomaListener(server, port, ipv6);
     if (*port == 0) {
         delete lis;
         return nullptr;
@@ -208,7 +210,7 @@ void HomaListener::Orphan()
  *      the actual value will be returned here.  If 0 is returned, it
  *      means an error occurred.
  */
-HomaListener::Transport::Transport(grpc_server* server, int *port)
+HomaListener::Transport::Transport(grpc_server* server, int *port, bool ipv6)
     : vtable()
     , server(nullptr)
     , activeRpcs()
@@ -224,25 +226,30 @@ HomaListener::Transport::Transport(grpc_server* server, int *port)
     vtable.vtable = &shared->vtable;
     if (server) {
         this->server = server->core_server.get();
-        fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_HOMA);
+        fd = socket(
+            ipv6 ? AF_INET6 : AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_HOMA);
         if (fd < 0) {
             gpr_log(GPR_ERROR, "Couldn't open Homa socket: %s\n", strerror(errno));
            *port = 0;
            return;
         }
-        struct sockaddr_in addr_in{};
-        addr_in.sin_family = AF_INET;
-        addr_in.sin_port = htons(*port);
-        if (bind(fd, (struct sockaddr *) &addr_in,
-                   sizeof(addr_in)) != 0) {
+        sockaddr_in_union addr_in{};
+        if (ipv6) {
+          addr_in.in6.sin6_family = AF_INET6;
+          addr_in.in6.sin6_port = htons(*port);
+        } else {
+          addr_in.in4.sin_family = AF_INET;
+          addr_in.in4.sin_port = htons(*port);
+        }
+        if (bind(fd, &addr_in.sa, sizeof(addr_in)) != 0) {
            gpr_log(GPR_ERROR, "Couldn't bind Homa socket to port %d: %s\n", *port,
                    strerror(errno));
            *port = 0;
            return;
         }
         socklen_t addr_size = sizeof(addr_in);
-        getsockname(fd, reinterpret_cast<sockaddr*>(&addr_in), &addr_size);
-        this->port = *port = ntohs(addr_in.sin_port);
+        getsockname(fd, &addr_in.sa, &addr_size);
+        this->port = *port = ntohs(addr_in.in4.sin_port);
     }
     GRPC_CLOSURE_INIT(&read_closure, onRead, this, grpc_schedule_on_exec_ctx);
 }

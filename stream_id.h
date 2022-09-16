@@ -1,8 +1,10 @@
-#ifndef RPC_ID_H
-#define RPC_ID_H
+#ifndef STREAM_ID_H
+#define STREAM_ID_H
 
 #include<sys/socket.h>
 #include<netinet/in.h>
+
+#include "homa.h"
 
 #include "src/core/lib/iomgr/resolve_address.h"
 
@@ -11,12 +13,8 @@
  * in a form that can be used as a key in std::unordered_map.
  */
 struct StreamId {
-    // Holds a struct sockaddr specifying the address and port of the
-    // other machine. Large enough to hold either an IPV4 or IPV6 address.
-    char addr[sizeof(struct sockaddr_in6)];
-    
-    // Number of bytes in addr that are actually used.
-    size_t addrSize;
+    // Specifies the address and port of the other machine.
+    sockaddr_in_union addr;
     
     // Unique id for this RPC among all those from its client.
     uint32_t id;
@@ -27,26 +25,17 @@ struct StreamId {
     StreamId(grpc_resolved_address *gaddr, uint32_t id);
     StreamId& operator=(const StreamId &other);
     bool operator==(const StreamId& other) const;
-    
-    // Convenient accessors for part or all of addr.
-    struct sockaddr *sockaddr()
-    {
-        return reinterpret_cast<struct sockaddr*>(&addr);
-    }
-    
-    struct sockaddr_in *inaddr()
-    {
-        return reinterpret_cast<struct sockaddr_in *>(&addr);
-    }
-    
-    int ipv4Addr()
-    {
-        return htonl(inaddr()->sin_addr.s_addr);
-    }
+
+    std::string toString();
     
     int port()
     {
-        return htons(inaddr()->sin_port);
+        if (addr.in6.sin6_family == AF_INET6) {
+            return htons(addr.in6.sin6_port);
+        } else if (addr.in4.sin_family == AF_INET) {
+            return htons(addr.in4.sin_port);
+        }
+        return -1;
     }
 
     /**
@@ -57,13 +46,19 @@ struct StreamId {
         std::size_t operator()(const StreamId& streamId) const
         {
             std::size_t hash = 0;
-            const int *ints = reinterpret_cast<const int*>(streamId.addr);
-            for (uint32_t i = 0; i+4 <= streamId.addrSize; i = i+4, ints++) {
-                hash ^= std::hash<int>()(*ints);
+            if (streamId.addr.in6.sin6_family == AF_INET6) {
+                hash ^= std::hash<int>()(streamId.addr.in6.sin6_addr.s6_addr32[0]);
+                hash ^= std::hash<int>()(streamId.addr.in6.sin6_addr.s6_addr32[1]);
+                hash ^= std::hash<int>()(streamId.addr.in6.sin6_addr.s6_addr32[2]);
+                hash ^= std::hash<int>()(streamId.addr.in6.sin6_addr.s6_addr32[3]);
+                hash ^= std::hash<short>()(streamId.addr.in6.sin6_port);
+            } else if (streamId.addr.in4.sin_family == AF_INET) {
+                hash ^= std::hash<int>()(streamId.addr.in4.sin_addr.s_addr);
+                hash ^= std::hash<short>()(streamId.addr.in4.sin_port);
             }
             return hash;
         }
     };
 };
 
-#endif // RPC_WIRE_H
+#endif // STREAM_ID_H

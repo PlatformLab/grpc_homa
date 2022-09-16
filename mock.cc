@@ -282,8 +282,8 @@ Mock::substr(const std::string& s, const std::string& substring)
 }
 
 ssize_t homa_recv(int sockfd, void *buf, size_t len, int flags,
-        struct sockaddr *srcAddr, size_t *addrlen, uint64_t *id,
-        size_t *msglen)
+        sockaddr_in_union *src_addr, uint64_t *id, size_t *msglen,
+        uint64_t *cookie)
 {
     Wire::Header *h = static_cast<Wire::Header *>(buf);
     if (Mock::checkError(&Mock::homaRecvErrors)) {
@@ -317,7 +317,7 @@ ssize_t homa_recv(int sockfd, void *buf, size_t len, int flags,
 }
 
 ssize_t homa_reply(int sockfd, const void *buffer, size_t length,
-        const struct sockaddr *dest_addr, size_t addrlen, uint64_t id)
+        const sockaddr_in_union *addr, uint64_t id)
 {    
     Mock::homaMessages.emplace_back(length);
     memcpy(Mock::homaMessages.back().data(), buffer, length);
@@ -330,7 +330,7 @@ ssize_t homa_reply(int sockfd, const void *buffer, size_t length,
 }
 
 ssize_t homa_replyv(int sockfd, const struct iovec *iov, int iovcnt,
-        const struct sockaddr *dest_addr, size_t addrlen, uint64_t id)
+        const sockaddr_in_union *addr, uint64_t id)
 {
     size_t totalLength = 0;
     for (int i = 0; i < iovcnt; i++) {
@@ -355,7 +355,7 @@ ssize_t homa_replyv(int sockfd, const struct iovec *iov, int iovcnt,
 }
 
 int homa_sendv(int sockfd, const struct iovec *iov, int iovcnt,
-        const struct sockaddr *dest_addr, size_t addrlen, uint64_t *id)
+        const sockaddr_in_union *addr, uint64_t *id, uint64_t cookie)
 {
     size_t totalLength = 0;
     for (int i = 0; i < iovcnt; i++) {
