@@ -442,7 +442,7 @@ void HomaClient::onRead(void* arg, grpc_error* sockError)
     HomaClient *hc = static_cast<HomaClient*>(arg);
     
     if (sockError != GRPC_ERROR_NONE) {
-        gpr_log(GPR_ERROR, "HomaClient::onRead invoked with error: %s",
+        gpr_log(GPR_INFO, "HomaClient::onRead invoked with error: %s",
                 grpc_error_string(sockError));
         return;
     }
