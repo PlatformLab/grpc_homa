@@ -394,10 +394,7 @@ void HomaClient::destroy_stream(grpc_transport* gt, grpc_stream* gs,
         grpc_core::MutexLock lock(&hc->mutex);
         hc->streams.erase(stream->streamId);
     }
-    {
-        grpc_core::MutexLock lock(&stream->mutex);
-        stream->~HomaStream();
-    }
+    stream->~HomaStream();
     grpc_core::ExecCtx::Run(DEBUG_LOCATION, closure, GRPC_ERROR_NONE);
 }
 
