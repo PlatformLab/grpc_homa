@@ -7,8 +7,7 @@
 #include "util.h"
 
 HomaIncoming::HomaIncoming()
-    : refs()
-    , sliceRefs(grpc_slice_refcount::Type::REGULAR, &refs,
+    : sliceRefs(grpc_slice_refcount::Type::REGULAR, &refs,
             HomaIncoming::destroyer, this, nullptr)
     , streamId()
     , length()
@@ -48,8 +47,7 @@ HomaIncoming::HomaIncoming()
 HomaIncoming::HomaIncoming(int sequence, bool initMd, size_t messageLength,
         size_t tailLength, int firstValue, bool messageComplete,
         bool trailMd)
-    : refs()
-    , sliceRefs(grpc_slice_refcount::Type::REGULAR, &refs,
+    : sliceRefs(grpc_slice_refcount::Type::REGULAR, &refs,
             HomaIncoming::destroyer, this, nullptr)
     , streamId(999)
     , length(0)

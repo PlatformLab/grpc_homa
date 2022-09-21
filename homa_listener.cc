@@ -53,7 +53,8 @@ int HomaListener::InsecureCredentials::AddPortToServer(const std::string& addr,
     }
     HomaListener *listener = HomaListener::Get(server, &port, ipv6);
     if (listener) {
-        server->core_server->AddListener(grpc_core::OrphanablePtr
+        grpc_core::Server* core_server = grpc_core::Server::FromC(server);
+        core_server->AddListener(grpc_core::OrphanablePtr
                 <grpc_core::Server::ListenerInterface>(listener));
     }
     return port;
@@ -225,7 +226,7 @@ HomaListener::Transport::Transport(grpc_server* server, int *port, bool ipv6)
 {
     vtable.vtable = &shared->vtable;
     if (server) {
-        this->server = server->core_server.get();
+        this->server = grpc_core::Server::FromC(server);
         fd = socket(
             ipv6 ? AF_INET6 : AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_HOMA);
         if (fd < 0) {

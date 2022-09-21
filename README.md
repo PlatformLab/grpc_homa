@@ -7,7 +7,7 @@ Homa instead of TCP for transport.
 - Please contact me if you have any problems; I'm happy to provide
   advice and support.
 
-- This code currently works with gRPC version 1.42.0.
+- This code currently works with gRPC version 1.43.0.
   
 - Known limitations:
   - grpc_homa currently supports only insecure channels.

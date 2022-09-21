@@ -89,7 +89,7 @@ public:
     }
 
     // Used by sliceRefs. Don't access directly.
-    grpc_core::RefCount refs;
+    std::atomic<size_t> refs{1};
 
     // Keeps track of all outstanding references to this message
     // (such as a std::unique_ptr for the entire message, and metadata
