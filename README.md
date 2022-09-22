@@ -7,10 +7,10 @@ Homa instead of TCP for transport.
 - Please contact me if you have any problems; I'm happy to provide
   advice and support.
 
-- The head is currently based on gRPC v. 4.3.0 (and there is a branch
-  named grpc-4.3.0 that will track this version of gRPC). There is
-  also a branch grpc-4.1.0, which is the most recent code to work
-  on gRPC 4.1.0; this branch is not being actively
+- The head is currently based on gRPC v. 1.43.0 (and there is a branch
+  named grpc-1.43.0 that will track this version of gRPC). There is
+  also a branch grpc-1.41.0, which is the most recent code to work
+  on gRPC 1.41.0; this branch is not being actively
   maintained.
   
 - Known limitations:
