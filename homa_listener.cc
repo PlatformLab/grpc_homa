@@ -111,12 +111,17 @@ HomaListener::HomaListener(grpc_server* server, int *port, bool ipv6)
 
 HomaListener::~HomaListener()
 {
-    {
+    if (port) {
         grpc_core::MutexLock lock(&shared->mutex);
         shared->ports.erase(port);
     }
     transport->shutdown();
-    grpc_core::ExecCtx::Get()->Flush();
+    auto ctx = grpc_core::ExecCtx::Get();
+    if (ctx) {
+      ctx->Flush();
+    } else {
+      delete transport;
+    }
     if (on_destroy_done) {
         grpc_core::ExecCtx::Run(DEBUG_LOCATION, on_destroy_done, GRPC_ERROR_NONE);
         grpc_core::ExecCtx::Get()->Flush();
