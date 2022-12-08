@@ -22,7 +22,7 @@ typedef int64_t be64;
  */
 class Wire {
 public:
-    /** 
+    /**
      * Every Homa RPC (whether request or response) starts with this
      * information.
      */
@@ -30,7 +30,7 @@ public:
         // Unique identifier for this stream (all messages for this RPC
         // will use the same identifier).
         be32 streamId;
-        
+
         // Position of this Homa message among all of those sent on
         // this stream. Used on the other end to make sure that messages
         // are processed in order. The first number for each stream is 1.
@@ -47,35 +47,35 @@ public:
         // Number of bytes of gRPC message data (may be zero), which follows
         // the trailing metadata.
         be32 messageBytes;
-        
+
         // ORed combination of one or more flag bits defined below.
         uint8_t flags;
-        
+
         // Flag bit indicating that this message contains all available
         // initial metadata (possibly none).
         static const int initMdPresent = 1;
-        
+
         // Flag bit indicating that, as of this Homa RPC, all message
         // data has been sent. If the message data is too long to fit
         // in a single message, only the last message has this bit set.
         static const int messageComplete = 2;
-        
+
         // Flag bit indicating that this message contains all available
         // trailing metadata (possibly none).
         static const int trailMdPresent = 4;
-        
+
         // Flag bit indicating that this message is a Homa request
         // (meaning it that it requires an eventual response).
         static const int request = 8;
-        
+
         // Indicates that there is no useful information in this message;
         // it was a dummy Homa response sent by the other side.
         static const int emptyResponse = 16;
-        
+
         // Flag bit indicating that the sender has cancelled this
         // RPC, and the receiver should do the same.
         static const int cancelled = 32;
-        
+
         Header(int streamId, int sequence, int initMdBytes, int trailMdBytes,
                 int messageBytes)
             : streamId(htonl(streamId))
@@ -85,7 +85,7 @@ public:
             , messageBytes(htonl(messageBytes))
             , flags(0)
         { }
-        
+
         Header(int streamId, int sequence)
             : streamId(htonl(streamId))
             , sequenceNum(htonl(sequence))
@@ -94,7 +94,7 @@ public:
             , messageBytes(0)
             , flags(0)
         { }
-        
+
         Header()
             : streamId()
             , sequenceNum()
@@ -103,21 +103,21 @@ public:
             , messageBytes()
             , flags()
         { }
-                
+
     } __attribute__((packed));
-    
+
     /** Each metadata value has the following format. */
     struct Mdata {
         // Number of bytes in the key for this item.
         be32 keyLength;
-        
+
         // Number of bytes in the value for this item.
         be32 valueLength;
-        
+
         // The key is stored starting here, followed by the value.
         char data[0];
     } __attribute__((packed));
-    
+
     // An array of special reference counts used for callout metadata
     // elements; element i contains a hidden value (same as i) that identifies
     // the location of its metadata value in grpc_metadata_batch_callouts.

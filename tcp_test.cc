@@ -13,8 +13,8 @@
 #include "test.grpc.pb.h"
 
 // Server-side code to implement the service.
-class SumService : public test::Test::Service {   
-public:    
+class SumService : public test::Test::Service {
+public:
     grpc::Status Sum(grpc::ServerContext*context, const test::SumArgs *args,
             test::SumResult *result) {
         result->set_sum(args->op1() + args->op2());
@@ -27,15 +27,15 @@ class SumClient{
 public:
     SumClient(const std::shared_ptr<grpc::Channel> channel)
         : stub(test::Test::NewStub(channel)) {}
-        
+
     std::unique_ptr<test::Test::Stub> stub;
-    
+
     int Sum(int op1, int op2)
     {
         test::SumArgs args;
         test::SumResult result;
         grpc::ClientContext context;
-        
+
         args.set_op1(op1);
         args.set_op2(op2);
         grpc::Status status = stub->Sum(&context, args, &result);

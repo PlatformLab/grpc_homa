@@ -15,7 +15,7 @@ public:
     grpc_metadata_batch batch2;
     grpc_transport_stream_op_batch op;
     grpc_transport_stream_op_batch_payload payload;
-    
+
     static void closureFunc1(void* arg, grpc_error_handle error) {
         int64_t value = reinterpret_cast<int64_t>(arg);
         if (error != GRPC_ERROR_NONE) {
@@ -25,7 +25,7 @@ public:
             Mock::logPrintf("; ", "closure1 invoked with %ld", value);
         }
     }
-    
+
     static void closureFunc2(void* arg, grpc_error_handle error) {
         int64_t value = reinterpret_cast<int64_t>(arg);
         if (error != GRPC_ERROR_NONE) {
@@ -35,7 +35,7 @@ public:
             Mock::logPrintf("; ", "closure2 invoked with %ld", value);
         }
     }
-    
+
     TestStream()
         : arena(grpc_core::Arena::Create(2000))
         , refcount()
@@ -55,7 +55,7 @@ public:
                 reinterpret_cast<void *>(456), dummy);
         op.payload = &payload;
     }
-    
+
     ~TestStream()
     {
         batch.Clear();
@@ -95,7 +95,7 @@ TEST_F(TestStream, saveCallbacks_basics) {
     op.recv_initial_metadata = true;
     op.payload->recv_initial_metadata.recv_initial_metadata = &batch;
     op.payload->recv_initial_metadata.recv_initial_metadata_ready = &closure1;
-    
+
     op.recv_message = true;
     grpc_core::OrphanablePtr<grpc_core::ByteStream> message;
     op.payload->recv_message.recv_message = &message;
@@ -103,11 +103,11 @@ TEST_F(TestStream, saveCallbacks_basics) {
     GRPC_CLOSURE_INIT(&closure3, closureFunc1,
             reinterpret_cast<void *>(777), dummy);
     op.payload->recv_message.recv_message_ready = &closure3;
-    
+
     op.recv_trailing_metadata = true;
     op.payload->recv_trailing_metadata.recv_trailing_metadata = &batch;
     op.payload->recv_trailing_metadata.recv_trailing_metadata_ready = &closure2;
-    
+
     stream.saveCallbacks(&op);
     execCtx.Flush();
     EXPECT_NE(nullptr, stream.initMdClosure);
@@ -120,7 +120,7 @@ TEST_F(TestStream, saveCallbacks_notifyError) {
     op.recv_initial_metadata = true;
     op.payload->recv_initial_metadata.recv_initial_metadata = &batch;
     op.payload->recv_initial_metadata.recv_initial_metadata_ready = &closure1;
-    
+
     op.recv_message = true;
     grpc_core::OrphanablePtr<grpc_core::ByteStream> message;
     op.payload->recv_message.recv_message = &message;
@@ -128,11 +128,11 @@ TEST_F(TestStream, saveCallbacks_notifyError) {
     GRPC_CLOSURE_INIT(&closure3, closureFunc1,
             reinterpret_cast<void *>(777), dummy);
     op.payload->recv_message.recv_message_ready = &closure3;
-    
+
     op.recv_trailing_metadata = true;
     op.payload->recv_trailing_metadata.recv_trailing_metadata = &batch;
     op.payload->recv_trailing_metadata.recv_trailing_metadata_ready = &closure2;
-    
+
     stream.error = GRPC_ERROR_CREATE_FROM_STATIC_STRING("test error");
     stream.saveCallbacks(&op);
     execCtx.Flush();
@@ -153,7 +153,7 @@ TEST_F(TestStream, saveCallbacks_transferData) {
             false));
     stream.saveCallbacks(&op);
     execCtx.Flush();
-    
+
     EXPECT_STREQ("closure1 invoked with 123", Mock::log.c_str());
     Mock::log.clear();
     Mock::logMetadata("; ", &batch);
@@ -209,11 +209,11 @@ TEST_F(TestStream, xmit_initialMetadata) {
     payload.send_initial_metadata.send_initial_metadata = &batch;
     Mock::metadataBatchAppend(&batch, "key1", "7 chars", arena);
     Mock::metadataBatchAppend(&batch, "k2", "0123456789", arena);
-    
+
     // First xmit sends nothing (waiting for more info.
     stream.xmit(&op);
     EXPECT_EQ(0U, Mock::homaMessages.size());
-    
+
     // Second xmit of metadata flushes first batch, but not second.
     payload.send_initial_metadata.send_initial_metadata = &batch2;
     Mock::metadataBatchAppend(&batch2, "key3", "key3 value", arena);
@@ -231,7 +231,7 @@ TEST_F(TestStream, xmit_initialMetadata) {
     EXPECT_STREQ("gpr_log: Key: key1, value: 7 chars; "
             "gpr_log: Key: k2, value: 0123456789",
             Mock::log.c_str());
-    
+
     // Send message to flush the second metadata batch.
     Mock::log.clear();
     op.send_initial_metadata = false;
@@ -242,7 +242,7 @@ TEST_F(TestStream, xmit_initialMetadata) {
     payload.send_message.send_message.reset(
             new grpc_core::SliceBufferByteStream(&slices, 0));
     stream.xmit(&op);
-    
+
     ASSERT_EQ(2U, Mock::homaMessages.size());
     Wire::dumpHeader(Mock::homaMessages[1].data(), GPR_LOG_SEVERITY_ERROR);
     EXPECT_STREQ("homa_sendv: 2 iovecs, 143 bytes; "
@@ -263,7 +263,7 @@ TEST_F(TestStream, xmit_initialMetadata) {
     EXPECT_STREQ("1000-1099",
             Mock::log.c_str());
     grpc_slice_buffer_destroy(&slices);
-    
+
 }
 TEST_F(TestStream, xmit_initialMetadataTooLarge) {
     op.send_initial_metadata = true;
@@ -277,7 +277,7 @@ TEST_F(TestStream, xmit_initialMetadataTooLarge) {
             Mock::log.c_str());
     EXPECT_SUBSTR("Too much initial metadata",
             grpc_error_std_string(stream.error).c_str());
-    
+
 }
 TEST_F(TestStream, xmit_trailingMetadataTooLarge) {
     op.send_trailing_metadata = true;
@@ -291,7 +291,7 @@ TEST_F(TestStream, xmit_trailingMetadataTooLarge) {
             Mock::log.c_str());
     EXPECT_SUBSTR("Too much trailing metadata",
             grpc_error_std_string(stream.error).c_str());
-    
+
 }
 TEST_F(TestStream, xmit_onlyTrailingMetadata) {
     op.send_trailing_metadata = true;
@@ -343,7 +343,7 @@ TEST_F(TestStream, xmit_everything) {
     payload.send_initial_metadata.send_initial_metadata = &batch;
     Mock::metadataBatchAppend(&batch, "key1", "7 chars", arena);
     stream.homaRequestId = 999;
-    
+
     op.send_message = true;
     grpc_slice_buffer slices;
     grpc_slice_buffer_init(&slices);
@@ -352,11 +352,11 @@ TEST_F(TestStream, xmit_everything) {
     grpc_slice_buffer_add(&slices, Mock::dataSlice(300, 3000));
     payload.send_message.send_message.reset(
             new grpc_core::SliceBufferByteStream(&slices, 0));
-    
+
     op.send_trailing_metadata = true;
     payload.send_trailing_metadata.send_trailing_metadata = &batch2;
     Mock::metadataBatchAppend(&batch2, "k2", "0123456789", arena);
-    
+
     stream.xmit(&op);
     ASSERT_EQ(1U, Mock::homaMessages.size());
     Wire::dumpHeader(Mock::homaMessages[0].data(), GPR_LOG_SEVERITY_ERROR);
@@ -389,7 +389,7 @@ TEST_F(TestStream, xmit_multipleHomaMessages) {
     payload.send_initial_metadata.send_initial_metadata = &batch;
     Mock::metadataBatchAppend(&batch, "key10", "7 chars", arena);
     stream.homaRequestId = 999;
-    
+
     op.send_message = true;
     grpc_slice_buffer slices;
     grpc_slice_buffer_init(&slices);
@@ -398,11 +398,11 @@ TEST_F(TestStream, xmit_multipleHomaMessages) {
     grpc_slice_buffer_add(&slices, Mock::dataSlice(100, 3000));
     payload.send_message.send_message.reset(
             new grpc_core::SliceBufferByteStream(&slices, 0));
-    
+
     op.send_trailing_metadata = true;
     payload.send_trailing_metadata.send_trailing_metadata = &batch2;
     Mock::metadataBatchAppend(&batch2, "k2", "0123456789a", arena);
-    
+
     stream.maxMessageLength = 301;
     stream.xmit(&op);
     ASSERT_EQ(3U, Mock::homaMessages.size());
@@ -410,7 +410,7 @@ TEST_F(TestStream, xmit_multipleHomaMessages) {
             "homa_sendv: 2 iovecs, 301 bytes; "
             "homa_sendv: 3 iovecs, 202 bytes",
             Mock::log.c_str());
-    
+
     // First Homa message: initial metadata plus some message data.
     Mock::log.clear();
     Wire::dumpHeader(Mock::homaMessages[0].data(), GPR_LOG_SEVERITY_ERROR);
@@ -427,7 +427,7 @@ TEST_F(TestStream, xmit_multipleHomaMessages) {
             Mock::homaMessages[0].data() + sizeof(Wire::Header) + 20,
             Mock::homaMessages[0].size() - (sizeof(Wire::Header) + 20));
     EXPECT_STREQ("1000-1099 2000-2159", Mock::log.c_str());
-    
+
     // Second Homa message: more message data.
     Mock::log.clear();
     Wire::dumpHeader(Mock::homaMessages[1].data(), GPR_LOG_SEVERITY_ERROR);
@@ -437,7 +437,7 @@ TEST_F(TestStream, xmit_multipleHomaMessages) {
     Mock::logData("; ", Mock::homaMessages[1].data() + sizeof(Wire::Header),
             Mock::homaMessages[1].size() - (sizeof(Wire::Header)));
     EXPECT_STREQ("2160-2439", Mock::log.c_str());
-    
+
     // Third Homa message; last message data plus trailing metadata.
     Mock::log.clear();
     Wire::dumpHeader(Mock::homaMessages[2].data(), GPR_LOG_SEVERITY_ERROR);
@@ -454,7 +454,7 @@ TEST_F(TestStream, xmit_multipleHomaMessages) {
             Mock::homaMessages[2].data() + sizeof(Wire::Header) + 21,
             Mock::homaMessages[2].size() - (sizeof(Wire::Header) + 21));
     EXPECT_STREQ("2440-2499 3000-3099", Mock::log.c_str());
-    
+
     grpc_slice_buffer_destroy(&slices);
 }
 TEST_F(TestStream, xmit_emptyMessage) {
@@ -515,7 +515,7 @@ TEST_F(TestStream, transferData_setEof) {
     EXPECT_STREQ("", Mock::log.c_str());
     EXPECT_EQ(1U, stream.incoming.size());
     EXPECT_FALSE(stream.eof);
-    
+
     // Second message: messageComplete.
     msg = new HomaIncoming(2, false, 1000, 1000, 0, true, false);
     stream.incoming.clear();
@@ -526,7 +526,7 @@ TEST_F(TestStream, transferData_setEof) {
     execCtx.Flush();
     EXPECT_STREQ("", Mock::log.c_str());
     EXPECT_EQ(1U, stream.incoming.size());
-    
+
     // Third message: trailing metadata.
     msg = new HomaIncoming(2, false, 0, 0, 0, false, true);
     stream.incoming.clear();
@@ -705,7 +705,7 @@ TEST_F(TestStream, handleIncoming_basics) {
     grpc_core::OrphanablePtr<grpc_core::ByteStream> message;
     stream.messageStream = &message;
     grpc_core::ExecCtx execCtx;
-    
+
     // No messages should be processed until all 4 have been passed to
     // handleIncoming.
     HomaIncoming::UniquePtr msg(new HomaIncoming(4, false, 0, 0, 0, false,
@@ -713,38 +713,38 @@ TEST_F(TestStream, handleIncoming_basics) {
     stream.handleIncoming(std::move(msg), 444U);
     execCtx.Flush();
     EXPECT_STREQ("", Mock::log.c_str());
-    
+
     msg.reset(new HomaIncoming(2, false, 500, 1000, 0, false, false));
     stream.handleIncoming(std::move(msg), 445U);
     execCtx.Flush();
     EXPECT_STREQ("", Mock::log.c_str());
-    
+
     msg.reset(new HomaIncoming(3, false, 1000, 0, 1500, true, false));
     stream.handleIncoming(std::move(msg), 446U);
     execCtx.Flush();
     EXPECT_STREQ("", Mock::log.c_str());
-    
+
     ASSERT_EQ(3U, stream.incoming.size());
     EXPECT_EQ(2, stream.incoming[0]->sequence);
     EXPECT_EQ(3, stream.incoming[1]->sequence);
     EXPECT_EQ(4, stream.incoming[2]->sequence);
-    
+
     msg.reset(new HomaIncoming(1, true, 0, 0, 0, false, false));
     stream.handleIncoming(std::move(msg), 447U);
     execCtx.Flush();
     EXPECT_STREQ("closure1 invoked with 123; "
             "closure1 invoked with 777; "
             "closure2 invoked with 456", Mock::log.c_str());
-    
+
     Mock::log.clear();
     Mock::logMetadata("; ", &batch);
     EXPECT_STREQ("metadata initMd1: value1; metadata :path: /x/y (0)",
             Mock::log.c_str());
-    
+
     Mock::log.clear();
     Mock::logByteStream("; ", message.get());
     EXPECT_STREQ("0-499; 500-1499; 1500-2499", Mock::log.c_str());
-    
+
     Mock::log.clear();
     Mock::logMetadata("; ", &batch2);
     EXPECT_STREQ("metadata k2: 0123456789", Mock::log.c_str());
@@ -754,7 +754,7 @@ TEST_F(TestStream, handleIncoming_duplicate_lt_nextIncomingSequence) {
     stream.initMd = &batch;
     stream.nextIncomingSequence = 2;
     grpc_core::ExecCtx execCtx;
-    
+
     HomaIncoming::UniquePtr msg(new HomaIncoming(1, true, 0, 0, 0,
             false, false));
     stream.handleIncoming(std::move(msg), 444U);
@@ -765,14 +765,14 @@ TEST_F(TestStream, handleIncoming_duplicate_queued_packet) {
     stream.initMdClosure = &closure1;
     stream.initMd = &batch;
     grpc_core::ExecCtx execCtx;
-    
+
     HomaIncoming::UniquePtr msg(new HomaIncoming(2, true, 0, 0, 0,
             false, false));
     stream.handleIncoming(std::move(msg), 444U);
     execCtx.Flush();
     EXPECT_STREQ("", Mock::log.c_str());
     EXPECT_EQ(1U, stream.incoming.size());
-    
+
     msg.reset(new HomaIncoming(2, true, 0, 0, 0, false, false));
     stream.handleIncoming(std::move(msg), 444U);
     execCtx.Flush();
@@ -785,7 +785,7 @@ TEST_F(TestStream, notifyError) {
     op.recv_initial_metadata = true;
     op.payload->recv_initial_metadata.recv_initial_metadata = &batch;
     op.payload->recv_initial_metadata.recv_initial_metadata_ready = &closure1;
-    
+
     op.recv_message = true;
     grpc_core::OrphanablePtr<grpc_core::ByteStream> message;
     op.payload->recv_message.recv_message = &message;
@@ -793,15 +793,15 @@ TEST_F(TestStream, notifyError) {
     GRPC_CLOSURE_INIT(&closure3, closureFunc1,
             reinterpret_cast<void *>(777), dummy);
     op.payload->recv_message.recv_message_ready = &closure3;
-    
+
     op.recv_trailing_metadata = true;
     op.payload->recv_trailing_metadata.recv_trailing_metadata = &batch;
     op.payload->recv_trailing_metadata.recv_trailing_metadata_ready = &closure2;
-    
+
     stream.saveCallbacks(&op);
     execCtx.Flush();
     EXPECT_STREQ("", Mock::log.c_str());
-    
+
     stream.notifyError(GRPC_ERROR_CREATE_FROM_STATIC_STRING(
             "testing notifyError"));
     execCtx.Flush();

@@ -25,7 +25,7 @@ public:
     };
 
     typedef std::unique_ptr<HomaIncoming, UnrefIncoming> UniquePtr;
-    
+
     explicit          HomaIncoming();
     explicit          HomaIncoming(int sequence, bool initMd,
                             size_t messageLength, size_t tailLength,
@@ -39,10 +39,10 @@ public:
     grpc_slice        getSlice(size_t offset, size_t length);
     grpc_slice        getStaticSlice(size_t offset, size_t length,
                             grpc_core::Arena *arena);
-    
+
     static UniquePtr  read(int fd, int flags, uint64_t *homaId,
                             grpc_error_handle *error);
-    
+
     /**
      * Make a range of bytes from a message addressable in a contiguous
      * chunk.
@@ -125,17 +125,17 @@ public:
     // If the entire message doesn't fit in hdr and initialPayload, the
     // remainder will be read here.
     std::vector<uint8_t> tail;
-    
+
     // If non-null, the target is incremented when this object is destroyed.
     int *destroyCounter;
-    
+
     // If the value for a metadata item is longer than this, it will be
     // stored as a refcounted pointer into the message, rather than a
     // static slice. This is a variable so it can be modified for testing.
     size_t maxStaticMdLength;
 
     static void destroyer(void* arg);
-    
+
     Wire::Header *hdr()
     {
         return reinterpret_cast<Wire::Header*>(initialPayload);

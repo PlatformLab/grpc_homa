@@ -252,7 +252,7 @@ void HomaClient::set_pollset(grpc_transport* gt, grpc_stream* gs,
 {
     Peer *peer = containerOf(gt, &HomaClient::Peer::transport);
     HomaClient* hc = peer->hc;
-    
+
     if (hc->gfd) {
         grpc_pollset_add_fd(pollset, hc->gfd);
     }
@@ -274,7 +274,7 @@ void HomaClient::set_pollset_set(grpc_transport* gt, grpc_stream* gs,
 {
     Peer *peer = containerOf(gt, &HomaClient::Peer::transport);
     HomaClient* hc = peer->hc;
-    
+
     if (hc->gfd) {
         grpc_pollset_set_add_fd(pollset_set, hc->gfd);
     }
@@ -415,7 +415,7 @@ void HomaClient::destroy(grpc_transport* gt)
             sharedClient = nullptr;
         }
     }
-    
+
 }
 
 grpc_endpoint* HomaClient::get_endpoint(grpc_transport* gt)
@@ -437,7 +437,7 @@ void HomaClient::onRead(void* arg, grpc_error* sockError)
 {
     uint64_t homaId;
     HomaClient *hc = static_cast<HomaClient*>(arg);
-    
+
     if (sockError != GRPC_ERROR_NONE) {
         gpr_log(GPR_INFO, "HomaClient::onRead invoked with error: %s",
                 grpc_error_string(sockError));

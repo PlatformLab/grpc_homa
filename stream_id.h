@@ -15,7 +15,7 @@
 struct StreamId {
     // Specifies the address and port of the other machine.
     sockaddr_in_union addr;
-    
+
     // Unique id for this RPC among all those from its client.
     uint32_t id;
 
@@ -27,7 +27,7 @@ struct StreamId {
     bool operator==(const StreamId& other) const;
 
     std::string toString();
-    
+
     int port()
     {
         if (addr.in6.sin6_family == AF_INET6) {

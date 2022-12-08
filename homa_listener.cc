@@ -279,7 +279,7 @@ void HomaListener::Transport::start(grpc_core::Server* server,
             const std::vector<grpc_pollset*>* pollsets)
 {
     char name[30];
-    
+
     snprintf(name, sizeof(name), "homa-socket:%d", port);
     gfd = grpc_fd_create(fd, name, true);
     for (size_t i = 0; i < pollsets->size(); i++) {

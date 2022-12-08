@@ -93,14 +93,14 @@ void logToMemory(gpr_log_func_args* args)
 {
     static std::mutex mutex;
     std::lock_guard<std::mutex> guard(mutex);
-    
+
     thread_local int tid = 0;
     if (tid == 0) {
         tid = gettid();
     }
-    
+
     gpr_timespec now = gpr_now(GPR_CLOCK_REALTIME);
-    
+
     const char *file;
     const char *lastSlash = strrchr(args->file, '/');
     if (lastSlash == nullptr) {
@@ -108,7 +108,7 @@ void logToMemory(gpr_log_func_args* args)
     } else {
       file = lastSlash + 1;
     }
-    
+
     char buffer[58];
     size_t size = snprintf(buffer, sizeof(buffer), "%s %lu.%u %7d %s:%d]",
             gpr_log_severity_string(args->severity), now.tv_sec, now.tv_nsec,
@@ -139,7 +139,7 @@ void printLog(const char *file)
                 strerror(errno));
         return;
     }
-    
+
     if (logWrapped) {
         fwrite(logMemory + logOffset, 1, logSize - logOffset, f);
     }
@@ -156,9 +156,9 @@ void printLog(const char *file)
 class WeightedChoice {
 public:
     WeightedChoice(int weight, ...);
-    
+
     /**
-     * Choose an integer value using the given weights. 
+     * Choose an integer value using the given weights.
      * \param rng
      *      Random number generator to build upon
      * \return
@@ -181,11 +181,11 @@ public:
                 weights.size() - 1);
         return weights.size() - 1;
     }
-    
+
 protected:
     // Constructor arguments
     std::vector<int> weights;
-    
+
     // Used to generate a random integer in the range [0, sum), where
     // sum is the sum of all the entries in weights.
     std::uniform_int_distribution<int> dist;
@@ -228,23 +228,23 @@ const char *opNames[] = {
 
 // Each instance records metrics for a single client thread.
 struct ClientStats {
-    
+
     // Total number of times each operation type has been invoked.
     uint64_t ops[numOps];
-    
+
     // Total number of data bytes output for each operation type.
     uint64_t outBytes[numOps];
-    
+
     // Total number of data bytes received for each operation type.
     uint64_t inBytes[numOps];
-    
+
     // Number of RTT measurements retained for each operation type.
     static const int maxSamples = 10000;
-    
+
     // RTT measurements from recent RPCs, separated by operation
     // type.
     uint64_t rtts[numOps][maxSamples];
-    
+
     // Index of where to record the next RTT measurement for each
     // operation type.
     int nextSample[numOps];
@@ -258,10 +258,10 @@ class Target {
 public:
     // Stub for invoking this server.
     std::unique_ptr<basic::Basic::Stub> stub;
-    
+
     // Name and port for the server node.
     char server[100];
-    
+
     /**
      * Constructor for StressClients.
      * \param serverIndex
@@ -283,7 +283,7 @@ public:
                 grpc::InsecureChannelCredentials()));
         }
     }
-    
+
     /**
      * Send a variable-size buffer, receive a variable-size buffer in return
      * \param requestLength
@@ -298,7 +298,7 @@ public:
         basic::Request request;
         basic::Response response;
         grpc::ClientContext context;
-        
+
         request.set_requestitems(requestLength>>2);
         request.set_replyitems(replyLength>>2);
         for (int i = 0; i < requestLength>>2; i++) {
@@ -315,7 +315,7 @@ public:
                     response.data_size()*4, replyLength);
         }
     }
-    
+
     /**
      * Send a stream of messages, receive a single response.
      * \param sizes
@@ -332,7 +332,7 @@ public:
         grpc::ClientContext context;
         std::unique_ptr<grpc::ClientWriter<basic::StreamOutRequest>> writer(
                 stub->StreamOut(&context, &response));
-        
+
         for (size_t i = 0; i < sizes.size(); i++) {
             if (i == (sizes.size() - 1)) {
                 request.set_done(1);
@@ -363,7 +363,7 @@ public:
                     response.data_size()*4, replyLength);
         }
     }
-    
+
     /**
      * Receive a stream of response messages.
      * \param sizes
@@ -375,7 +375,7 @@ public:
         basic::StreamInRequest request;
         basic::Response response;
         grpc::ClientContext context;
-        
+
         for (int size: sizes) {
             request.add_sizes(size>>2);
         }
@@ -400,7 +400,7 @@ public:
             printf("StreamIn failed: %s\n", stringForStatus(&status).c_str());
         }
     }
-    
+
     /**
      * Receive a stream of response messages.
      * \param outSizes
@@ -419,13 +419,13 @@ public:
         grpc::ClientContext context;
         std::shared_ptr<grpc::ClientReaderWriter<basic::StreamOutRequest,
                 basic::Response>> stream(stub->Stream2Way(&context));
-        
+
         if (outSizes.size() != inSizes.size()) {
             printf("Stream2Way received mismatched sizes: %lu and %lu\n",
                 outSizes.size(), inSizes.size());
             return;
         }
-        
+
         for (size_t i = 0; i < outSizes.size(); i++) {
             int size = outSizes[i];
             if (i == (outSizes.size() - 1)) {
@@ -462,7 +462,7 @@ public:
                     stringForStatus(&status).c_str());
         }
     }
-    
+
     /**
      * Ask the peer to print its in-memory log, if it hasn't already
      * done so.
@@ -472,7 +472,7 @@ public:
         basic::Empty request;
         basic::Empty response;
         grpc::ClientContext context;
-        
+
         grpc::Status status = stub->PrintLog(&context, request, &response);
         if (!status.ok()) {
             printf("PrintLog RPC to %s failed: %s\n",
@@ -483,7 +483,7 @@ public:
 };
 
 // This class implements the server side of the benchmark RPCs
-class StressService : public basic::Basic::Service {   
+class StressService : public basic::Basic::Service {
 public:
     grpc::Status Ping(grpc::ServerContext*context,
             const basic::Request *request,
@@ -500,7 +500,7 @@ public:
         }
         return grpc::Status::OK;
     }
-    
+
     grpc::Status StreamOut(grpc::ServerContext* context,
             grpc::ServerReader<basic::StreamOutRequest>* reader,
             basic::Response *response)
@@ -523,7 +523,7 @@ public:
         }
         return grpc::Status::OK;
     }
-    
+
     grpc::Status StreamIn(grpc::ServerContext* context,
             const basic::StreamInRequest *request,
             grpc::ServerWriter<basic::Response>* writer)
@@ -543,7 +543,7 @@ public:
         }
         return grpc::Status::OK;
     }
-    
+
     grpc::Status Stream2Way(grpc::ServerContext* context,
             grpc::ServerReaderWriter<basic::Response,
             basic::StreamOutRequest>* stream)
@@ -570,8 +570,8 @@ public:
             }
         }
         return grpc::Status::OK;
-    }  
-    
+    }
+
     grpc::Status PrintLog(grpc::ServerContext*context,
             const basic::Empty *request,
             basic::Empty *response) override
@@ -640,20 +640,20 @@ void client(int id)
     }
     gpr_log(GPR_INFO, "Client %d starting with random seed %d", id, seed);
     rng.seed(seed);
-    
+
     // Picks the target for an operation
     std::uniform_int_distribution<int> targetDist(0, targets.size()-1);
-    
+
     // Selects a particular kind of operation (small, stream out, etc.)
     WeightedChoice typeDist(100, 10, 5, 5, 5, 2, -1);
-    
+
     std::vector<int> streamSizes = makeVector<int>(
             5, 100, 5000, 1200000, 400, 50000);
     std::vector<int> stream2WayOutSizes = makeVector<int>(
             7, 100, 200, 1200000, 3000, 10000, 400, 50000);
     std::vector<int> stream2WayInSizes = makeVector<int>(
             7, 1200000, 5000, 300, 9000, 0, 0, 5000);
-    
+
     int outBytes[numOps];
     int inBytes[numOps];
     outBytes[0] = 100;
@@ -668,7 +668,7 @@ void client(int id)
     inBytes[4] = sum(streamSizes);
     outBytes[5] = sum(stream2WayOutSizes);
     inBytes[5] = sum(stream2WayInSizes);
-    
+
     while (true) {
         Target& target = targets[targetDist(rng)];
         int type = typeDist(rng);
@@ -733,7 +733,7 @@ void client(int id)
  */
 void printHelp()
 {
-    
+
 	printf("Usage: stress [option option ...]\n\n");
     printf("Exercises gRPC by invoking a variety of different requests "
             "at random.\n");
@@ -773,10 +773,10 @@ void appendPrintf(std::string& s, const char *separator, const char* format, ...
 {
 	va_list ap;
 	va_start(ap, format);
-	
+
 	if (!s.empty() && (separator != NULL))
 		s.append(separator);
-	    
+
 	// We're not really sure how big of a buffer will be necessary.
 	// Try 1K, if not the return value will tell us how much is necessary.
 	int buf_size = 1024;
@@ -811,11 +811,11 @@ int main(int argc, char** argv)
     recordFunc = TimeTrace::record2;
     std::vector<std::string> args;
     unsigned nextArg;
-    
+
     for (int i = 0; i < argc; i++) {
         args.emplace_back(argv[i]);
     }
-    
+
     grpc_init();
     for (nextArg = 1; nextArg < args.size(); nextArg++) {
 		const char *option = args[nextArg].c_str();
@@ -865,14 +865,14 @@ int main(int argc, char** argv)
         printf("This machine isn't either a client or a server; exiting\n");
         exit(0);
     }
-    
+
     StressService service;
     grpc::ServerBuilder builder;
     std::unique_ptr<grpc::Server> server;
     if (isServer) {
         for (int i = 0; i < numServerPorts; i++) {
             char address[100];
-            
+
             if (useHoma) {
                 snprintf(address, sizeof(address), "homa:%d", 4000+i);
                 builder.AddListeningPort(address,
@@ -881,7 +881,7 @@ int main(int argc, char** argv)
                 snprintf(address, sizeof(address), "0.0.0.0:%d", 4000+i);
                 builder.AddListeningPort(address,
                         grpc::InsecureServerCredentials());
-                
+
             }
         }
         builder.RegisterService(&service);
@@ -890,67 +890,67 @@ int main(int argc, char** argv)
             exit(1);
         }
     }
-    
+
     for (int i = 0; i < numServers; i++) {
         for (int j = 0; j < numServerPorts; j++) {
             targets.emplace_back(firstServer + i, 4000+j);
         }
     }
-    
+
     clientStats.resize(numClientThreads);
     memset(clientStats.data(), 0, clientStats.size() * sizeof(clientStats[0]));
     for (int i = 0; i < numClientThreads; i++) {
         std::thread t(client, i);
         t.detach();
     }
-    
+
     // This array stores a copy of clientStats as of the last time we
     // printed statistics.
     std::vector<ClientStats> prevClientStats;
     prevClientStats.resize(numClientThreads);
     memset(prevClientStats.data(), 0,
             numClientThreads * sizeof(prevClientStats[0]));
-    
+
     // This array stores combined stats for all the clients for the two
     // most recent time samples.
     ClientStats totalStats[2];
-    
+
     // Index in totalStats of the most recent sample.
     int latestStats = 0;
-    
+
     // Time at which last stats were gathered.
     uint64_t lastSampleTime = 0;
-    
+
     // True means this is the first time through the loop (we don't have
     // any old data).
     bool firstTime = true;
-    
+
     // Number of consecutive iterations where each client appeared to
     // make no progress.
     int idle[numClientThreads];
     memset(idle, 0, sizeof(idle));
-    
+
     // Each iteration through this loop prints statistics, then sleeps a while.
     while (true) {
         latestStats = 1-latestStats;
         ClientStats *curTotal = &totalStats[latestStats];
         ClientStats *oldTotal = &totalStats[1-latestStats];
-        
+
         // These arrays build up strings listing rates of ops and data.
         std::string count;
         std::string outBytes;
         std::string inBytes;
-        
+
         // RTT samples for current op.
         std::vector<double> rtts;
-        
+
         double totalOps = 0.0;
         double totalOut = 0.0;
         double totalIn = 0.0;
-        
+
         uint64_t currentTime = TimeTrace::rdtsc();
         double elapsed = TimeTrace::toSeconds(currentTime - lastSampleTime);
-        
+
         // Gather and print current statistics.
         memset(curTotal, 0, sizeof(*curTotal));
         rtts.reserve(clientStats.size() * ClientStats::maxSamples);
@@ -965,7 +965,7 @@ int main(int argc, char** argv)
             for (size_t client = 0; client < clientStats.size(); client++) {
                 ClientStats *cur = &clientStats[client];
                 ClientStats *old = &prevClientStats[client];
-                
+
                 // First, check for a stuck client.
                 if (op == 0) {
                     if (cur->ops[op] == old->ops[op]) {
@@ -986,7 +986,7 @@ int main(int argc, char** argv)
                         idle[client] = 0;
                     }
                 }
-                
+
                 double opsPerSec = (cur->ops[op] - old->ops[op])/elapsed;
                 appendPrintf(count, " ", "%5.0f", opsPerSec);
                 curTotal->ops[op] += cur->ops[op];
@@ -1003,7 +1003,7 @@ int main(int argc, char** argv)
                 appendPrintf(inBytes, " ", "%5.2f", inPerSec*1e-6);
                 curTotal->inBytes[op] += cur->inBytes[op];
                 old->inBytes[op] = cur->inBytes[op];
-                
+
                 uint64_t *current = clientStats[client].rtts[op];
                 for (int count = ClientStats::maxSamples; count > 0; count--) {
                     if (*current == 0) {
@@ -1013,7 +1013,7 @@ int main(int argc, char** argv)
                     current++;
                 }
             }
-            
+
             printf("%s:\n", opNames[op]);
             if (rtts.size() > 0) {
                 std::sort(rtts.begin(), rtts.end());
@@ -1040,7 +1040,7 @@ int main(int argc, char** argv)
                         inBytes.c_str());
             }
         }
-        
+
         if (!firstTime && (clientStats.size() != 0)) {
             printf("Totals: %.0f ops/sec, %.2f MB/sec out %.2f MB/sec in\n",
                     totalOps/elapsed, 1e-06*totalOut/elapsed,
@@ -1051,6 +1051,6 @@ int main(int argc, char** argv)
         lastSampleTime = currentTime;
         usleep(2000000);
     }
-    
+
     exit(0);
 }

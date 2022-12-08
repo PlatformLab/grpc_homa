@@ -5,7 +5,7 @@
 // This file contains unit tests for homa_incoming.cc and homa_incoming.h.
 
 class TestIncoming : public ::testing::Test {
-public:   
+public:
     uint64_t homaId;
     TestIncoming()
         : homaId(0)
@@ -121,19 +121,19 @@ TEST_F(TestIncoming, copyOut) {
     msg->tail.resize(1000);
     fillData(msg->initialPayload, 500, 0);
     fillData(msg->tail.data(), 1000, 1000);
-    
+
     // First block is in the static part of the message.
     char buffer[40];
     msg->copyOut(buffer, 460, sizeof(buffer));
     Mock::logData("; ", buffer, sizeof(buffer));
     EXPECT_STREQ("460-499", Mock::log.c_str());
-    
+
     // Second slice is entirely in the tail of the message.
     Mock::log.clear();
     msg->copyOut(buffer, 500, sizeof(buffer));
     Mock::logData("; ", buffer, sizeof(buffer));
     EXPECT_STREQ("1000-1039", Mock::log.c_str());
-    
+
     // Third slice straddles the boundary.
     Mock::log.clear();
     msg->copyOut(buffer, 484, sizeof(buffer));
@@ -148,20 +148,20 @@ TEST_F(TestIncoming, getStaticSlice) {
     EXPECT_EQ(GRPC_ERROR_NONE, error);
     msg->baseLength = 500;
     fillData(msg->initialPayload, 500, 0);
-    
+
     // First slice is small enough to be stored internally.
     grpc_slice slice1 = msg->getStaticSlice(60, 8, arena);
     Mock::logData("; ", GRPC_SLICE_START_PTR(slice1), GRPC_SLICE_LENGTH(slice1));
     EXPECT_STREQ("60-67", Mock::log.c_str());
     EXPECT_EQ(nullptr, slice1.refcount);
-    
+
     // Second slice is allocated in the arena.
     Mock::log.clear();
     grpc_slice slice2 = msg->getStaticSlice(100, 200, arena);
     Mock::logData("; ", GRPC_SLICE_START_PTR(slice2), GRPC_SLICE_LENGTH(slice2));
     EXPECT_STREQ("100-299", Mock::log.c_str());
     EXPECT_EQ(&grpc_core::kNoopRefcount, slice2.refcount);
-    
+
     arena->Destroy();
 }
 
@@ -175,24 +175,24 @@ TEST_F(TestIncoming, getSlice) {
     msg->tail.resize(1000);
     fillData(msg->initialPayload, 500, 0);
     fillData(msg->tail.data(), 1000, 1000);
-    
+
     // First slice is in the static part of the message.
     grpc_slice slice1 = msg->getSlice(440, 60);
     Mock::logData("; ", GRPC_SLICE_START_PTR(slice1), GRPC_SLICE_LENGTH(slice1));
     EXPECT_STREQ("440-499", Mock::log.c_str());
-    
+
     // Second slice is entirely in the tail of the message.
     Mock::log.clear();
     grpc_slice slice2 = msg->getSlice(500, 100);
     Mock::logData("; ", GRPC_SLICE_START_PTR(slice2), GRPC_SLICE_LENGTH(slice2));
     EXPECT_STREQ("1000-1099", Mock::log.c_str());
-    
+
     // Third slice straddles the boundary.
     Mock::log.clear();
     grpc_slice slice3 = msg->getSlice(420,200);
     Mock::logData("; ", GRPC_SLICE_START_PTR(slice3), GRPC_SLICE_LENGTH(slice3));
     EXPECT_STREQ("420-499 1000-1119", Mock::log.c_str());
-    
+
     // Now make sure that the reference counting worked correctly.
     EXPECT_EQ(0, destroyCounter);
     msg.reset(nullptr);
@@ -314,18 +314,18 @@ TEST_F(TestIncoming, getBytes) {
     msg->tail.resize(1000);
     fillData(msg->initialPayload, 500, 0);
     fillData(msg->tail.data(), 1000, 1000);
-    
+
     // First extraction fits in initial data.
     Bytes16 *p = msg->getBytes<Bytes16>(484, &buffer);
     Mock::logData("; ", p->data, 16);
     EXPECT_STREQ("484-499", Mock::log.c_str());
-    
+
     // Second extraction straddles the initial data and the tail.
     Mock::log.clear();
     p = msg->getBytes<Bytes16>(496, &buffer);
     Mock::logData("; ", p->data, 16);
     EXPECT_STREQ("496-499 1000-1011", Mock::log.c_str());
-    
+
     // Third extraction is entirely in the tail.
     Mock::log.clear();
     p = msg->getBytes<Bytes16>(500, &buffer);

@@ -77,7 +77,7 @@ PROTECTED:
                                 grpc_pollset* pollset);
         static void     set_pollset_set(grpc_transport* gt, grpc_stream* gs,
                                 grpc_pollset_set* pollset_set);
-        
+
     PROTECTED:
         /**
          * This structure is used to pass data down through callbacks to
@@ -121,14 +121,14 @@ PROTECTED:
 
         // Used to call us back when fd is readable.
         grpc_closure read_closure;
-        
+
         grpc_core::ConnectivityStateTracker state_tracker;
 
         // Used to notify gRPC of new incoming requests.
         void (*accept_stream_cb)(void* user_data, grpc_transport* transport,
                 const void* server_data);
         void* accept_stream_data;
-        
+
         friend class TestListener;
     };
 
@@ -140,7 +140,7 @@ PROTECTED:
             const std::vector<grpc_pollset*>* pollsets) override;
     grpc_core::channelz::ListenSocketNode* channelz_listen_socket_node()
             const override;
-    
+
     // Transport associated with the listener; its lifetime is managed
     // outside this class.
     Transport *transport;
@@ -164,12 +164,12 @@ PROTECTED:
         struct grpc_transport_vtable vtable;
         Shared() : ports(), mutex() {}
     };
-    // Singleton object with common info. 
+    // Singleton object with common info.
 
     static std::optional<Shared> shared;
     static gpr_once shared_once;
     static void     InitShared(void);
-    
+
     friend class TestListener;
 };
 

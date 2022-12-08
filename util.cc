@@ -12,13 +12,13 @@
  *      of data will have a value 4 greater than the previous.
  */
 void fillData(void *data, int length, int firstValue)
-{ 
+{
 	int i;
     uint8_t *p = static_cast<uint8_t *>(data);
 	for (i = 0; i <= length-4; i += 4) {
 		*reinterpret_cast<int32_t *>(p + i) = firstValue + i;
 	}
-	
+
 	/* Fill in extra bytes with a special value. */
 	for ( ; i < length; i += 1) {
 		p[i] = 0xaa;
@@ -60,7 +60,7 @@ std::string stringPrintf(const char* format, ...)
     std::string result;
 	va_list ap;
 	va_start(ap, format);
-	    
+
 	// We're not really sure how big of a buffer will be necessary.
 	// Try 1K, if not the return value will tell us how much is necessary.
 	int buf_size = 1024;

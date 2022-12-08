@@ -79,7 +79,7 @@ double TimeTrace::getCyclesPerSec()
 	if (cps != 0) {
 		return cps;
 	}
-	
+
 	// Take parallel time readings using both rdtsc and gettimeofday.
 	// After 10ms have elapsed, take the ratio between these readings.
 
@@ -147,9 +147,9 @@ void
 TimeTrace::printInternal(std::string *s, FILE *f)
 {
 	std::vector<Buffer*> buffers;
-	
+
 	freeze();
-	
+
 	/* Make a copy of threadBuffers in order to avoid potential
 	 * synchronization issues with new threads modifying it.
 	 */
@@ -239,10 +239,10 @@ TimeTrace::printInternal(std::string *s, FILE *f)
 		buffer = buffers[curBuf];
 		event = &buffer->events[current[curBuf]];
 		current[curBuf] = (current[curBuf] + 1) % Buffer::BUFFER_SIZE;
-        
+
 		char message[1000];
 		char core_id[20];
-        
+
         if (first) {
             // Output an initial (synthetic) record with the starting time.
             snprintf(core_id, sizeof(core_id), "[%s]", buffer->name.c_str());
@@ -331,19 +331,19 @@ TimeTrace::Buffer::Buffer()
 	, events()
 {
     std::lock_guard<std::mutex> guard(mutex);
-    
+
     // Choose a name for this thread.
     static int nextId = 1;
     char buffer[100];
     snprintf(buffer, sizeof(buffer), "t%d", nextId);
     nextId++;
     name.append(buffer);
-    
+
 	// Mark all of the events invalid.
 	for (uint32_t i = 0; i < BUFFER_SIZE; i++) {
 		events[i].format = NULL;
 	}
-    
+
     threadBuffers.push_back(this);
 }
 

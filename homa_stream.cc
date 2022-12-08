@@ -70,7 +70,7 @@ HomaStream::HomaStream(StreamId streamId, int fd,
     grpc_slice_buffer_init(&messageData);
     resetXmit();
 }
-    
+
 HomaStream::~HomaStream()
 {
     if (homaRequestId != 0) {
@@ -95,7 +95,7 @@ void HomaStream::flush()
         return;
     }
     bool isRequest = (homaRequestId == 0);
-    
+
     // When transmitting data, send a response message if there is a
     // request we haven't yet responded to; otherwise start a fresh
     // request. This makes the most efficient use of Homa messages.
@@ -132,7 +132,7 @@ void HomaStream::flush()
         error = GRPC_OS_ERROR(errno, "Couldn't send Homa request/response");
     }
     tt("Homa message sent");
-    
+
     // It isn't safe to free the slices for message data until all
     // message data has been transmitted: otherwise, the last slice
     // may be needed for the next Homa message.
@@ -185,7 +185,7 @@ void HomaStream::saveCallbacks(grpc_transport_stream_op_batch* op)
                 op->payload->recv_trailing_metadata.recv_trailing_metadata_ready;
     }
     transferData();
-    
+
     if (error != GRPC_ERROR_NONE) {
         notifyError(GRPC_ERROR_REF(error));
     }
@@ -236,7 +236,7 @@ void HomaStream::serializeMetadata(grpc_metadata_batch* batch)
             vec = &vecs.back();
             lastVecAvail = newSize;
         }
-        
+
         Wire::Mdata* msgMd = reinterpret_cast<Wire::Mdata*>(cur);
         gpr_log(GPR_INFO, "Outgoing metadata: key %.*s, value %.*s",
                 keyLength, GRPC_SLICE_START_PTR(key),
@@ -282,7 +282,7 @@ void HomaStream::xmit(grpc_transport_stream_op_batch* op)
             return;
         }
     }
-    
+
     size_t trailMdLength = 0;
     if (op->send_trailing_metadata) {
         trailMdLength = metadataLength(
@@ -297,7 +297,7 @@ void HomaStream::xmit(grpc_transport_stream_op_batch* op)
                 "Too much trailing metadata");
         return;
     }
-    
+
     // The trailing metadata and message data have to be handled together: if
     // they don't all fit in the initial Homa message, we first fill one or more
     // Homa messages with just message data. Then, in the final message, we
@@ -354,16 +354,16 @@ void HomaStream::xmit(grpc_transport_stream_op_batch* op)
             xmitSize += chunkSize;
         }
     }
-    
+
     if (op->send_message) {
         hdr()->flags |= Wire::Header::messageComplete;
         op->payload->send_message.send_message.reset();
     }
-    
+
     if (op->send_trailing_metadata) {
         hdr()->flags |= Wire::Header::trailMdPresent;
     }
-    
+
     // If there's nothing besides initial metadata, don't flush now; wait
     // until it can be combined with something else.
     if (op->send_message || op->send_trailing_metadata) {
@@ -408,7 +408,7 @@ void HomaStream::transferData()
         if (msg->sequence > nextIncomingSequence) {
             break;
         }
-        
+
         // Transfer initial metadata, if possible.
         if (initMdClosure) {
             if (msg->hdr()->flags & Wire::Header::initMdPresent) {
@@ -454,7 +454,7 @@ void HomaStream::transferData()
                 }
                 msg->messageLength = 0;
             }
-            
+
             if (msg->hdr()->flags & Wire::Header::messageComplete) {
                 messageStream->reset(new HomaSliceBufferByteStream(
                         &messageData, 0));
@@ -486,20 +486,20 @@ void HomaStream::transferData()
                 grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_NONE);
             }
         }
-        
+
         if ((msg->hdr()->flags & (Wire::Header::initMdPresent
                 | Wire::Header::trailMdPresent | Wire::Header::messageComplete))
                 || (msg->messageLength != 0)) {
             break;
         }
-        
+
         // We've extracted everything of value from this message.
         if (msg->sequence == nextIncomingSequence) {
             nextIncomingSequence++;
         }
         incoming.erase(incoming.begin());
     }
-    
+
     if (eof && messageClosure) {
         // gRPC has asked for another message but there aren't going to
         // be any; signal that.
@@ -531,18 +531,18 @@ void HomaStream::handleIncoming(HomaIncoming::UniquePtr msg, uint64_t homaId)
         }
         homaRequestId = homaId;
     }
-    
+
     if (msg->hdr()->flags & Wire::Header::cancelled) {
         gpr_log(GPR_INFO, "RPC id %d cancelled by peer", streamId.id);
         cancelled = true;
         notifyError(GRPC_ERROR_CANCELLED);
         return;
     }
-    
+
     if (msg->sequence < nextIncomingSequence) {
         goto duplicate;
     }
-    
+
     if (incoming.empty()) {
         incoming.push_back(std::move(msg));
     } else {
@@ -561,10 +561,10 @@ messageInserted:
     transferData();
     return;
 
-duplicate:   
+duplicate:
     gpr_log(GPR_ERROR, "Dropping duplicate message, stream id %d, sequence %d, "
             "nextIncomingSequence %d, homaId %lu", streamId.id,
-            msg->sequence, nextIncomingSequence, homaId);         
+            msg->sequence, nextIncomingSequence, homaId);
 }
 
 /**
@@ -580,7 +580,7 @@ void HomaStream::notifyError(grpc_error_handle errorInfo)
     error = errorInfo;
     gpr_log(GPR_INFO, "Recording error for stream id %u: %s",
         streamId.id, grpc_error_string(error));
-    
+
     if (initMdClosure) {
         grpc_closure *c = initMdClosure;
         initMdClosure = nullptr;

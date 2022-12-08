@@ -78,7 +78,7 @@ void Mock::logByteStream(const char *separator,
 {
     size_t dataLeft = byteStream->length();
     grpc_slice slice;
-    
+
     while (dataLeft > 0) {
         if (!byteStream->Next(dataLeft, nullptr)) {
             logPrintf(";", "byteStream->Next failed");
@@ -178,10 +178,10 @@ void Mock::logPrintf(const char *separator, const char* format, ...)
 {
 	va_list ap;
 	va_start(ap, format);
-	
+
 	if (!log.empty() && (separator != NULL))
 		log.append(separator);
-	    
+
 	// We're not really sure how big of a buffer will be necessary.
 	// Try 1K, if not the return value will tell us how much is necessary.
 	int bufSize = 1024;
@@ -243,15 +243,15 @@ void Mock::setUp(void)
     grpc_init();
     gpr_set_log_function(gprLog);
     gpr_set_log_verbosity(GPR_LOG_SEVERITY_ERROR);
-    
+
     errorCode = EIO;
     homaRecvErrors = 0;
     homaReplyErrors = 0;
     homaReplyvErrors = 0;
     homaSendvErrors = 0;
-    
+
     homaMessages.clear();
-    
+
     homaRecvHeaders.clear();
     homaRecvMsgLengths.clear();
     homaRecvReturns.clear();
@@ -318,10 +318,10 @@ ssize_t homa_recv(int sockfd, void *buf, size_t len, int flags,
 
 ssize_t homa_reply(int sockfd, const void *buffer, size_t length,
         const sockaddr_in_union *addr, uint64_t id)
-{    
+{
     Mock::homaMessages.emplace_back(length);
     memcpy(Mock::homaMessages.back().data(), buffer, length);
-    
+
     if (Mock::checkError(&Mock::homaReplyErrors)) {
         errno = Mock::errorCode;
         return -1;
@@ -338,7 +338,7 @@ ssize_t homa_replyv(int sockfd, const struct iovec *iov, int iovcnt,
     }
     Mock::logPrintf("; ", "homa_replyv: %d iovecs, %lu bytes", iovcnt,
             totalLength);
-    
+
     Mock::homaMessages.emplace_back();
     Mock::homaMessages.back().resize(totalLength);
     uint8_t *dst = Mock::homaMessages.back().data();
@@ -346,7 +346,7 @@ ssize_t homa_replyv(int sockfd, const struct iovec *iov, int iovcnt,
         memcpy(dst, iov[i].iov_base, iov[i].iov_len);
         dst += iov[i].iov_len;
     }
-    
+
     if (Mock::checkError(&Mock::homaReplyvErrors)) {
         errno = Mock::errorCode;
         return -1;
@@ -363,7 +363,7 @@ int homa_sendv(int sockfd, const struct iovec *iov, int iovcnt,
     }
     Mock::logPrintf("; ", "homa_sendv: %d iovecs, %lu bytes", iovcnt,
             totalLength);
-    
+
     Mock::homaMessages.emplace_back();
     Mock::homaMessages.back().resize(totalLength);
     uint8_t *dst = Mock::homaMessages.back().data();
@@ -371,7 +371,7 @@ int homa_sendv(int sockfd, const struct iovec *iov, int iovcnt,
         memcpy(dst, iov[i].iov_base, iov[i].iov_len);
         dst += iov[i].iov_len;
     }
-    
+
     if (Mock::checkError(&Mock::homaSendvErrors)) {
         errno = Mock::errorCode;
         return -1;

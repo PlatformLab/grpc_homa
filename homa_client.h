@@ -24,14 +24,14 @@ class HomaClient {
 public:
     static std::shared_ptr<grpc::Channel> createInsecureChannel(
             const char* target);
-    
+
 protected:
     HomaClient(bool ipv6);
     ~HomaClient();
     static void init();
     static grpc_channel *createChannel(const char* target,
             const grpc_channel_args* args);
-    
+
     /**
      * This class provides credentials used to create Homa channels.
      */
@@ -56,7 +56,7 @@ protected:
             const grpc_resolved_address& address,
             const grpc_channel_args* args) override;
     };
-    
+
     /**
      * An instance of this class creates "connections" for subchannels
      * of a given channel. It doesn't do much, since Homa doesn't have
@@ -105,41 +105,41 @@ protected:
                             grpc_pollset_set* pollset_set);
     static grpc_endpoint*
                     get_endpoint(grpc_transport* gt);
-    
+
     // Used by gRPC to invoke transport-specific functions on all
     // HomaPeer objects associated with this HomaClient.
     struct grpc_transport_vtable vtable;
-    
+
     // Holds all streams with outstanding requests.
     std::unordered_map<StreamId, HomaStream*, StreamId::Hasher> streams;
-    
+
     // Id to use for the next outgoing RPC.
     int nextId;
-    
+
     // Must be held when accessing @streams or @nextId. Must not be
     // acquired while holding a stream lock.
     grpc_core::Mutex mutex;
-    
+
     // File descriptor for Homa socket; used for all outgoing RPCs.
     // < 0 means socket isn't currently open.
     int fd;
-    
+
     // Corresponds to fd.
     grpc_fd *gfd;
-        
+
     // Used to call us back when fd is readable.
     grpc_closure readClosure;
-    
+
     // Number of peers that exist for this object.
     int numPeers;
-    
+
     // Single shared HomaClient used for all channels.  Nullptr means
     // not created yet.
     static HomaClient *sharedClient;
-    
+
     // Held when creating or deleting sharedClient and when updating numPeers.
     static grpc_core::Mutex refCountMutex;
-    
+
     // Used to create subchannels for all Homa channels.
     static SubchannelFactory factory;
 };

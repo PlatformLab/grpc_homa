@@ -56,7 +56,7 @@ inline void parseType(const char *s, char **end, double *value)
  *      Name of option being parsed (for use in error messages).
  * \param typeName
  *      Human-readable name for ValueType (for use in error messages).
- * 
+ *
  * \return
  *      Nonzero means success, zero means an error occurred (and a
  *      message was printed).
@@ -67,7 +67,7 @@ int parse(std::vector<std::string> &words, unsigned i, ValueType *value,
 {
 	ValueType num;
 	char *end;
-	
+
 	if (i >= words.size()) {
 		printf("No value provided for %s\n", option);
 		return 0;

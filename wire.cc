@@ -36,7 +36,7 @@ void Wire::dumpMetadata(void *buffer, size_t length, gpr_log_severity severity)
 {
     size_t remaining = length;
     uint8_t *src = static_cast<uint8_t *>(buffer);
-    
+
     // Each iteration prints one metadata value
     while (remaining > 0) {
         Wire::Mdata* msgMd = reinterpret_cast<Wire::Mdata*>(src);
@@ -77,7 +77,7 @@ void Wire::dumpHeader(void *msg, gpr_log_severity severity)
     Wire::Header *hdr = static_cast<Wire::Header *>(msg);
     std::string s;
     char buffer[100];
-    
+
     snprintf(buffer, sizeof(buffer), "id: %u, sequence %u",
             ntohl(hdr->streamId), ntohl(hdr->sequenceNum));
     s.append(buffer);

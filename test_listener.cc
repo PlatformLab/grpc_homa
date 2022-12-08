@@ -14,7 +14,7 @@ public:
     HomaIncoming msg;
     uint32_t msgStreamId;
     grpc_closure closure1;
-    
+
     static void closureFunc1(void* arg, grpc_error_handle error) {
         int64_t value = reinterpret_cast<int64_t>(arg);
         if (error != GRPC_ERROR_NONE) {
@@ -24,7 +24,7 @@ public:
             Mock::logPrintf("; ", "closure1 invoked with %ld", value);
         }
     }
-    
+
     TestListener()
         : arena(grpc_core::Arena::Create(2000))
         , lis(nullptr)
@@ -43,7 +43,7 @@ public:
         GRPC_CLOSURE_INIT(&closure1, closureFunc1,
                 reinterpret_cast<void *>(123), dummy);
     }
-    
+
     ~TestListener()
     {
         grpc_core::ExecCtx exec_ctx;
@@ -53,7 +53,7 @@ public:
         delete lis;
         arena->Destroy();
     }
-    
+
     static void acceptStreamCallback(void* fixture, grpc_transport* transport,
             const void* initInfo)
     {
@@ -69,21 +69,21 @@ public:
 
 TEST_F(TestListener, getStream_basics) {
     std::optional<grpc_core::MutexLock> lockGuard;
-    
+
     // Id 100: add new stream
     msg.streamId.id = 100;
     HomaStream *stream1 = lis->transport->getStream(&msg, lockGuard);
     EXPECT_EQ(1U, trans->activeRpcs.size());
     EXPECT_EQ(100U, stream1->streamId.id);
     lockGuard.reset();
-    
+
     // Id 200: add new stream
     msg.streamId.id = 200;
     HomaStream *stream2 = trans->getStream(&msg, lockGuard);
     EXPECT_EQ(2U, trans->activeRpcs.size());
     EXPECT_EQ(200U, stream2->streamId.id);
     lockGuard.reset();
-    
+
     // Id 100 again
     msg.streamId.id = 100;
     HomaStream *stream3 = trans->getStream(&msg, lockGuard);
@@ -111,7 +111,7 @@ TEST_F(TestListener, destroy_stream) {
         ASSERT_EQ(1U, streams.size());
         ASSERT_EQ(stream, streams[0]);
     }
-    
+
     HomaListener::Transport::destroy_stream(&trans->vtable,
             reinterpret_cast <grpc_stream*>(stream), &closure1);
     free(stream);

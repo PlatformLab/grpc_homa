@@ -23,9 +23,9 @@ class TestClient{
 public:
     TestClient(const std::shared_ptr<grpc::Channel> channel)
         : stub(test::Test::NewStub(channel)) {}
-        
+
     std::unique_ptr<test::Test::Stub> stub;
-    
+
     /**
      * Adds two numbers together.
      * \param op1
@@ -40,7 +40,7 @@ public:
         test::SumArgs args;
         test::SumResult result;
         grpc::ClientContext context;
-        
+
         context.AddMetadata("md1", "md1_value");
         args.set_op1(op1);
         args.set_op2(op2);
@@ -51,7 +51,7 @@ public:
         }
         return result.sum();
     }
-    
+
     /**
      * Adds many numbers together.
      * \param op
@@ -84,7 +84,7 @@ public:
         }
         return result.sum();
     }
-    
+
     /**
      * Sends a seed value to the server, then prints all the individual
      * values that the server returns.
@@ -99,7 +99,7 @@ public:
         test::Value response;
         value.set_value(seed);
         int numResponses = 0;
-        
+
         std::unique_ptr<grpc::ClientReader<test::Value> > reader(
                 stub->GetValues(&context, value));
         while (reader->Read(&response)) {
@@ -113,7 +113,7 @@ public:
                     stringForStatus(&status).c_str());
         }
     }
-    
+
     /**
      * Sends an initial value to the server, checks to see that the server responds
      * with prevented value. Repeats this many times.
@@ -130,7 +130,7 @@ public:
                 stream(stub->IncMany(&context));
         test::Value request;
         test::Value response;
-        
+
         for (int i = 0; i < count; i++) {
             request.set_value(current);
             if (!stream->Write(request)) {
@@ -159,7 +159,7 @@ public:
         test::String args;
         test::Empty result;
         grpc::ClientContext context;
-        
+
         args.set_s(name);
         grpc::Status status = stub->PrintTrace(&context, args, &result);
         if (!status.ok()) {
@@ -196,11 +196,11 @@ int main(int argc, char** argv)
     bool useHoma = true;
     std::vector<std::string> args;
     unsigned nextArg;
-    
+
     for (int i = 0; i < argc; i++) {
         args.emplace_back(argv[i]);
     }
-    
+
     for (nextArg = 1; nextArg < args.size(); nextArg++) {
 		const char *option = args[nextArg].c_str();
         if (strcmp(option, "--tcp") == 0) {
@@ -216,7 +216,7 @@ int main(int argc, char** argv)
         }
         server = args.back().c_str();
     }
-    
+
     std::optional<TestClient> client;
     if (useHoma) {
         client.emplace(HomaClient::createInsecureChannel(server));
@@ -233,6 +233,6 @@ int main(int argc, char** argv)
 //    client->PrintValues(21);
 //    client->IncMany(3, 4);
     measureRtt(&client.value());
-    
+
     return 0;
 }
