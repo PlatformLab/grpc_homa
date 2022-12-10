@@ -11,16 +11,24 @@
  */
 
 int Mock::errorCode = EIO;
-int Mock::homaRecvErrors = 0;
 int Mock::homaReplyErrors = 0;
 int Mock::homaReplyvErrors = 0;
 int Mock::homaSendvErrors = 0;
+int Mock::recvmsgErrors = 0;
 
 std::deque<std::vector<uint8_t>> Mock::homaMessages;
-std::deque<Wire::Header>         Mock::homaRecvHeaders;
-std::deque<ssize_t>              Mock::homaRecvMsgLengths;
-std::deque<ssize_t>              Mock::homaRecvReturns;
+std::deque<Wire::Header>         Mock::recvmsgHeaders;
+std::deque<ssize_t>              Mock::recvmsgLengths;
+std::deque<ssize_t>              Mock::recvmsgReturns;
 std::string                      Mock::log;
+
+// Used as receive buffer space by recvmsg.
+static uint8_t bufStorage[10000];
+uint8_t *Mock::bufRegion = bufStorage;
+
+// Counts the number of buffers that were returned to Homa in
+// recvmsg calls.
+int Mock::buffersReturned = 0;
 
 /**
  * Determines whether a method should simulate an error return.
@@ -245,17 +253,21 @@ void Mock::setUp(void)
     gpr_set_log_verbosity(GPR_LOG_SEVERITY_ERROR);
 
     errorCode = EIO;
-    homaRecvErrors = 0;
+    recvmsgErrors = 0;
     homaReplyErrors = 0;
     homaReplyvErrors = 0;
     homaSendvErrors = 0;
 
+    buffersReturned = 0;
+
     homaMessages.clear();
 
-    homaRecvHeaders.clear();
-    homaRecvMsgLengths.clear();
-    homaRecvReturns.clear();
+    recvmsgHeaders.clear();
+    recvmsgLengths.clear();
+    recvmsgReturns.clear();
     log.clear();
+
+    bufRegion = bufStorage;
 }
 
 /**
@@ -281,38 +293,42 @@ Mock::substr(const std::string& s, const std::string& substring)
     return ::testing::AssertionSuccess();
 }
 
-ssize_t homa_recv(int sockfd, void *buf, size_t len, int flags,
-        sockaddr_in_union *src_addr, uint64_t *id, size_t *msglen,
-        uint64_t *cookie)
+ssize_t recvmsg(int fd, struct msghdr *msg, int flags)
 {
-    Wire::Header *h = static_cast<Wire::Header *>(buf);
-    if (Mock::checkError(&Mock::homaRecvErrors)) {
+    struct homa_recvmsg_control *control =
+            static_cast<homa_recvmsg_control *>(msg->msg_control);
+    Mock::buffersReturned += reinterpret_cast<homa_recvmsg_control *>
+            (msg->msg_control)->num_buffers;
+    if (Mock::checkError(&Mock::recvmsgErrors)) {
         errno = Mock::errorCode;
         return -1;
     }
-    *id = 333;
-    if (Mock::homaRecvHeaders.empty()) {
-        new (buf) Wire::Header(44, 0, 10, 20, 1000);
+    control->id = 333;
+    control->completion_cookie = 44444;
+    control->num_buffers = 1;
+    control->buffers[0] = 2000;
+    Wire::Header *h = reinterpret_cast<Wire::Header *>(
+            Mock::bufRegion + control->buffers[0]);
+
+    if (Mock::recvmsgHeaders.empty()) {
+        new (h) Wire::Header(44, 0, 10, 20, 1000);
     } else {
-        *(reinterpret_cast<Wire::Header *>(buf)) = Mock::homaRecvHeaders.front();
-        Mock::homaRecvHeaders.pop_front();
+        *(reinterpret_cast<Wire::Header *>(h)) = Mock::recvmsgHeaders.front();
+        Mock::recvmsgHeaders.pop_front();
     }
     size_t length;
-    if (Mock::homaRecvMsgLengths.empty()) {
-        length = sizeof(*h) + ntohl(h->initMdBytes) + ntohl(h->messageBytes)
-            + ntohl(h->trailMdBytes);
+    if (Mock::recvmsgLengths.empty()) {
+        length = sizeof(Wire::Header) + ntohl(h->initMdBytes)
+                + ntohl(h->messageBytes) + ntohl(h->trailMdBytes);
     } else {
-        length = Mock::homaRecvMsgLengths.front();
-        Mock::homaRecvMsgLengths.pop_front();
+        length = Mock::recvmsgLengths.front();
+        Mock::recvmsgLengths.pop_front();
     }
-    if (msglen) {
-        *msglen = length;
-    }
-    if (Mock::homaRecvReturns.empty()) {
+    if (Mock::recvmsgReturns.empty()) {
         return length;
     }
-    ssize_t result = Mock::homaRecvReturns.front();
-    Mock::homaRecvReturns.pop_front();
+    ssize_t result = Mock::recvmsgReturns.front();
+    Mock::recvmsgReturns.pop_front();
     return result;
 }
 

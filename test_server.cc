@@ -9,8 +9,8 @@
 #include "time_trace.h"
 #include "util.h"
 
-class TestImpl : public test::Test::Service {   
-public:    
+class TestImpl : public test::Test::Service {
+public:
     grpc::Status Sum(grpc::ServerContext* context, const test::SumArgs *args,
             test::SumResult *result) override
     {
@@ -27,7 +27,7 @@ public:
         result->set_sum(args->op1() + args->op2());
         return grpc::Status::OK;
     }
-    
+
     grpc::Status SumMany(grpc::ServerContext* context,
             grpc::ServerReader<test::Value>* reader, test::SumResult *result)
             override
@@ -42,7 +42,7 @@ public:
         printf("Returning result: %d\n", sum);
         return grpc::Status::OK;
     }
-    
+
     grpc::Status GetValues(grpc::ServerContext* context, const test::Value *arg,
             grpc::ServerWriter<test::Value>* writer) override
     {
@@ -55,7 +55,7 @@ public:
         printf("GetValues finished (input %d)\n", arg->value());
         return grpc::Status::OK;
     }
-    
+
     grpc::Status IncMany(grpc::ServerContext* context,
             grpc::ServerReaderWriter<test::Value, test::Value>* stream) override
     {
@@ -69,7 +69,7 @@ public:
         printf("IncMany finished\n");
         return grpc::Status::OK;
     }
-    
+
     grpc::Status PrintTrace(grpc::ServerContext*context,
             const test::String *args, test::Empty *result) override
     {
@@ -84,11 +84,11 @@ int main(int argc, char** argv) {
     bool useHoma = true;
     std::vector<std::string> args;
     unsigned nextArg;
-    
+
     for (int i = 0; i < argc; i++) {
         args.emplace_back(argv[i]);
     }
-    
+
     for (nextArg = 1; nextArg < args.size(); nextArg++) {
 		const char *option = args[nextArg].c_str();
         if (strcmp(option, "--tcp") == 0) {
@@ -111,8 +111,8 @@ int main(int argc, char** argv) {
             serverAddress = "0.0.0.0:4000";
         }
     }
-    
-   
+
+
     TestImpl service;
     grpc::ServerBuilder builder;
     if (useHoma) {

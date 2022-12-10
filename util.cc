@@ -1,4 +1,26 @@
+#include "homa.h"
+
 #include "util.h"
+
+/**
+ * Returns a human-readable string containing the bpage indexes in a
+ * homa_recvmsg_control structure.
+ * \param control
+ *      Structure whose buffers entries should be returned.
+ */
+std::string bpagesToString(struct homa_recvmsg_control *control)
+{
+    std::string result;
+    for (uint32_t i = 0; i < control->num_buffers; i++) {
+        char buffer[100];
+        if (!result.empty()) {
+            result.append(" ");
+        }
+        snprintf(buffer, sizeof(buffer), "%u", control->buffers[i]);
+        result.append(buffer);
+    }
+    return result;
+}
 
 /**
  * Fill in a block of memory with predictable values that can be checked

@@ -82,6 +82,8 @@ int parse(std::vector<std::string> &words, unsigned i, ValueType *value,
 	return 1;
 }
 
+extern               std::string bpagesToString(
+                        struct homa_recvmsg_control *control);
 extern void          fillData(void *data, int length, int firstValue);
 extern void          logMetadata(const grpc_metadata_batch* mdBatch,
                         const char *info);

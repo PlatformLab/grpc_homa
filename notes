@@ -4,7 +4,7 @@ Miscellaneous notes about a Homa plugin for gRPC:
 * Notes about java implementation:
   * Support long messages.
   * Need to keep track of many outstanding requests
-  * Eliminate duplicate code between 
+  * Eliminate duplicate code between
   * Handle EAGAIN in HomaIncoming.read?
   * Change all invocations of System.out.printf to log instead.
   * Find out what scheduledExecutorService is.
@@ -177,7 +177,7 @@ Other notes from phone call on 12/8:
   * tcp_write                                        [tcp_posix.cc:1559]
 
 * Levels to invoke client perform_stream_op:
-  * 
+  *
 
 * Levels in creating server (top down; doesn't actually open socket):
   * ServerBuilder::BuildAndStart                     [server_builder.cc:399]

@@ -27,7 +27,7 @@ StreamId::StreamId(uint32_t id)
     : addr()
     , id(id)
 {
-    addr.in6.sin6_family = AF_UNSPEC;
+    addr.in6.sin6_family = AF_INET6;
     addr.in6.sin6_addr = in6addr_any;
     addr.in6.sin6_port = htons(40);
 }

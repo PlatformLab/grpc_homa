@@ -162,7 +162,7 @@ void HomaStream::resetXmit()
 /**
  * This method records callback information from a stream op, so that
  * it can be used to transfer data and invoke callbacks later (via
- * transferDataIn).
+ * transferData).
  * \param op
  *      A gRPC stream op; may contain callback info.
  */
@@ -184,7 +184,6 @@ void HomaStream::saveCallbacks(grpc_transport_stream_op_batch* op)
         trailMdClosure =
                 op->payload->recv_trailing_metadata.recv_trailing_metadata_ready;
     }
-    transferData();
 
     if (error != GRPC_ERROR_NONE) {
         notifyError(GRPC_ERROR_REF(error));
@@ -405,24 +404,27 @@ void HomaStream::transferData()
      */
     while (incoming.size() > 0) {
         HomaIncoming *msg = incoming[0].get();
+        Wire::Header headerStorage;
+        Wire::Header *h = msg->get<Wire::Header>(0, &headerStorage);
+
         if (msg->sequence > nextIncomingSequence) {
             break;
         }
 
         // Transfer initial metadata, if possible.
         if (initMdClosure) {
-            if (msg->hdr()->flags & Wire::Header::initMdPresent) {
+            if (h->flags & Wire::Header::initMdPresent) {
                 tt("calling deserializeMetadata");
                 msg->deserializeMetadata(sizeof(Wire::Header),
                         msg->initMdLength, initMd, arena);
                 logMetadata(initMd, "incoming initial metadata");
-                if (initMdTrailMdAvail && (msg->hdr()->flags
-                        & msg->hdr()->trailMdPresent)) {
+                if (initMdTrailMdAvail && (h->flags
+                        & h->trailMdPresent)) {
                     *initMdTrailMdAvail = true;
                 }
                 grpc_closure *c = initMdClosure;
                 initMdClosure = nullptr;
-                msg->hdr()->flags &= ~Wire::Header::initMdPresent;
+                h->flags &= ~Wire::Header::initMdPresent;
                 tt("Invoking initial metadata closure");
                 grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_NONE);
             }
@@ -430,32 +432,25 @@ void HomaStream::transferData()
 
         // Transfer data, if possible.
         if (messageClosure) {
-            if (msg->messageLength > 0) {
-                // Add a slice for any message data in the initial payload.
-                size_t msgOffset = sizeof(Wire::Header) + msg->initMdLength
-                        + msg->trailMdLength;
-                ssize_t initialLength = msg->baseLength - msgOffset;
-                if (initialLength > 0) {
-                    if (initialLength > msg->messageLength) {
-                        initialLength = msg->messageLength;
-                    }
-                    grpc_slice_buffer_add(&messageData,
-                            msg->getSlice(msgOffset, initialLength));
-                    msgOffset += initialLength;
-                } else {
-                    initialLength = 0;
-                }
+            uint32_t bytesLeft = msg->bodyLength;
+            size_t msgOffset = sizeof(Wire::Header) + msg->initMdLength
+                    + msg->trailMdLength;
 
-                // Add a slice for any message data in the tail.
-                if (initialLength < msg->messageLength) {
-                    grpc_slice_buffer_add(&messageData,
-                        msg->getSlice(msgOffset,
-                        msg->messageLength - initialLength));
+            // Each iteration of this loop creates a slice for one
+            // contiguous range of the message.
+            while (bytesLeft > 0) {
+                size_t sliceLength = msg->contiguous(msgOffset);
+                if (sliceLength > bytesLeft) {
+                    sliceLength = bytesLeft;
                 }
-                msg->messageLength = 0;
+                grpc_slice_buffer_add(&messageData, msg->getSlice(
+                        msgOffset, sliceLength));
+                msgOffset += sliceLength;
+                bytesLeft -= sliceLength;
             }
+            msg->bodyLength = 0;
 
-            if (msg->hdr()->flags & Wire::Header::messageComplete) {
+            if (h->flags & Wire::Header::messageComplete) {
                 messageStream->reset(new HomaSliceBufferByteStream(
                         &messageData, 0));
                 grpc_slice_buffer_destroy(&messageData);
@@ -463,14 +458,16 @@ void HomaStream::transferData()
 
                 grpc_closure *c = messageClosure;
                 messageClosure = nullptr;
-                msg->hdr()->flags &= ~Wire::Header::messageComplete;
+                h->flags &= ~Wire::Header::messageComplete;
                 tt("Invoking message closure");
                 grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_NONE);
+                gpr_log(GPR_INFO, "Invoked message closure for stream id %d",
+                        streamId.id);
             }
         }
 
         // Transfer trailing metadata, if possible.
-        if (msg->hdr()->flags & Wire::Header::trailMdPresent) {
+        if (h->flags & Wire::Header::trailMdPresent) {
             eof = true;
             if (trailMdClosure) {
                 msg->deserializeMetadata(
@@ -479,17 +476,17 @@ void HomaStream::transferData()
                 logMetadata(trailMd, "incoming trailing metadata");
                 grpc_closure *c = trailMdClosure;
                 trailMdClosure = nullptr;
-                msg->hdr()->flags &= ~Wire::Header::trailMdPresent;
+                h->flags &= ~Wire::Header::trailMdPresent;
                 tt("Invoking trailing metadata closure");
-                gpr_log(GPR_INFO,"Invoked trailing metadata closure for "
+                gpr_log(GPR_INFO, "Invoked trailing metadata closure for "
                         "stream id %d", streamId.id);
                 grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_NONE);
             }
         }
 
-        if ((msg->hdr()->flags & (Wire::Header::initMdPresent
+        if ((h->flags & (Wire::Header::initMdPresent
                 | Wire::Header::trailMdPresent | Wire::Header::messageComplete))
-                || (msg->messageLength != 0)) {
+                || (msg->bodyLength != 0)) {
             break;
         }
 

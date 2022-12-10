@@ -13,6 +13,7 @@
 #include "src/core/lib/iomgr/resolve_address.h"
 #include "src/core/lib/transport/transport_impl.h"
 
+#include "homa_socket.h"
 #include "homa_stream.h"
 
 /**
@@ -111,7 +112,8 @@ protected:
     struct grpc_transport_vtable vtable;
 
     // Holds all streams with outstanding requests.
-    std::unordered_map<StreamId, HomaStream*, StreamId::Hasher> streams;
+    std::unordered_map<StreamId, HomaStream*, StreamId::Hasher,
+            StreamId::Pred> streams;
 
     // Id to use for the next outgoing RPC.
     int nextId;
@@ -120,12 +122,9 @@ protected:
     // acquired while holding a stream lock.
     grpc_core::Mutex mutex;
 
-    // File descriptor for Homa socket; used for all outgoing RPCs.
-    // < 0 means socket isn't currently open.
-    int fd;
-
-    // Corresponds to fd.
-    grpc_fd *gfd;
+    // Holds information about the socket used for Homa communication,
+    // such as information about receive buffers.
+    HomaSocket sock;
 
     // Used to call us back when fd is readable.
     grpc_closure readClosure;

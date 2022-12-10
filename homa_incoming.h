@@ -5,6 +5,8 @@
 
 #include <vector>
 
+#include "homa.h"
+#include "homa_socket.h"
 #include "stream_id.h"
 #include "wire.h"
 
@@ -26,12 +28,12 @@ public:
 
     typedef std::unique_ptr<HomaIncoming, UnrefIncoming> UniquePtr;
 
-    explicit          HomaIncoming();
-    explicit          HomaIncoming(int sequence, bool initMd,
-                            size_t messageLength, size_t tailLength,
-                            int firstValue, bool messageComplete, bool trailMd);
+    explicit          HomaIncoming(HomaSocket *sock);
+    explicit          HomaIncoming(HomaSocket *sock, int sequence, bool initMd,
+                            size_t bodyLength, int firstValue,
+                            bool messageComplete, bool trailMd);
                       ~HomaIncoming();
-    size_t            addMetadata(size_t offset, size_t staticLength, ...);
+    size_t            addMetadata(size_t offset, ...);
     void              copyOut(void *dst, size_t offset, size_t length);
     void              deserializeMetadata(size_t offset, size_t length,
                             grpc_metadata_batch* batch,
@@ -40,8 +42,26 @@ public:
     grpc_slice        getStaticSlice(size_t offset, size_t length,
                             grpc_core::Arena *arena);
 
-    static UniquePtr  read(int fd, int flags, uint64_t *homaId,
+    static UniquePtr  read(HomaSocket *sock, int flags, uint64_t *homaId,
                             grpc_error_handle *error);
+
+    /**
+     * Return a count of the number of contiguous bytes available at a
+     * given offset in the message (or zero if the offset is outside
+     * the range of the message).
+     * \param offset
+     *      Offset of a byte within the message.
+     */
+    size_t contiguous(size_t offset)
+    {
+        if (offset >= length) {
+            return 0;
+        }
+        if ((offset >> HOMA_BPAGE_SHIFT) == (control.num_buffers-1)) {
+            return length - offset;
+        }
+        return HOMA_BPAGE_SIZE - (offset & (HOMA_BPAGE_SIZE-1));
+    }
 
     /**
      * Make a range of bytes from a message addressable in a contiguous
@@ -49,35 +69,46 @@ public:
      * \param offset
      *      Offset within the message of the first byte of the desired
      *      object.
-     * \param buffer
+     * \param auxSpace
      *      If the object is split across buffers in msg, it will
-     *      be copied here to make it contiguous.
+     *      be copied here to make it contiguous. If you know that the
+     *      requested information will be contiguous in the message,
+     *      this parameter can be specified as nullptr.
      * \tparam T
      *      Type of the desired object.
      * \return
-     *      A pointer to contiguous memory containing the desired object.
+     *      A pointer to contiguous memory containing the desired object,
+     *      or nullptr if the desired object extends beyond the end of the
+     *      message.
      */
     template <class T>
-    T *getBytes(size_t offset, T *buffer)
+    T *get(size_t offset, T *auxSpace)
     {
-        // See if the object is already contiguous in the first part of the
-        // message.
-        if ((offset + sizeof(T)) <= baseLength) {
-            return reinterpret_cast<T *>(initialPayload + offset);
+        if ((offset + sizeof(T)) > length) {
+            return nullptr;
+        }
+        size_t bufIndex = offset >> HOMA_BPAGE_SHIFT;
+        size_t offsetInBuf = offset & (HOMA_BPAGE_SIZE-1);
+        uint8_t *start = sock->getBufRegion() + control.buffers[bufIndex]
+                + offsetInBuf;
+        size_t cbytes = contiguous(offset);
+        if (cbytes >= sizeof(T)) {
+            return reinterpret_cast<T*>(start);
         }
 
-        // See if the offset is already contiguous in the tail.
-        if (offset >= baseLength) {
-            return reinterpret_cast<T *>(
-                    tail.data() + (offset - baseLength));
+        // Must copy the object to make it contiguous; it could span any
+        // number of buffers.
+        uint8_t *p = reinterpret_cast<uint8_t *>(auxSpace);
+        memcpy(p, start, cbytes);
+        for (size_t offsetInObj = cbytes; offsetInObj < sizeof(T);
+                offsetInObj += cbytes) {
+            bufIndex++;
+            cbytes = ((sizeof(T) - offsetInObj) > HOMA_BPAGE_SIZE)
+                    ? HOMA_BPAGE_SIZE : (sizeof(T) - offsetInObj);
+            memcpy(p + offsetInObj,
+                    sock->getBufRegion() + control.buffers[bufIndex], cbytes);
         }
-
-        // Must copy the object to make it contiguous.
-        uint8_t *p = reinterpret_cast<uint8_t *>(buffer);
-        size_t baseBytes = baseLength - offset;
-        memcpy(p, initialPayload + offset, baseBytes);
-        memcpy(p + baseBytes, tail.data(), sizeof(T) - baseBytes);
-        return buffer;
+        return auxSpace;
     }
 
     /**
@@ -99,12 +130,16 @@ public:
     // Information about stream (gRPC RPC) associated with the message.
     StreamId streamId;
 
-    // Total length of the message (may be longer than the space
-    // available in hdr and initialPayload).
-    size_t length;
+    // Information about the Homa socket from which the message was read.
+    HomaSocket *sock;
 
-    // Number of bytes actually stored in hdr and initialPayload
-    size_t baseLength;
+    // Passed as msg_control argument to recvmsg; contains information about
+    // the incoming message (such as where its bytes are stored). Note that
+    // buffers referenced here must eventually be returned to Homa.
+    struct homa_recvmsg_control control;
+
+    // Total length of the message.
+    size_t length;
 
     // Sequence number for this message (extracted from hdr).
     int sequence;
@@ -112,19 +147,12 @@ public:
     // Bytes of initial metadata in the message (extracted from hdr).
     uint32_t initMdLength;
 
-    // Bytes of gRPC message initialPayload in the message (extracted from hdr).
-    // Set to 0 once message data has been transferred to gRPC.
-    uint32_t messageLength;
+    // Bytes of gRPC message payload. Set to 0 once message data has
+    // been transferred to gRPC.
+    uint32_t bodyLength;
 
     // Bytes of trailing metadata in the message (extracted from hdr).
     uint32_t trailMdLength;
-
-    // The first part of the message, enough to hold short messages.
-    uint8_t initialPayload[10000];
-
-    // If the entire message doesn't fit in hdr and initialPayload, the
-    // remainder will be read here.
-    std::vector<uint8_t> tail;
 
     // If non-null, the target is incremented when this object is destroyed.
     int *destroyCounter;
@@ -138,7 +166,8 @@ public:
 
     Wire::Header *hdr()
     {
-        return reinterpret_cast<Wire::Header*>(initialPayload);
+        return reinterpret_cast<Wire::Header*>(
+                sock->getBufRegion() + control.buffers[0]);
     }
 };
 

@@ -8,6 +8,8 @@
 
 #include "gtest/gtest.h"
 
+#include "homa.h"
+
 #include "wire.h"
 
 /* This class defines additional variables and functions that can be used
@@ -22,22 +24,27 @@ public:
     // to simulate error returns from various functions. If bit 0 is set to 1,
     // the next call to the function will fail; bit 1 corresponds to the next
     // call after that, and so on.
-    static int homaRecvErrors;
     static int homaReplyErrors;
     static int homaReplyvErrors;
     static int homaSendvErrors;
+    static int recvmsgErrors;
+
+    static int buffersReturned;
 
     // Holds all messages sent by homa_sendv and homa_replyv.
     static std::deque<std::vector<uint8_t>> homaMessages;
 
     // Return info for upcoming invocations of homa_recv.
-    static std::deque<Wire::Header> homaRecvHeaders;
-    static std::deque<ssize_t> homaRecvMsgLengths;
-    static std::deque<ssize_t> homaRecvReturns;
+    static std::deque<Wire::Header> recvmsgHeaders;
+    static std::deque<ssize_t> recvmsgLengths;
+    static std::deque<ssize_t> recvmsgReturns;
 
     // Accumulates various information over the course of a test, which
     // can then be queried.
     static std::string log;
+
+    // Buffer region for the Homa socket.
+    static uint8_t *bufRegion;
 
     static int        checkError(int *errorMask);
     static grpc_slice dataSlice(size_t length, int firstValue);
@@ -55,7 +62,6 @@ public:
     static ::testing::AssertionResult
                         substr(const std::string& s,
                         const std::string& substring);
-
 };
 
 #define EXPECT_SUBSTR(sub, str) EXPECT_TRUE(Mock::substr((str), (sub)))

@@ -1,5 +1,6 @@
 #include "homa_stream.h"
 #include "mock.h"
+#include "util.h"
 
 // This file contains unit tests for homa_stream.cc and homa_stream.h.
 
@@ -15,6 +16,8 @@ public:
     grpc_metadata_batch batch2;
     grpc_transport_stream_op_batch op;
     grpc_transport_stream_op_batch_payload payload;
+    uint8_t bufRegion[5000];
+    HomaSocket sock;
 
     static void closureFunc1(void* arg, grpc_error_handle error) {
         int64_t value = reinterpret_cast<int64_t>(arg);
@@ -47,6 +50,8 @@ public:
         , batch2(arena)
         , op()
         , payload(nullptr)
+        , bufRegion()
+        , sock(bufRegion)
     {
         Mock::setUp();
         GRPC_CLOSURE_INIT(&closure1, closureFunc1,
@@ -143,24 +148,6 @@ TEST_F(TestStream, saveCallbacks_notifyError) {
     EXPECT_SUBSTR("closure1 invoked with 777, error", Mock::log.c_str());
     EXPECT_SUBSTR("closure2 invoked with 456, error", Mock::log.c_str());
     EXPECT_SUBSTR("test error", Mock::log.c_str());
-}
-TEST_F(TestStream, saveCallbacks_transferData) {
-    grpc_core::ExecCtx execCtx;
-    op.recv_initial_metadata = true;
-    op.payload->recv_initial_metadata.recv_initial_metadata = &batch;
-    op.payload->recv_initial_metadata.recv_initial_metadata_ready = &closure1;
-    stream.incoming.emplace_back(new HomaIncoming(1, true, 0, 0, 0, false,
-            false));
-    stream.saveCallbacks(&op);
-    execCtx.Flush();
-
-    EXPECT_STREQ("closure1 invoked with 123", Mock::log.c_str());
-    Mock::log.clear();
-    Mock::logMetadata("; ", &batch);
-    EXPECT_STREQ("metadata initMd1: value1; metadata :path: /x/y (0)",
-            Mock::log.c_str());
-    EXPECT_EQ(nullptr, stream.initMdClosure);
-    EXPECT_EQ(0U, stream.incoming.size());
 }
 
 TEST_F(TestStream, metadataLength) {
@@ -496,56 +483,22 @@ TEST_F(TestStream, sendDummyResponse_errorSendingResponse) {
 TEST_F(TestStream, transferData_outOfSequence) {
     stream.initMdClosure = &closure1;
     stream.initMd = &batch;
-    HomaIncoming *msg = new HomaIncoming(2, true, 0, 0, 0, false, false);
+    HomaIncoming *msg = new HomaIncoming(&sock, 2, true, 0, 0,
+            false, false);
     stream.incoming.emplace_back(msg);
     grpc_core::ExecCtx execCtx;
     stream.transferData();
     execCtx.Flush();
     EXPECT_STREQ("", Mock::log.c_str());
     EXPECT_EQ(1U, stream.incoming.size());
-}
-TEST_F(TestStream, transferData_setEof) {
-    // First message: only initial metadata.
-    HomaIncoming *msg = new HomaIncoming(2, true, 0, 0, 0, false, false);
-    stream.nextIncomingSequence = 2;
-    stream.incoming.emplace_back(msg);
-    grpc_core::ExecCtx execCtx;
-    stream.transferData();
-    execCtx.Flush();
-    EXPECT_STREQ("", Mock::log.c_str());
-    EXPECT_EQ(1U, stream.incoming.size());
-    EXPECT_FALSE(stream.eof);
-
-    // Second message: messageComplete.
-    msg = new HomaIncoming(2, false, 1000, 1000, 0, true, false);
-    stream.incoming.clear();
-    stream.incoming.emplace_back(msg);
-    stream.eof = false;
-    Mock::log.clear();
-    stream.transferData();
-    execCtx.Flush();
-    EXPECT_STREQ("", Mock::log.c_str());
-    EXPECT_EQ(1U, stream.incoming.size());
-
-    // Third message: trailing metadata.
-    msg = new HomaIncoming(2, false, 0, 0, 0, false, true);
-    stream.incoming.clear();
-    stream.incoming.emplace_back(msg);
-    stream.eof = false;
-    Mock::log.clear();
-    stream.transferData();
-    execCtx.Flush();
-    EXPECT_STREQ("", Mock::log.c_str());
-    EXPECT_EQ(1U, stream.incoming.size());
-    EXPECT_TRUE(stream.eof);
 }
 TEST_F(TestStream, transferData_initialMetadata) {
     bool trailMdAvail = false;
     stream.initMdClosure = &closure1;
     stream.initMd = &batch;
     stream.initMdTrailMdAvail = &trailMdAvail;
-    stream.incoming.emplace_back(new HomaIncoming(1, true, 0, 0, 0, false,
-            false));
+    stream.incoming.emplace_back(new HomaIncoming(&sock, 1, true,
+            0, 0, false, false));
     grpc_core::ExecCtx execCtx;
     stream.transferData();
     execCtx.Flush();
@@ -563,8 +516,8 @@ TEST_F(TestStream, transferData_initialMetadataSetTrailMdAvail) {
     stream.initMdClosure = &closure1;
     stream.initMd = &batch;
     stream.initMdTrailMdAvail = &trailMdAvail;
-    stream.incoming.emplace_back(new HomaIncoming(1, true, 0, 0, 0, false,
-            true));
+    stream.incoming.emplace_back(new HomaIncoming(&sock, 1, true,
+            0, 0, false, true));
     grpc_core::ExecCtx execCtx;
     stream.transferData();
     execCtx.Flush();
@@ -581,8 +534,8 @@ TEST_F(TestStream, transferData_waitForInitialMetadataClosure) {
     stream.messageClosure = &closure1;
     grpc_core::OrphanablePtr<grpc_core::ByteStream> message;
     stream.messageStream = &message;
-    stream.incoming.emplace_back(new HomaIncoming(1, true, 100, 0, 0, false,
-            false));
+    stream.incoming.emplace_back(new HomaIncoming(&sock, 1, true,
+            100, 0, false, false));
     grpc_core::ExecCtx execCtx;
     stream.transferData();
     execCtx.Flush();
@@ -593,8 +546,8 @@ TEST_F(TestStream, transferData_messageData) {
     stream.messageClosure = &closure1;
     grpc_core::OrphanablePtr<grpc_core::ByteStream> message;
     stream.messageStream = &message;
-    stream.incoming.emplace_back(new HomaIncoming(1, false, 100, 0, 1000, true,
-            false));
+    stream.incoming.emplace_back(new HomaIncoming(&sock, 1, false,
+            100, 1000, true, false));
     grpc_core::ExecCtx execCtx;
     stream.transferData();
     execCtx.Flush();
@@ -605,26 +558,113 @@ TEST_F(TestStream, transferData_messageData) {
     EXPECT_STREQ("1000-1099", Mock::log.c_str());
     EXPECT_EQ(0U, stream.incoming.size());
 }
-TEST_F(TestStream, transferData_messageDataAlsoInTail) {
+TEST_F(TestStream, transferData_messageData_multipleChunks) {
     stream.messageClosure = &closure1;
     grpc_core::OrphanablePtr<grpc_core::ByteStream> message;
     stream.messageStream = &message;
-    stream.incoming.emplace_back(new HomaIncoming(1, false, 100, 5000, 1000,
-            true, false));
+    stream.incoming.emplace_back(new HomaIncoming(&sock, 1, false,
+            100, 1000, true, false));
+
+    // Make the message much larger, but with the same header.
+    uint8_t bigBuf[4*HOMA_BPAGE_SIZE];
+    HomaIncoming *msg = stream.incoming.back().get();
+    char *oldHeader = msg->get<char>(0, nullptr);
+    fillData(bigBuf, HOMA_BPAGE_SIZE, 100000);
+    fillData(bigBuf + HOMA_BPAGE_SIZE, HOMA_BPAGE_SIZE, 200000);
+    fillData(bigBuf + 2*HOMA_BPAGE_SIZE, HOMA_BPAGE_SIZE, 300000);
+    fillData(bigBuf + 3*HOMA_BPAGE_SIZE, HOMA_BPAGE_SIZE, 400000);
+    msg->control.num_buffers = 3;
+    msg->control.buffers[0] = HOMA_BPAGE_SIZE*2;
+    msg->control.buffers[1] = HOMA_BPAGE_SIZE;
+    msg->control.buffers[2] = HOMA_BPAGE_SIZE*3;
+    msg->length = 160000;
+    msg->initMdLength = 100 - sizeof(Wire::Header);
+    msg->bodyLength = msg->length - 100;
+    msg->sock->bufRegion = bigBuf;
+    memcpy(msg->get<char>(0, nullptr), oldHeader, sizeof(Wire::Header));
+
     grpc_core::ExecCtx execCtx;
     stream.transferData();
     execCtx.Flush();
     EXPECT_STREQ("closure1 invoked with 123", Mock::log.c_str());
-    EXPECT_EQ(0U, stream.incoming.size());
+    EXPECT_EQ(nullptr, stream.messageClosure);
     Mock::log.clear();
     Mock::logByteStream("; ", message.get());
-    EXPECT_STREQ("1000-1099; 1100-6099", Mock::log.c_str());
+    EXPECT_STREQ("300100-365535; 200000-265535; 400000-428927",
+            Mock::log.c_str());
+    EXPECT_EQ(0U, stream.incoming.size());
+}
+TEST_F(TestStream, transferData_messageDataDataInMultipleIncomings) {
+    stream.messageClosure = &closure1;
+    grpc_core::OrphanablePtr<grpc_core::ByteStream> message;
+    stream.messageStream = &message;
+    stream.incoming.emplace_back(new HomaIncoming(&sock, 1, false,
+            100, 1000, false, false));
+    grpc_core::ExecCtx execCtx;
+    stream.transferData();
+    execCtx.Flush();
+    EXPECT_STREQ("", Mock::log.c_str());
+    EXPECT_EQ(0U, stream.incoming.size());
+    EXPECT_EQ(nullptr, message.get());
+
+    // Second incoming completes message data.
+    uint8_t region2[10000];
+    HomaSocket sock2(region2);
+    stream.incoming.emplace_back(new HomaIncoming(&sock2, 2, false,
+            200, 2000, true, false));
+    stream.transferData();
+    execCtx.Flush();
+    EXPECT_STREQ("closure1 invoked with 123", Mock::log.c_str());
+    Mock::log.clear();
+    Mock::logByteStream("; ", message.get());
+    EXPECT_STREQ("1000-1099; 2000-2199", Mock::log.c_str());
+    EXPECT_EQ(0U, stream.incoming.size());
+}
+TEST_F(TestStream, transferData_setEof) {
+    uint8_t region2[3*HOMA_BPAGE_SIZE], region3[3*HOMA_BPAGE_SIZE];
+
+    // First message: only initial metadata.
+    HomaIncoming *msg = new HomaIncoming(&sock, 2, true, 0, 0,
+            false, false);
+    stream.nextIncomingSequence = 2;
+    stream.incoming.emplace_back(msg);
+    grpc_core::ExecCtx execCtx;
+    stream.transferData();
+    execCtx.Flush();
+    EXPECT_STREQ("", Mock::log.c_str());
+    EXPECT_EQ(1U, stream.incoming.size());
+    EXPECT_FALSE(stream.eof);
+
+    // Second message: messageComplete.
+    sock.bufRegion = region2;
+    msg = new HomaIncoming(&sock, 2, false, 1000, 0, true, false);
+    stream.incoming.clear();
+    stream.incoming.emplace_back(msg);
+    stream.eof = false;
+    Mock::log.clear();
+    stream.transferData();
+    execCtx.Flush();
+    EXPECT_STREQ("", Mock::log.c_str());
+    EXPECT_EQ(1U, stream.incoming.size());
+
+    // Third message: trailing metadata.
+    sock.bufRegion = region3;
+    msg = new HomaIncoming(&sock, 2, false, 0, 0, false, true);
+    stream.incoming.clear();
+    stream.incoming.emplace_back(msg);
+    stream.eof = false;
+    Mock::log.clear();
+    stream.transferData();
+    execCtx.Flush();
+    EXPECT_STREQ("", Mock::log.c_str());
+    EXPECT_EQ(1U, stream.incoming.size());
+    EXPECT_TRUE(stream.eof);
 }
 TEST_F(TestStream, transferData_trailingMetadata) {
     stream.trailMdClosure = &closure1;
     stream.trailMd = &batch;
-    stream.incoming.emplace_back(new HomaIncoming(1, false, 0, 0, 0, false,
-            true));
+    stream.incoming.emplace_back(new HomaIncoming(&sock, 1, false,
+            0, 0, false, true));
     grpc_core::ExecCtx execCtx;
     stream.transferData();
     execCtx.Flush();
@@ -640,10 +680,12 @@ TEST_F(TestStream, transferData_multipleMessages) {
     stream.initMd = &batch;
     stream.trailMdClosure = &closure2;
     stream.trailMd = &batch2;
-    stream.incoming.emplace_back(new HomaIncoming(1, true, 0, 0, 0, false,
-            false));
-    stream.incoming.emplace_back(new HomaIncoming(2, false, 0, 0, 0, false,
-            true));
+    stream.incoming.emplace_back(new HomaIncoming(&sock, 1, true,
+            0, 0, false, false));
+    uint8_t region2[10000];
+    HomaSocket sock2(region2);
+    stream.incoming.emplace_back(new HomaIncoming(&sock2, 2, false,
+            0, 0, false, true));
     grpc_core::ExecCtx execCtx;
     stream.transferData();
     execCtx.Flush();
@@ -672,8 +714,8 @@ TEST_F(TestStream, transferData_useEof) {
 }
 
 TEST_F(TestStream, handleIncoming_respondToOldRequest) {
-    HomaIncoming::UniquePtr msg(new HomaIncoming(4, true, 0, 0, 0, false,
-            false));
+    HomaIncoming::UniquePtr msg(new HomaIncoming(&sock, 4, true,
+            0, 0, false, false));
     msg->hdr()->flags |= (Wire::Header::cancelled | Wire::Header::request);
     stream.homaRequestId = 999;
     stream.handleIncoming(std::move(msg), 444U);
@@ -685,8 +727,8 @@ TEST_F(TestStream, handleIncoming_respondToOldRequest) {
             Mock::log.c_str());
 }
 TEST_F(TestStream, handleIncoming_cancelled) {
-    HomaIncoming::UniquePtr msg(new HomaIncoming(4, true, 0, 0, 0, false,
-            false));
+    HomaIncoming::UniquePtr msg(new HomaIncoming(&sock, 4, true,
+            0, 0, false, false));
     msg->hdr()->flags |= Wire::Header::cancelled;
     stream.handleIncoming(std::move(msg), 444U);
     EXPECT_EQ(0U, stream.incoming.size());
@@ -708,18 +750,22 @@ TEST_F(TestStream, handleIncoming_basics) {
 
     // No messages should be processed until all 4 have been passed to
     // handleIncoming.
-    HomaIncoming::UniquePtr msg(new HomaIncoming(4, false, 0, 0, 0, false,
-            true));
+    HomaIncoming::UniquePtr msg(new HomaIncoming(&sock, 4, false,
+            0, 0, false, true));
     stream.handleIncoming(std::move(msg), 444U);
     execCtx.Flush();
     EXPECT_STREQ("", Mock::log.c_str());
 
-    msg.reset(new HomaIncoming(2, false, 500, 1000, 0, false, false));
+    uint8_t region2[5000];
+    HomaSocket sock2(region2);
+    msg.reset(new HomaIncoming(&sock2, 2, false, 500, 0, false, false));
     stream.handleIncoming(std::move(msg), 445U);
     execCtx.Flush();
     EXPECT_STREQ("", Mock::log.c_str());
 
-    msg.reset(new HomaIncoming(3, false, 1000, 0, 1500, true, false));
+    uint8_t region3[5000];
+    HomaSocket sock3(region3);
+    msg.reset(new HomaIncoming(&sock3, 3, false, 1000, 1500, true, false));
     stream.handleIncoming(std::move(msg), 446U);
     execCtx.Flush();
     EXPECT_STREQ("", Mock::log.c_str());
@@ -729,7 +775,9 @@ TEST_F(TestStream, handleIncoming_basics) {
     EXPECT_EQ(3, stream.incoming[1]->sequence);
     EXPECT_EQ(4, stream.incoming[2]->sequence);
 
-    msg.reset(new HomaIncoming(1, true, 0, 0, 0, false, false));
+    uint8_t region4[5000];
+    HomaSocket sock4(region4);
+    msg.reset(new HomaIncoming(&sock4, 1, true, 0, 0, false, false));
     stream.handleIncoming(std::move(msg), 447U);
     execCtx.Flush();
     EXPECT_STREQ("closure1 invoked with 123; "
@@ -743,37 +791,37 @@ TEST_F(TestStream, handleIncoming_basics) {
 
     Mock::log.clear();
     Mock::logByteStream("; ", message.get());
-    EXPECT_STREQ("0-499; 500-1499; 1500-2499", Mock::log.c_str());
+    EXPECT_STREQ("0-499; 1500-2499", Mock::log.c_str());
 
     Mock::log.clear();
     Mock::logMetadata("; ", &batch2);
     EXPECT_STREQ("metadata k2: 0123456789", Mock::log.c_str());
 }
-TEST_F(TestStream, handleIncoming_duplicate_lt_nextIncomingSequence) {
+TEST_F(TestStream, handleIncoming_duplicateLtNextIncomingSequence) {
     stream.initMdClosure = &closure1;
     stream.initMd = &batch;
     stream.nextIncomingSequence = 2;
     grpc_core::ExecCtx execCtx;
 
-    HomaIncoming::UniquePtr msg(new HomaIncoming(1, true, 0, 0, 0,
-            false, false));
+    HomaIncoming::UniquePtr msg(new HomaIncoming(&sock, 1, true,
+            0, 0, false, false));
     stream.handleIncoming(std::move(msg), 444U);
     execCtx.Flush();
     EXPECT_SUBSTR("Dropping duplicate message", Mock::log.c_str());
 }
-TEST_F(TestStream, handleIncoming_duplicate_queued_packet) {
+TEST_F(TestStream, handleIncoming_duplicateQueuedPacket) {
     stream.initMdClosure = &closure1;
     stream.initMd = &batch;
     grpc_core::ExecCtx execCtx;
 
-    HomaIncoming::UniquePtr msg(new HomaIncoming(2, true, 0, 0, 0,
-            false, false));
+    HomaIncoming::UniquePtr msg(new HomaIncoming(&sock, 2, true,
+            0, 0, false, false));
     stream.handleIncoming(std::move(msg), 444U);
     execCtx.Flush();
     EXPECT_STREQ("", Mock::log.c_str());
     EXPECT_EQ(1U, stream.incoming.size());
 
-    msg.reset(new HomaIncoming(2, true, 0, 0, 0, false, false));
+    msg.reset(new HomaIncoming(&sock, 2, true, 0, 0, false, false));
     stream.handleIncoming(std::move(msg), 444U);
     execCtx.Flush();
     EXPECT_SUBSTR("Dropping duplicate message", Mock::log.c_str());

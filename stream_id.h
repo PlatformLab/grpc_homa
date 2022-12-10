@@ -56,7 +56,35 @@ struct StreamId {
                 hash ^= std::hash<int>()(streamId.addr.in4.sin_addr.s_addr);
                 hash ^= std::hash<short>()(streamId.addr.in4.sin_port);
             }
-            return hash;
+            return hash ^ streamId.id;
+        }
+    };
+    
+    struct Pred {
+        bool operator()(const StreamId& a, const StreamId& b) const
+        {
+            if (a.id != b.id) {
+                return false;
+            }
+            if (a.addr.in6.sin6_family != b.addr.in6.sin6_family) {
+                return false;
+            }
+            if (a.addr.in6.sin6_family == AF_INET6) {
+                return (a.addr.in6.sin6_addr.s6_addr32[0]
+                        == b.addr.in6.sin6_addr.s6_addr32[0])
+                        && (a.addr.in6.sin6_addr.s6_addr32[1]
+                        == b.addr.in6.sin6_addr.s6_addr32[1])
+                        && (a.addr.in6.sin6_addr.s6_addr32[2]
+                        == b.addr.in6.sin6_addr.s6_addr32[2])
+                        && (a.addr.in6.sin6_addr.s6_addr32[3]
+                        == b.addr.in6.sin6_addr.s6_addr32[3])
+                        && (a.addr.in6.sin6_port == b.addr.in6.sin6_port);
+            } else if (a.addr.in4.sin_family == AF_INET) {
+                return (a.addr.in4.sin_addr.s_addr
+                        == b.addr.in4.sin_addr.s_addr)
+                        && (a.addr.in4.sin_port == b.addr.in4.sin_port);
+            }
+            return false;
         }
     };
 };

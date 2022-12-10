@@ -1,4 +1,5 @@
 #include <arpa/inet.h>
+#include <sys/mman.h>
 
 #include "homa_client.h"
 #include "homa_incoming.h"
@@ -111,8 +112,7 @@ HomaClient::HomaClient(bool ipv6)
     , streams()
     , nextId(1)
     , mutex()
-    , fd(-1)
-    , gfd(nullptr)
+    , sock(ipv6 ? AF_INET6 : AF_INET, 0)
     , readClosure()
     , numPeers(0)
 {
@@ -127,26 +127,13 @@ HomaClient::HomaClient(bool ipv6)
     vtable.destroy =             destroy;
     vtable.get_endpoint =        get_endpoint;
 
-    fd = socket(
-        ipv6 ? AF_INET6 : AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_HOMA);
-    if (fd < 0) {
-        gpr_log(GPR_ERROR, "Couldn't open Homa socket: %s", strerror(errno));
-    } else {
-        gfd = grpc_fd_create(fd, "homa-socket", true);
-        GRPC_CLOSURE_INIT(&readClosure, onRead, this,
-                grpc_schedule_on_exec_ctx);
-        grpc_fd_notify_on_read(gfd, &readClosure);
-    }
+    GRPC_CLOSURE_INIT(&readClosure, onRead, this,
+            grpc_schedule_on_exec_ctx);
+    grpc_fd_notify_on_read(sock.getGfd(), &readClosure);
 }
 
 HomaClient::~HomaClient()
 {
-    if (gfd) {
-        grpc_fd_shutdown(gfd,
-                GRPC_ERROR_CREATE_FROM_STATIC_STRING("Destroying HomaClient"));
-        grpc_fd_orphan(gfd, nullptr, nullptr, "Destroying HomaClient");
-        grpc_core::ExecCtx::Get()->Flush();
-    }
 }
 
 /**
@@ -232,7 +219,8 @@ int HomaClient::init_stream(grpc_transport* gt, grpc_stream* gs,
     grpc_core::MutexLock lock(&hc->mutex);
     uint32_t id = hc->nextId;
     hc->nextId++;
-    new (stream) HomaStream(StreamId(&peer->addr, id), hc->fd, refcount, arena);
+    new (stream) HomaStream(StreamId(&peer->addr, id), hc->sock.getFd(),
+            refcount, arena);
     hc->streams.emplace(stream->streamId, stream);
     return 0;
 }
@@ -253,8 +241,8 @@ void HomaClient::set_pollset(grpc_transport* gt, grpc_stream* gs,
     Peer *peer = containerOf(gt, &HomaClient::Peer::transport);
     HomaClient* hc = peer->hc;
 
-    if (hc->gfd) {
-        grpc_pollset_add_fd(pollset, hc->gfd);
+    if (hc->sock.getGfd()) {
+        grpc_pollset_add_fd(pollset, hc->sock.getGfd());
     }
 
 }
@@ -275,8 +263,8 @@ void HomaClient::set_pollset_set(grpc_transport* gt, grpc_stream* gs,
     Peer *peer = containerOf(gt, &HomaClient::Peer::transport);
     HomaClient* hc = peer->hc;
 
-    if (hc->gfd) {
-        grpc_pollset_set_add_fd(pollset_set, hc->gfd);
+    if (hc->sock.getGfd()) {
+        grpc_pollset_set_add_fd(pollset_set, hc->sock.getGfd());
     }
     gpr_log(GPR_INFO, "HomaClient::set_pollset_set invoked");
 
@@ -445,8 +433,8 @@ void HomaClient::onRead(void* arg, grpc_error* sockError)
     }
     while (true) {
         grpc_error_handle error;
-        HomaIncoming::UniquePtr msg = HomaIncoming::read(hc->fd,
-                HOMA_RECV_RESPONSE|HOMA_RECV_REQUEST|HOMA_RECV_NONBLOCKING,
+        HomaIncoming::UniquePtr msg = HomaIncoming::read(&hc->sock,
+                HOMA_RECVMSG_RESPONSE|HOMA_RECVMSG_REQUEST|HOMA_RECVMSG_NONBLOCKING,
                 &homaId, &error);
         if (error != GRPC_ERROR_NONE) {
             if (homaId != 0) {
@@ -482,5 +470,5 @@ void HomaClient::onRead(void* arg, grpc_error* sockError)
         }
         stream->handleIncoming(std::move(msg), homaId);
     }
-    grpc_fd_notify_on_read(hc->gfd, &hc->readClosure);
+    grpc_fd_notify_on_read(hc->sock.getGfd(), &hc->readClosure);
 }

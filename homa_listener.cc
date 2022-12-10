@@ -221,43 +221,17 @@ HomaListener::Transport::Transport(grpc_server* server, int *port, bool ipv6)
     , server(nullptr)
     , activeRpcs()
     , mutex()
-    , port(0)
-    , fd(-1)
-    , gfd(nullptr)
+    , sock(ipv6 ? AF_INET6 : AF_INET, *port)
     , read_closure()
     , state_tracker("homa_transport", GRPC_CHANNEL_READY)
     , accept_stream_cb(nullptr)
     , accept_stream_data(nullptr)
 {
     vtable.vtable = &shared->vtable;
+    GRPC_CLOSURE_INIT(&read_closure, onRead, this, grpc_schedule_on_exec_ctx);
     if (server) {
         this->server = grpc_core::Server::FromC(server);
-        fd = socket(
-            ipv6 ? AF_INET6 : AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_HOMA);
-        if (fd < 0) {
-            gpr_log(GPR_ERROR, "Couldn't open Homa socket: %s\n", strerror(errno));
-           *port = 0;
-           return;
-        }
-        sockaddr_in_union addr_in{};
-        if (ipv6) {
-          addr_in.in6.sin6_family = AF_INET6;
-          addr_in.in6.sin6_port = htons(*port);
-        } else {
-          addr_in.in4.sin_family = AF_INET;
-          addr_in.in4.sin_port = htons(*port);
-        }
-        if (bind(fd, &addr_in.sa, sizeof(addr_in)) != 0) {
-           gpr_log(GPR_ERROR, "Couldn't bind Homa socket to port %d: %s\n", *port,
-                   strerror(errno));
-           *port = 0;
-           return;
-        }
-        socklen_t addr_size = sizeof(addr_in);
-        getsockname(fd, &addr_in.sa, &addr_size);
-        this->port = *port = ntohs(addr_in.in4.sin_port);
     }
-    GRPC_CLOSURE_INIT(&read_closure, onRead, this, grpc_schedule_on_exec_ctx);
 }
 
 /**
@@ -280,12 +254,11 @@ void HomaListener::Transport::start(grpc_core::Server* server,
 {
     char name[30];
 
-    snprintf(name, sizeof(name), "homa-socket:%d", port);
-    gfd = grpc_fd_create(fd, name, true);
+    snprintf(name, sizeof(name), "homa-socket:%d", sock.getPort());
     for (size_t i = 0; i < pollsets->size(); i++) {
-        grpc_pollset_add_fd((*pollsets)[i], gfd);
+        grpc_pollset_add_fd((*pollsets)[i], sock.getGfd());
     }
-    grpc_fd_notify_on_read(gfd, &read_closure);
+    grpc_fd_notify_on_read(sock.getGfd(), &read_closure);
     server->SetupTransport(&vtable, NULL, server->channel_args(),
             nullptr);
 }
@@ -297,11 +270,7 @@ void HomaListener::Transport::shutdown()
 {
     state_tracker.SetState(GRPC_CHANNEL_SHUTDOWN, absl::OkStatus(),
             "error");
-    if (gfd) {
-        grpc_fd_shutdown(gfd, GRPC_ERROR_CREATE_FROM_STATIC_STRING(
-                "Homa listener destroyed"));
-        grpc_fd_orphan(gfd, nullptr, nullptr, "goodbye");
-    }
+    ::shutdown(sock.getFd(), SHUT_RDWR);
 }
 
 /**
@@ -370,8 +339,8 @@ void HomaListener::Transport::onRead(void* arg, grpc_error* error)
     while (true) {
         std::optional<grpc_core::MutexLock> streamLock;
         grpc_error_handle error;
-        HomaIncoming::UniquePtr msg = HomaIncoming::read(trans->fd,
-                HOMA_RECV_REQUEST|HOMA_RECV_RESPONSE|HOMA_RECV_NONBLOCKING,
+        HomaIncoming::UniquePtr msg = HomaIncoming::read(&trans->sock,
+                HOMA_RECVMSG_REQUEST|HOMA_RECVMSG_RESPONSE|HOMA_RECVMSG_NONBLOCKING,
                 &homaId, &error);
         if ((error != GRPC_ERROR_NONE) || !msg) {
             break;
@@ -380,7 +349,7 @@ void HomaListener::Transport::onRead(void* arg, grpc_error* error)
         HomaStream *stream = trans->getStream(msg.get(), streamLock);
         stream->handleIncoming(std::move(msg), homaId);
     }
-    grpc_fd_notify_on_read(trans->gfd, &trans->read_closure);
+    grpc_fd_notify_on_read(trans->sock.getGfd(), &trans->read_closure);
 }
 
 /**
@@ -409,7 +378,8 @@ int HomaListener::Transport::init_stream(grpc_transport* gt, grpc_stream* gs,
     HomaStream *stream = reinterpret_cast<HomaStream *>(gs);
     StreamInit *init = const_cast<StreamInit*>(
             reinterpret_cast<const StreamInit*>(init_info));
-    new (stream) HomaStream(*init->streamId, trans->fd, refcount, arena);
+    new (stream) HomaStream(*init->streamId, trans->sock.getFd(), refcount,
+            arena);
     init->stream = stream;
     return 0;
 }
@@ -456,7 +426,7 @@ void HomaListener::Transport::perform_stream_op(grpc_transport* gt, grpc_stream*
 
     if (op->send_initial_metadata || op->send_message
             || op->send_trailing_metadata) {
-        if (trans->fd < 0) {
+        if (trans->sock.getFd() < 0) {
             error = GRPC_ERROR_CREATE_FROM_STATIC_STRING(
                     "No Homa socket open");
         } else {

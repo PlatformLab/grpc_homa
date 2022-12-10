@@ -12,11 +12,10 @@
 #include "wire.h"
 
 /**
- * This is a base class that provides common facilities used for Homa
- * streams on both the client and server side. Each stream object
- * corresponds to a single RPC, and it exists for the life of that
- * RPC. It is used to manage the movement of data between gRPC and
- * Homa messages, as well as gRPC callbacks.
+ * This class provides common facilities used for Homa streams on both
+ * the client and server side. Each stream object corresponds to a single
+ * RPC, and it exists for the life of that RPC. It is used to manage the
+ * movement of data between gRPC and Homa messages, as well as gRPC callbacks.
  */
 class HomaStream {
 public:

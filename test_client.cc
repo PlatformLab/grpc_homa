@@ -116,7 +116,7 @@ public:
 
     /**
      * Sends an initial value to the server, checks to see that the server responds
-     * with prevented value. Repeats this many times.
+     * with incremented value. Repeats this many times.
      * \param initial
      *      Additional value to send to the server.
      * \param count
@@ -226,13 +226,13 @@ int main(int argc, char** argv)
         client.emplace(grpc::CreateChannel(server,
                 grpc::InsecureChannelCredentials()));
     }
-//    int sum;
-//    sum = client->Sum(22, 33);
-//    printf("Sum of 22 and 33 is %d\n", sum);
-//    printf("SumMany of 1..5 is %d\n", client->SumMany(1, 2, 3, 4, 5, -1));
-//    client->PrintValues(21);
-//    client->IncMany(3, 4);
-    measureRtt(&client.value());
+    int sum;
+    sum = client->Sum(22, 33);
+    printf("Sum of 22 and 33 is %d\n", sum);
+    printf("SumMany of 1..5 is %d\n", client->SumMany(1, 2, 3, 4, 5, -1));
+    client->PrintValues(21);
+    client->IncMany(3, 4);
+//    measureRtt(&client.value());
 
     return 0;
 }

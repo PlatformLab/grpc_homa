@@ -45,6 +45,7 @@ CFLAGS = -Wall -Werror -fno-strict-aliasing $(DEBUG_FLAGS) -MD
 OBJS =      homa_client.o \
 	    homa_incoming.o \
 	    homa_listener.o \
+	    homa_socket.o \
 	    homa_stream.o \
 	    stream_id.o \
 	    time_trace.o \
@@ -56,6 +57,7 @@ HOMA_OBJS = homa_api.o
 TEST_OBJS = mock.o \
             test_incoming.o \
             test_listener.o \
+            test_socket.o \
             test_stream.o
 
 LDFLAGS += -L/usr/local/lib $(GRPC_LIBS)\
@@ -67,44 +69,44 @@ GRPC_CPP_PLUGIN = $(GRPC_INSTALL_DIR)/bin/grpc_cpp_plugin
 PROTOS_PATH = .
 
 all: libhoma.a stress test_client test_server tcp_test
-	
+
 libhoma.a: $(OBJS) $(HOMA_OBJS)
 	ar rcs libhoma.a $(OBJS) $^
-	
+
 stress: basic.grpc.pb.o basic.pb.o stress.o libhoma.a
 	$(CXX) $^ $(LDFLAGS) -o $@
 
 test_client: test.grpc.pb.o test.pb.o test_client.o libhoma.a
 	$(CXX) $^ $(LDFLAGS) -o $@
-	
+
 test_server: test.grpc.pb.o test.pb.o test_server.o libhoma.a
 	$(CXX) $^ $(LDFLAGS) -o $@
-	
+
 tcp_test: test.grpc.pb.o test.pb.o tcp_test.o
 	$(CXX) $^ $(LDFLAGS) -o $@
-	
+
 unit: $(OBJS) $(TEST_OBJS) $(GTEST_LIB_PATH)/libgtest_main.a \
 	        $(GTEST_LIB_PATH)/libgtest.a
 	$(CXX) $^ $(LDFLAGS) -o $@
-	
+
 test: unit
 	./unit --gtest_brief=1
-	
+
 homa_api.o: $(HOMA_DIR)/homa_api.c
 	cc -c $(CFLAGS) $< -o $@
-	
+
 clean:
 	rm -f test_client test_server unit tcp_test *.a *.o *.pb.* .deps
-	
+
 install: all
 	rsync -avz stress test_client test_server node-1:
 	rsync -avz stress test_client test_server node-2:
 	rsync -avz stress test_client test_server node-3:
 	rsync -avz stress test_client test_server node-4:
-	
+
 %.o: %.cc
 	$(CXX) -c $(CXXFLAGS) $< -o $@
-	
+
 %.o: %.c
 	cc -c $(CFLAGS) $< -o $@
 
@@ -113,10 +115,10 @@ install: all
 
 %.pb.cc %.pb.h: %.proto
 	$(PROTOC) -I $(PROTOS_PATH) --cpp_out=. $<
-	
+
 .PHONY: test clean
 .PRECIOUS: test.grpc.pb.h test.grpc.pb.cc test.pb.h test.pb.cc
-	
+
 test_client.o test_server.o tcp_test.o : test.grpc.pb.h test.pb.h
 
 stress.o: basic.grpc.pb.h basic.pb.h

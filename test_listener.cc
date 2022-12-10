@@ -11,6 +11,7 @@ public:
     HomaListener::Transport *trans;
     std::vector<HomaStream *> streams;
     grpc_stream_refcount refcount;
+    HomaSocket sock;
     HomaIncoming msg;
     uint32_t msgStreamId;
     grpc_closure closure1;
@@ -31,7 +32,10 @@ public:
         , trans(nullptr)
         , streams()
         , refcount()
-        , msg(2, true, 100, 0, 0, true, true)
+        , sock(Mock::bufRegion)
+        , msg(&sock, 2, true, 100, 0, true, true)
+        , msgStreamId()
+        , closure1()
     {
         int port = 4000;
         gpr_once_init(&HomaListener::shared_once, HomaListener::InitShared);
@@ -61,8 +65,8 @@ public:
         HomaListener::Transport::StreamInit *init =
                 static_cast<HomaListener::Transport::StreamInit *>(
                 const_cast<void*>(initInfo));
-        init->stream = new HomaStream(*init->streamId, test->trans->fd,
-                &test->refcount, test->arena);
+        init->stream = new HomaStream(*init->streamId,
+                test->trans->sock.getFd(), &test->refcount, test->arena);
         test->streams.push_back(init->stream);
     }
 };

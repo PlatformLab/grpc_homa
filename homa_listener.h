@@ -11,6 +11,7 @@
 #include "src/core/lib/iomgr/ev_posix.h"
 #include "src/core/lib/transport/transport_impl.h"
 
+#include "homa_socket.h"
 #include "homa_stream.h"
 #include "wire.h"
 
@@ -101,23 +102,18 @@ PROTECTED:
 
         // Keeps track of all RPCs currently in some stage of processing;
         // used to look up the Stream for an RPC based on its id.
-        std::unordered_map<StreamId, HomaStream*, StreamId::Hasher> activeRpcs;
+        std::unordered_map<StreamId, HomaStream*, StreamId::Hasher,
+                StreamId::Pred> activeRpcs;
 
         typedef std::unordered_map<StreamId, HomaStream*,
-                StreamId::Hasher>::iterator ActiveIterator;
+                StreamId::Hasher, StreamId::Pred>::iterator ActiveIterator;
 
         // Must be held when accessing @activeRpcs. Must not be acquired while
         // holding a stream lock.
         grpc_core::Mutex mutex;
-
-        // Homa port number managed by this object.
-        int port;
-
-        // File descriptor for a Homa socket; -1 means none.
-        int fd;
-
-        // Used by grpc to manage the socket in various ways, such as epoll.
-        grpc_fd *gfd;
+        
+        // Manages the Homa socket, including buffer space.
+        HomaSocket sock;
 
         // Used to call us back when fd is readable.
         grpc_closure read_closure;
