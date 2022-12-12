@@ -57,7 +57,7 @@ public:
         if (offset >= length) {
             return 0;
         }
-        if ((offset >> HOMA_BPAGE_SHIFT) == (control.num_buffers-1)) {
+        if ((offset >> HOMA_BPAGE_SHIFT) == (control.num_bpages-1)) {
             return length - offset;
         }
         return HOMA_BPAGE_SIZE - (offset & (HOMA_BPAGE_SIZE-1));
@@ -89,7 +89,7 @@ public:
         }
         size_t bufIndex = offset >> HOMA_BPAGE_SHIFT;
         size_t offsetInBuf = offset & (HOMA_BPAGE_SIZE-1);
-        uint8_t *start = sock->getBufRegion() + control.buffers[bufIndex]
+        uint8_t *start = sock->getBufRegion() + control.bpage_offsets[bufIndex]
                 + offsetInBuf;
         size_t cbytes = contiguous(offset);
         if (cbytes >= sizeof(T)) {
@@ -106,7 +106,7 @@ public:
             cbytes = ((sizeof(T) - offsetInObj) > HOMA_BPAGE_SIZE)
                     ? HOMA_BPAGE_SIZE : (sizeof(T) - offsetInObj);
             memcpy(p + offsetInObj,
-                    sock->getBufRegion() + control.buffers[bufIndex], cbytes);
+                    sock->getBufRegion() + control.bpage_offsets[bufIndex], cbytes);
         }
         return auxSpace;
     }
@@ -167,7 +167,7 @@ public:
     Wire::Header *hdr()
     {
         return reinterpret_cast<Wire::Header*>(
-                sock->getBufRegion() + control.buffers[0]);
+                sock->getBufRegion() + control.bpage_offsets[0]);
     }
 };
 

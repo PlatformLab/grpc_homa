@@ -149,16 +149,16 @@ void HomaSocket::cleanup()
  * getSavedBuffers().
  * \param control
  *      Structure in which Homa passed buffer information to the application.
- *      control->num_buffers will be set to 0 to indicate that all buffers
+ *      control->num_bpages will be set to 0 to indicate that all buffers
  *      have been claimed here.
  */
 void HomaSocket::saveBuffers(struct homa_recvmsg_control *control)
 {
     grpc_core::MutexLock lock(&mutex);
-    for (uint32_t i = 0; i < control->num_buffers; i++) {
-        savedBuffers.emplace_back(control->buffers[i]);
+    for (uint32_t i = 0; i < control->num_bpages; i++) {
+        savedBuffers.emplace_back(control->bpage_offsets[i]);
     }
-    control->num_buffers = 0;
+    control->num_bpages = 0;
 }
 
 /**
@@ -172,11 +172,11 @@ void HomaSocket::saveBuffers(struct homa_recvmsg_control *control)
 void HomaSocket::getSavedBuffers(struct homa_recvmsg_control *control)
 {
     grpc_core::MutexLock lock(&mutex);
-    uint32_t count = control->num_buffers;
+    uint32_t count = control->num_bpages;
     while ((count < HOMA_MAX_BPAGES) && !savedBuffers.empty()) {
-        control->buffers[count] = savedBuffers.front();
+        control->bpage_offsets[count] = savedBuffers.front();
         savedBuffers.pop_front();
         count++;
     }
-    control->num_buffers = count;
+    control->num_bpages = count;
 }

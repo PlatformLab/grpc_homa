@@ -69,10 +69,10 @@ HomaIncoming::HomaIncoming(HomaSocket *sock, int sequence, bool initMd,
     , maxStaticMdLength(200)
 {
     memset(&control, 0, sizeof(control));
-    control.num_buffers = 1;
-    control.buffers[0] = 1000;
+    control.num_bpages = 1;
+    control.bpage_offsets[0] = 1000;
     sliceRefs.Ref();
-    uint8_t *buffer = sock->getBufRegion() + control.buffers[0];
+    uint8_t *buffer = sock->getBufRegion() + control.bpage_offsets[0];
     Wire::Header *h = new (buffer) Wire::Header;
     size_t offset = sizeof(Wire::Header);
     size_t length;
@@ -174,12 +174,12 @@ HomaIncoming::UniquePtr HomaIncoming::read(HomaSocket *sock, int flags,
     recvHdr.msg_control = &msg->control;
     recvHdr.msg_controllen = sizeof(msg->control);
     msg->control.flags = flags;
-    msg->control.num_buffers = 0;
+    msg->control.num_bpages = 0;
     while (true) {
         msg->control.id = 0;
         sock->getSavedBuffers(&msg->control);
 //        gpr_log(GPR_INFO, "Returning %d bpages to Homa: %s",
-//               msg->control.num_buffers, bpagesToString(&msg->control).c_str());
+//               msg->control.num_bpages, bpagesToString(&msg->control).c_str());
         result = recvmsg(sock->getFd(), &recvHdr, 0);
         *homaId = msg->control.id;
         if (result < 0) {
@@ -208,7 +208,7 @@ HomaIncoming::UniquePtr HomaIncoming::read(HomaSocket *sock, int flags,
                 "Discarding dummy response for homaId %lu, stream id %d",
                 *homaId, ntohl(msg->hdr()->streamId));
 //        gpr_log(GPR_INFO, "Received %u bpages from Homa in dummy response: %s",
-//                msg->control.num_buffers, bpagesToString(&msg->control).c_str());
+//                msg->control.num_bpages, bpagesToString(&msg->control).c_str());
     }
 
     // We now have a message suitable for returning to the caller.
@@ -236,7 +236,7 @@ HomaIncoming::UniquePtr HomaIncoming::read(HomaSocket *sock, int flags,
                 "%u trailMd bytes, flags 0x%x, bpage[0] %u",
                 msg->streamId.toString().c_str(), msg->sequence, *homaId,
                 msg->initMdLength, msg->bodyLength, msg->trailMdLength,
-                msg->hdr()->flags, msg->control.buffers[0]>>HOMA_BPAGE_SHIFT);
+                msg->hdr()->flags, msg->control.bpage_offsets[0]>>HOMA_BPAGE_SHIFT);
     }
     TimeTrace::record(startTime, "HomaIncoming::read starting");
     tt("HomaIncoming::read returning");

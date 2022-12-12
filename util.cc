@@ -11,12 +11,12 @@
 std::string bpagesToString(struct homa_recvmsg_control *control)
 {
     std::string result;
-    for (uint32_t i = 0; i < control->num_buffers; i++) {
+    for (uint32_t i = 0; i < control->num_bpages; i++) {
         char buffer[100];
         if (!result.empty()) {
             result.append(" ");
         }
-        snprintf(buffer, sizeof(buffer), "%u", control->buffers[i]);
+        snprintf(buffer, sizeof(buffer), "%u", control->bpage_offsets[i]);
         result.append(buffer);
     }
     return result;

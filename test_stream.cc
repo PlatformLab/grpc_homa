@@ -573,10 +573,10 @@ TEST_F(TestStream, transferData_messageData_multipleChunks) {
     fillData(bigBuf + HOMA_BPAGE_SIZE, HOMA_BPAGE_SIZE, 200000);
     fillData(bigBuf + 2*HOMA_BPAGE_SIZE, HOMA_BPAGE_SIZE, 300000);
     fillData(bigBuf + 3*HOMA_BPAGE_SIZE, HOMA_BPAGE_SIZE, 400000);
-    msg->control.num_buffers = 3;
-    msg->control.buffers[0] = HOMA_BPAGE_SIZE*2;
-    msg->control.buffers[1] = HOMA_BPAGE_SIZE;
-    msg->control.buffers[2] = HOMA_BPAGE_SIZE*3;
+    msg->control.num_bpages = 3;
+    msg->control.bpage_offsets[0] = HOMA_BPAGE_SIZE*2;
+    msg->control.bpage_offsets[1] = HOMA_BPAGE_SIZE;
+    msg->control.bpage_offsets[2] = HOMA_BPAGE_SIZE*3;
     msg->length = 160000;
     msg->initMdLength = 100 - sizeof(Wire::Header);
     msg->bodyLength = msg->length - 100;

@@ -32,11 +32,11 @@ public:
         memset(bigBuf + HOMA_BPAGE_SIZE, 0, HOMA_BPAGE_SIZE);
         memset(bigBuf + 2*HOMA_BPAGE_SIZE, 0, HOMA_BPAGE_SIZE);
         memset(bigBuf + 3*HOMA_BPAGE_SIZE, 0, HOMA_BPAGE_SIZE);
-        msg->control.num_buffers = (length + HOMA_BPAGE_SIZE - 1)
+        msg->control.num_bpages = (length + HOMA_BPAGE_SIZE - 1)
                 >> HOMA_BPAGE_SHIFT;
-        msg->control.buffers[0] = HOMA_BPAGE_SIZE*2;
-        msg->control.buffers[1] = HOMA_BPAGE_SIZE;
-        msg->control.buffers[2] = HOMA_BPAGE_SIZE*3;
+        msg->control.bpage_offsets[0] = HOMA_BPAGE_SIZE*2;
+        msg->control.bpage_offsets[1] = HOMA_BPAGE_SIZE;
+        msg->control.bpage_offsets[2] = HOMA_BPAGE_SIZE*3;
         msg->length = length;
         msg->sock->bufRegion = bigBuf;
         size_t offset = 0;
@@ -55,9 +55,9 @@ TEST_F(TestIncoming, destructor_saveBuffers) {
     grpc_error_handle error;
     HomaIncoming::UniquePtr msg = HomaIncoming::read(&sock, 5, &homaId, &error);
     ASSERT_EQ(GRPC_ERROR_NONE, error);
-    msg->control.num_buffers = 2;
-    msg->control.buffers[0] = 123;
-    msg->control.buffers[1] = 456;
+    msg->control.num_bpages = 2;
+    msg->control.bpage_offsets[0] = 123;
+    msg->control.bpage_offsets[1] = 456;
     msg->sliceRefs.Unref();
     ASSERT_EQ(2U, sock.savedBuffers.size());
     EXPECT_EQ(123U, sock.savedBuffers.at(0));
@@ -75,7 +75,7 @@ TEST_F(TestIncoming, read_basics) {
     EXPECT_EQ(1000U, msg->bodyLength);
     EXPECT_EQ(1051U, msg->length);
     EXPECT_EQ(44444U, msg->control.completion_cookie);
-    EXPECT_EQ(1U, msg->control.num_buffers);
+    EXPECT_EQ(1U, msg->control.num_bpages);
     EXPECT_EQ(GRPC_ERROR_NONE, error);
     EXPECT_EQ(3, Mock::buffersReturned);
     EXPECT_EQ(0U, sock.savedBuffers.size());
@@ -324,7 +324,7 @@ TEST_F(TestIncoming, contiguous) {
     grpc_error_handle error;
     HomaIncoming::UniquePtr msg = HomaIncoming::read(&sock, 5, &homaId, &error);
     EXPECT_EQ(GRPC_ERROR_NONE, error);
-    msg->control.num_buffers = 3;
+    msg->control.num_bpages = 3;
     msg->length = 2*HOMA_BPAGE_SIZE + 1000;
     EXPECT_EQ(200U, msg->contiguous(HOMA_BPAGE_SIZE-200));
     EXPECT_EQ(500U, msg->contiguous(2*HOMA_BPAGE_SIZE-500));
