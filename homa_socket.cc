@@ -58,7 +58,7 @@ HomaSocket::HomaSocket(int domain, int port)
             : addr.in4.sin_port);
 
     // Set up the buffer region.
-    bufSize = 100*HOMA_BPAGE_SIZE;
+    bufSize = 1000*HOMA_BPAGE_SIZE;
     bufRegion = (uint8_t *) mmap(NULL, bufSize, PROT_READ|PROT_WRITE,
             MAP_PRIVATE|MAP_ANONYMOUS, 0, 0);
     if (bufRegion == MAP_FAILED) {

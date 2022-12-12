@@ -8,10 +8,8 @@
 #include <grpcpp/grpcpp.h>
 
 #include "src/core/ext/filters/client_channel/client_channel.h"
-#include "src/core/ext/filters/client_channel/connector.h"
-#include "src/core/lib/iomgr/ev_posix.h"
-#include "src/core/lib/iomgr/resolve_address.h"
-#include "src/core/lib/transport/transport_impl.h"
+#include "src/core/ext/filters/client_channel/client_channel_factory.h"
+#include "src/core/ext/filters/client_channel/resolver_registry.h"
 
 #include "homa_socket.h"
 #include "homa_stream.h"

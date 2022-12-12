@@ -10,9 +10,6 @@
 
 #include <grpc/impl/codegen/slice.h>
 
-#include "src/core/ext/filters/client_channel/resolver_registry.h"
-#include "src/core/lib/surface/channel.h"
-
 HomaClient::SubchannelFactory HomaClient::factory;
 HomaClient *HomaClient::sharedClient = nullptr;
 grpc_core::Mutex HomaClient::refCountMutex;
