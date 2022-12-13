@@ -147,36 +147,36 @@ void HomaSocket::cleanup()
  * recvmsg call is no longer needed. It saves information about the
  * buffers, so that it can return that information in a later call to
  * getSavedBuffers().
- * \param control
+ * \param recvArgs
  *      Structure in which Homa passed buffer information to the application.
- *      control->num_bpages will be set to 0 to indicate that all buffers
+ *      recvArgs->num_bpages will be set to 0 to indicate that all buffers
  *      have been claimed here.
  */
-void HomaSocket::saveBuffers(struct homa_recvmsg_control *control)
+void HomaSocket::saveBuffers(struct homa_recvmsg_args *recvArgs)
 {
     grpc_core::MutexLock lock(&mutex);
-    for (uint32_t i = 0; i < control->num_bpages; i++) {
-        savedBuffers.emplace_back(control->bpage_offsets[i]);
+    for (uint32_t i = 0; i < recvArgs->num_bpages; i++) {
+        savedBuffers.emplace_back(recvArgs->bpage_offsets[i]);
     }
-    control->num_bpages = 0;
+    recvArgs->num_bpages = 0;
 }
 
 /**
  * This method is called before invoking Homa recvmsg; it adds as many
- * saved buffers as possible to control->buffers, so that they will be
+ * saved buffers as possible to recvArgs->buffers, so that they will be
  * returned to Homa as part of recvmsg.
- * \param control
+ * \param recvArgs
  *      Struct that is about to be passed to Homa's recvmsg. May already
  *      contain some buffers to return.
  */
-void HomaSocket::getSavedBuffers(struct homa_recvmsg_control *control)
+void HomaSocket::getSavedBuffers(struct homa_recvmsg_args *recvArgs)
 {
     grpc_core::MutexLock lock(&mutex);
-    uint32_t count = control->num_bpages;
+    uint32_t count = recvArgs->num_bpages;
     while ((count < HOMA_MAX_BPAGES) && !savedBuffers.empty()) {
-        control->bpage_offsets[count] = savedBuffers.front();
+        recvArgs->bpage_offsets[count] = savedBuffers.front();
         savedBuffers.pop_front();
         count++;
     }
-    control->num_bpages = count;
+    recvArgs->num_bpages = count;
 }

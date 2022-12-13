@@ -295,20 +295,20 @@ Mock::substr(const std::string& s, const std::string& substring)
 
 ssize_t recvmsg(int fd, struct msghdr *msg, int flags)
 {
-    struct homa_recvmsg_control *control =
-            static_cast<homa_recvmsg_control *>(msg->msg_control);
-    Mock::buffersReturned += reinterpret_cast<homa_recvmsg_control *>
+    struct homa_recvmsg_args *recvArgs =
+            static_cast<homa_recvmsg_args *>(msg->msg_control);
+    Mock::buffersReturned += reinterpret_cast<homa_recvmsg_args *>
             (msg->msg_control)->num_bpages;
     if (Mock::checkError(&Mock::recvmsgErrors)) {
         errno = Mock::errorCode;
         return -1;
     }
-    control->id = 333;
-    control->completion_cookie = 44444;
-    control->num_bpages = 1;
-    control->bpage_offsets[0] = 2000;
+    recvArgs->id = 333;
+    recvArgs->completion_cookie = 44444;
+    recvArgs->num_bpages = 1;
+    recvArgs->bpage_offsets[0] = 2000;
     Wire::Header *h = reinterpret_cast<Wire::Header *>(
-            Mock::bufRegion + control->bpage_offsets[0]);
+            Mock::bufRegion + recvArgs->bpage_offsets[0]);
 
     if (Mock::recvmsgHeaders.empty()) {
         new (h) Wire::Header(44, 0, 10, 20, 1000);

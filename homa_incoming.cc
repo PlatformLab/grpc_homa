@@ -18,7 +18,7 @@ HomaIncoming::HomaIncoming(HomaSocket *sock)
             HomaIncoming::destroyer, this, nullptr)
     , streamId()
     , sock(sock)
-    , control()
+    , recvArgs()
     , length()
     , sequence()
     , initMdLength()
@@ -27,7 +27,7 @@ HomaIncoming::HomaIncoming(HomaSocket *sock)
     , destroyCounter(nullptr)
     , maxStaticMdLength(200)
 {
-    memset(&control, 0, sizeof(control));
+    memset(&recvArgs, 0, sizeof(recvArgs));
     sliceRefs.Ref();
 }
 
@@ -59,7 +59,7 @@ HomaIncoming::HomaIncoming(HomaSocket *sock, int sequence, bool initMd,
             HomaIncoming::destroyer, this, nullptr)
     , streamId(999)
     , sock(sock)
-    , control()
+    , recvArgs()
     , length(0)
     , sequence(sequence)
     , initMdLength(0)
@@ -68,11 +68,11 @@ HomaIncoming::HomaIncoming(HomaSocket *sock, int sequence, bool initMd,
     , destroyCounter(nullptr)
     , maxStaticMdLength(200)
 {
-    memset(&control, 0, sizeof(control));
-    control.num_bpages = 1;
-    control.bpage_offsets[0] = 1000;
+    memset(&recvArgs, 0, sizeof(recvArgs));
+    recvArgs.num_bpages = 1;
+    recvArgs.bpage_offsets[0] = 1000;
     sliceRefs.Ref();
-    uint8_t *buffer = sock->getBufRegion() + control.bpage_offsets[0];
+    uint8_t *buffer = sock->getBufRegion() + recvArgs.bpage_offsets[0];
     Wire::Header *h = new (buffer) Wire::Header;
     size_t offset = sizeof(Wire::Header);
     size_t length;
@@ -117,7 +117,7 @@ HomaIncoming::~HomaIncoming()
     if (destroyCounter) {
         (*destroyCounter)++;
     }
-    sock->saveBuffers(&control);
+    sock->saveBuffers(&recvArgs);
 }
 
 /**
@@ -171,17 +171,17 @@ HomaIncoming::UniquePtr HomaIncoming::read(HomaSocket *sock, int flags,
     recvHdr.msg_namelen = sizeof(msg->streamId.addr);
     recvHdr.msg_iov = nullptr;
     recvHdr.msg_iovlen = 0;
-    recvHdr.msg_control = &msg->control;
-    recvHdr.msg_controllen = sizeof(msg->control);
-    msg->control.flags = flags;
-    msg->control.num_bpages = 0;
+    recvHdr.msg_control = &msg->recvArgs;
+    recvHdr.msg_controllen = sizeof(msg->recvArgs);
+    msg->recvArgs.flags = flags;
+    msg->recvArgs.num_bpages = 0;
     while (true) {
-        msg->control.id = 0;
-        sock->getSavedBuffers(&msg->control);
+        msg->recvArgs.id = 0;
+        sock->getSavedBuffers(&msg->recvArgs);
 //        gpr_log(GPR_INFO, "Returning %d bpages to Homa: %s",
-//               msg->control.num_bpages, bpagesToString(&msg->control).c_str());
+//               msg->recvArgs.num_bpages, bpagesToString(&msg->recvArgs).c_str());
         result = recvmsg(sock->getFd(), &recvHdr, 0);
-        *homaId = msg->control.id;
+        *homaId = msg->recvArgs.id;
         if (result < 0) {
             if (errno == EAGAIN) {
                 return nullptr;
@@ -208,7 +208,7 @@ HomaIncoming::UniquePtr HomaIncoming::read(HomaSocket *sock, int flags,
                 "Discarding dummy response for homaId %lu, stream id %d",
                 *homaId, ntohl(msg->hdr()->streamId));
 //        gpr_log(GPR_INFO, "Received %u bpages from Homa in dummy response: %s",
-//                msg->control.num_bpages, bpagesToString(&msg->control).c_str());
+//                msg->recvArgs.num_bpages, bpagesToString(&msg->recvArgs).c_str());
     }
 
     // We now have a message suitable for returning to the caller.
@@ -236,7 +236,7 @@ HomaIncoming::UniquePtr HomaIncoming::read(HomaSocket *sock, int flags,
                 "%u trailMd bytes, flags 0x%x, bpage[0] %u",
                 msg->streamId.toString().c_str(), msg->sequence, *homaId,
                 msg->initMdLength, msg->bodyLength, msg->trailMdLength,
-                msg->hdr()->flags, msg->control.bpage_offsets[0]>>HOMA_BPAGE_SHIFT);
+                msg->hdr()->flags, msg->recvArgs.bpage_offsets[0]>>HOMA_BPAGE_SHIFT);
     }
     TimeTrace::record(startTime, "HomaIncoming::read starting");
     tt("HomaIncoming::read returning");

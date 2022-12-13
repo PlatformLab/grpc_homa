@@ -42,51 +42,51 @@ public:
 };
 
 TEST_F(TestSocket, saveBuffers) {
-    struct homa_recvmsg_control control;
-    control.bpage_offsets[0] = 0;
-    control.bpage_offsets[1] = 1;
-    control.bpage_offsets[2] = 2;
-    control.num_bpages = 3;
-    sock.saveBuffers(&control);
+    struct homa_recvmsg_args recvArgs;
+    recvArgs.bpage_offsets[0] = 0;
+    recvArgs.bpage_offsets[1] = 1;
+    recvArgs.bpage_offsets[2] = 2;
+    recvArgs.num_bpages = 3;
+    sock.saveBuffers(&recvArgs);
     EXPECT_STREQ("0 1 2", getSaved(&sock).c_str());
 
     // Should be idempotent.
-    sock.saveBuffers(&control);
+    sock.saveBuffers(&recvArgs);
     EXPECT_STREQ("0 1 2", getSaved(&sock).c_str());
 }
 
 TEST_F(TestSocket, getSavedBuffers) {
-    struct homa_recvmsg_control control;
+    struct homa_recvmsg_args recvArgs;
     for (uint32_t i = 0; i < 20; i++) {
-        control.bpage_offsets[0] = 2*i + 1;
-        control.num_bpages = 1;
-        sock.saveBuffers(&control);
+        recvArgs.bpage_offsets[0] = 2*i + 1;
+        recvArgs.num_bpages = 1;
+        sock.saveBuffers(&recvArgs);
     }
     EXPECT_EQ(20U, sock.savedBuffers.size());
 
     // First attempt: limited by space in control.
-    control.num_bpages = 0;
-    sock.getSavedBuffers(&control);
-    EXPECT_EQ(static_cast<uint32_t>(HOMA_MAX_BPAGES), control.num_bpages);
-    EXPECT_EQ(1U, control.bpage_offsets[0]);
-    EXPECT_EQ(3U, control.bpage_offsets[1]);
+    recvArgs.num_bpages = 0;
+    sock.getSavedBuffers(&recvArgs);
+    EXPECT_EQ(static_cast<uint32_t>(HOMA_MAX_BPAGES), recvArgs.num_bpages);
+    EXPECT_EQ(1U, recvArgs.bpage_offsets[0]);
+    EXPECT_EQ(3U, recvArgs.bpage_offsets[1]);
     EXPECT_EQ(static_cast<uint32_t>(2*HOMA_MAX_BPAGES - 1),
-            control.bpage_offsets[HOMA_MAX_BPAGES-1]);
+            recvArgs.bpage_offsets[HOMA_MAX_BPAGES-1]);
 
     // Second attempt: limited by available buffers.
-    control.num_bpages = 0;
-    sock.getSavedBuffers(&control);
-    EXPECT_EQ(static_cast<uint32_t>(20 - HOMA_MAX_BPAGES), control.num_bpages);
-    EXPECT_EQ(static_cast<uint32_t>(2*HOMA_MAX_BPAGES + 1), control.bpage_offsets[0]);
-    EXPECT_EQ(static_cast<uint32_t>(2*HOMA_MAX_BPAGES + 3), control.bpage_offsets[1]);
+    recvArgs.num_bpages = 0;
+    sock.getSavedBuffers(&recvArgs);
+    EXPECT_EQ(static_cast<uint32_t>(20 - HOMA_MAX_BPAGES), recvArgs.num_bpages);
+    EXPECT_EQ(static_cast<uint32_t>(2*HOMA_MAX_BPAGES + 1), recvArgs.bpage_offsets[0]);
+    EXPECT_EQ(static_cast<uint32_t>(2*HOMA_MAX_BPAGES + 3), recvArgs.bpage_offsets[1]);
 
     // Third attempt: no available buffers.
-    control.num_bpages = 0;
-    sock.getSavedBuffers(&control);
-    EXPECT_EQ(0U, control.num_bpages);
+    recvArgs.num_bpages = 0;
+    sock.getSavedBuffers(&recvArgs);
+    EXPECT_EQ(0U, recvArgs.num_bpages);
 }
-TEST_F(TestSocket, getSavedBuffers_controlAlreadyHasSomeBuffers) {
-    struct homa_recvmsg_control control;
+TEST_F(TestSocket, getSavedBuffers_argsAlreadyHasSomeBuffers) {
+    struct homa_recvmsg_args control;
     sock.savedBuffers.push_back(10);
     sock.savedBuffers.push_back(11);
     control.num_bpages = 3;

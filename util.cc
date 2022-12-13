@@ -4,19 +4,19 @@
 
 /**
  * Returns a human-readable string containing the bpage indexes in a
- * homa_recvmsg_control structure.
- * \param control
+ * homa_recvmsg_args structure.
+ * \param recvArgs
  *      Structure whose buffers entries should be returned.
  */
-std::string bpagesToString(struct homa_recvmsg_control *control)
+std::string bpagesToString(struct homa_recvmsg_args *recvArgs)
 {
     std::string result;
-    for (uint32_t i = 0; i < control->num_bpages; i++) {
+    for (uint32_t i = 0; i < recvArgs->num_bpages; i++) {
         char buffer[100];
         if (!result.empty()) {
             result.append(" ");
         }
-        snprintf(buffer, sizeof(buffer), "%u", control->bpage_offsets[i]);
+        snprintf(buffer, sizeof(buffer), "%u", recvArgs->bpage_offsets[i]);
         result.append(buffer);
     }
     return result;

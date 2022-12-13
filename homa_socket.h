@@ -17,8 +17,8 @@ public:
     HomaSocket(int domain, int port);
     HomaSocket(uint8_t *bufRegion);
     ~HomaSocket(void);
-    void      saveBuffers(struct homa_recvmsg_control *control);
-    void      getSavedBuffers(struct homa_recvmsg_control *control);
+    void      saveBuffers(struct homa_recvmsg_args *recvArgs);
+    void      getSavedBuffers(struct homa_recvmsg_args *recvArgs);
 
     //Returns the file descriptor associated with this object, or -1
     // if the constructor failed to initialize the socket.
