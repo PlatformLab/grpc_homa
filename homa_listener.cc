@@ -144,6 +144,7 @@ HomaListener::~HomaListener()
  */
 HomaListener *HomaListener::Get(grpc_server* server, int *port, bool ipv6)
 {
+    grpc_core::ExecCtx exec_ctx;
     HomaListener *lis = nullptr;
     gpr_once_init(&shared_once, InitShared);
     if (*port) {

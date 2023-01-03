@@ -37,8 +37,8 @@ public:
     }
 
     /**
-     * Returns the port number associated with this socket; the value
-     * is undefined if the constructor failed to initialize the socket.
+     * Returns the port number associated with this socket, or zero if
+     * if the constructor failed to initialize the socket.
      */
     inline int getPort() const
     {
@@ -47,7 +47,7 @@ public:
 
     /**
      * Returns the base address of the receive buffer region for this
-     * socket. If the instructor failed to initialize the socket then
+     * socket. If the constructor failed to initialize the socket then
      * nullptr is returned.
      * @return
      */

@@ -21,7 +21,7 @@
 HomaSocket::HomaSocket(int domain, int port)
     : fd(-1)
     , gfd(nullptr)
-    , port(-1)
+    , port(0)
     , bufRegion(nullptr)
     , bufSize(0)
     , savedBuffers()
@@ -95,7 +95,7 @@ error:
 HomaSocket::HomaSocket(uint8_t *bufRegion)
     : fd(-1)
     , gfd(nullptr)
-    , port(-1)
+    , port(0)
     , bufRegion(bufRegion)
     , bufSize(0)
     , savedBuffers()
@@ -140,6 +140,7 @@ void HomaSocket::cleanup()
         }
     }
     fd = -1;
+    port = 0;
 }
 
 /**
