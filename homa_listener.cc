@@ -232,6 +232,9 @@ HomaListener::Transport::Transport(grpc_server* server, int *port, bool ipv6)
     if (server) {
         this->server = grpc_core::Server::FromC(server);
     }
+    // In case the caller asked for port zero this updates *port to reflect
+    // the port that the kernel allocated:
+    *port = sock.getPort();
 }
 
 /**
