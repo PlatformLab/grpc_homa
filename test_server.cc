@@ -115,17 +115,19 @@ int main(int argc, char** argv) {
 
     TestImpl service;
     grpc::ServerBuilder builder;
+    int actualPort;
     if (useHoma) {
         builder.AddListeningPort(serverAddress,
-                HomaListener::insecureCredentials());
+                HomaListener::insecureCredentials(), &actualPort);
     } else {
-        builder.AddListeningPort(serverAddress, grpc::InsecureServerCredentials());
+        builder.AddListeningPort(serverAddress,
+                grpc::InsecureServerCredentials(), &actualPort);
     }
     builder.RegisterService(&service);
     std::unique_ptr<grpc::Server> server(builder.BuildAndStart());
     if (server == nullptr)
         exit(1);
-    std::cout << "Server listening on " << serverAddress << std::endl;
+    std::cout << "Server listening on port " << actualPort << std::endl;
     server->Wait();
 
     return 0;
