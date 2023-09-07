@@ -52,7 +52,7 @@ int main(int argc, char** argv) {
         goto usage;
     }
     if (strcmp(argv[1], "client") == 0) {
-        std::string target = "node-1:4000";
+        std::string target = "node1:4000";
         if (argc == 3) {
             target = argv[2];
         } else if (argc != 2) {

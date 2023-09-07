@@ -53,6 +53,56 @@ public:
     }
 
     /**
+     * Issues 3 concurrent asynchronous Sum RPCs, waits for all results,
+     * and prints results.
+     */
+    void Sum3Async()
+    {
+        test::SumArgs args[3];
+        test::SumResult results[3];
+        grpc::ClientContext contexts[3];
+        grpc::CompletionQueue cq;
+        grpc::Status statuses[3];
+
+        args[0].set_op1(100);
+        args[0].set_op2(200);
+        args[1].set_op1(300);
+        args[1].set_op2(400);
+        args[2].set_op1(500);
+        args[2].set_op2(600);
+
+        std::unique_ptr<grpc::ClientAsyncResponseReader<test::SumResult>> rpc0(
+                stub->AsyncSum(&contexts[0], args[0], &cq));
+        std::unique_ptr<grpc::ClientAsyncResponseReader<test::SumResult>> rpc1(
+                stub->AsyncSum(&contexts[1], args[1], &cq));
+        std::unique_ptr<grpc::ClientAsyncResponseReader<test::SumResult>> rpc2(
+                stub->AsyncSum(&contexts[2], args[2], &cq));
+
+        rpc0->Finish(&results[0], &statuses[0], (void *) 1);
+        rpc1->Finish(&results[1], &statuses[1], (void *) 2);
+        rpc2->Finish(&results[2], &statuses[2], (void *) 3);
+
+        for (int i = 0; i < 3; i++) {
+            uint64_t got_tag;
+            bool ok = false;
+
+            if (!cq.Next(reinterpret_cast<void **>(&got_tag), &ok) || !ok) {
+                printf("Sum3Async failed: couldn't get event from "
+                        "completion queue\n");
+                return;
+            }
+
+            if ((got_tag < 1) || (got_tag > 3)) {
+                printf("Sum3Async received bad tag %lu\n", got_tag);
+                return;
+            }
+
+            printf("Sum3Async operation %lu completed with result %d\n",
+                    got_tag, results[got_tag-1].sum());
+        }
+    }
+
+    /**
      * Adds many numbers together.
      * \param op
      *      The first number to add.
@@ -191,8 +241,7 @@ void measureRtt(TestClient *client)
 
 int main(int argc, char** argv)
 {
-    recordFunc = TimeTrace::record2;
-    const char *server = "node-1:4000";
+    const char *server = "node1:4000";
     bool useHoma = true;
     std::vector<std::string> args;
     unsigned nextArg;
@@ -229,6 +278,7 @@ int main(int argc, char** argv)
     int sum;
     sum = client->Sum(22, 33);
     printf("Sum of 22 and 33 is %d\n", sum);
+    client->Sum3Async();
     printf("SumMany of 1..5 is %d\n", client->SumMany(1, 2, 3, 4, 5, -1));
     client->PrintValues(21);
     client->IncMany(3, 4);

@@ -265,7 +265,7 @@ public:
     /**
      * Constructor for StressClients.
      * \param serverIndex
-     *      Index of this server node within the cluster (0 means "node-0").
+     *      Index of this server node within the cluster (0 means "node0").
      * \param serverPort
      *      Port within server to receive requests.
      */
@@ -273,7 +273,7 @@ public:
         : stub()
         , server()
     {
-        snprintf(server, sizeof(server), "node-%d:%d",
+        snprintf(server, sizeof(server), "node%d:%d",
                 serverIndex, serverPort);
         if (useHoma) {
             stub = basic::Basic::NewStub(
