@@ -1,5 +1,3 @@
-#include "src/core/lib/transport/byte_stream.h"
-
 #include "homa_listener.h"
 #include "homa.h"
 #include "time_trace.h"
@@ -79,7 +77,6 @@ std::shared_ptr<grpc::ServerCredentials> HomaListener::insecureCredentials(void)
 void HomaListener::InitShared(void)
 {
     shared.emplace();
-    Wire::init();
     shared->vtable.sizeof_stream =       sizeof(HomaStream);
     shared->vtable.name =                "homa_server";
     shared->vtable.init_stream =         Transport::init_stream;
@@ -123,7 +120,7 @@ HomaListener::~HomaListener()
       delete transport;
     }
     if (on_destroy_done) {
-        grpc_core::ExecCtx::Run(DEBUG_LOCATION, on_destroy_done, GRPC_ERROR_NONE);
+        grpc_core::ExecCtx::Run(DEBUG_LOCATION, on_destroy_done, absl::OkStatus());
         grpc_core::ExecCtx::Get()->Flush();
     }
 }
@@ -257,14 +254,20 @@ void HomaListener::Transport::start(grpc_core::Server* server,
             const std::vector<grpc_pollset*>* pollsets)
 {
     char name[30];
+    grpc_error_handle error;
 
     snprintf(name, sizeof(name), "homa-socket:%d", sock.getPort());
     for (size_t i = 0; i < pollsets->size(); i++) {
         grpc_pollset_add_fd((*pollsets)[i], sock.getGfd());
     }
     grpc_fd_notify_on_read(sock.getGfd(), &read_closure);
-    server->SetupTransport(&vtable, NULL, server->channel_args(),
+    error = server->SetupTransport(&vtable, NULL, server->channel_args(),
             nullptr);
+    if (!error.ok()) {
+        gpr_log(GPR_ERROR, "HomaListener couldn't create Transport: %s",
+                error.ToString().c_str());
+        abort();
+    }
 }
 
 /**
@@ -330,14 +333,14 @@ done:
  * \param err
  *      Indicates whether the socket has an error condition.
  */
-void HomaListener::Transport::onRead(void* arg, grpc_error* error)
+void HomaListener::Transport::onRead(void* arg, grpc_error_handle error)
 {
     Transport *trans = static_cast<Transport*>(arg);
     uint64_t homaId;
 
-    if (error != GRPC_ERROR_NONE) {
+    if (!error.ok()) {
         gpr_log(GPR_DEBUG, "OnRead invoked with error: %s",
-                grpc_error_string(error));
+                error.ToString().c_str());
         return;
     }
     while (true) {
@@ -346,7 +349,7 @@ void HomaListener::Transport::onRead(void* arg, grpc_error* error)
         HomaIncoming::UniquePtr msg = HomaIncoming::read(&trans->sock,
                 HOMA_RECVMSG_REQUEST|HOMA_RECVMSG_RESPONSE|HOMA_RECVMSG_NONBLOCKING,
                 &homaId, &error);
-        if ((error != GRPC_ERROR_NONE) || !msg) {
+        if (!error.ok() || !msg) {
             break;
         }
 
@@ -382,8 +385,8 @@ int HomaListener::Transport::init_stream(grpc_transport* gt, grpc_stream* gs,
     HomaStream *stream = reinterpret_cast<HomaStream *>(gs);
     StreamInit *init = const_cast<StreamInit*>(
             reinterpret_cast<const StreamInit*>(init_info));
-    new (stream) HomaStream(*init->streamId, trans->sock.getFd(), refcount,
-            arena);
+    new (stream) HomaStream(true, *init->streamId, trans->sock.getFd(),
+            refcount);
     init->stream = stream;
     return 0;
 }
@@ -416,9 +419,11 @@ void HomaListener::Transport::perform_stream_op(grpc_transport* gt, grpc_stream*
     Transport *trans = containerOf(gt, &Transport::vtable);
     HomaStream *stream = reinterpret_cast<HomaStream*>(gs);
     grpc_core::MutexLock lock(&stream->mutex);
-    grpc_error_handle error = GRPC_ERROR_NONE;
+    grpc_error_handle error = absl::OkStatus();
 
     if (op->cancel_stream) {
+        gpr_log(GPR_INFO, "Cancelling stream: %s",
+                op->payload->cancel_stream.cancel_error.ToString().c_str());
         stream->cancelPeer();
         stream->notifyError(op->payload->cancel_stream.cancel_error);
     }
@@ -431,8 +436,7 @@ void HomaListener::Transport::perform_stream_op(grpc_transport* gt, grpc_stream*
     if (op->send_initial_metadata || op->send_message
             || op->send_trailing_metadata) {
         if (trans->sock.getFd() < 0) {
-            error = GRPC_ERROR_CREATE_FROM_STATIC_STRING(
-                    "No Homa socket open");
+            error = GRPC_ERROR_CREATE("No Homa socket open");
         } else {
             stream->xmit(op);
         }
@@ -462,16 +466,14 @@ void HomaListener::Transport::perform_op(grpc_transport* gt, grpc_transport_op* 
     if (op->stop_connectivity_watch) {
         trans->state_tracker.RemoveWatcher(op->stop_connectivity_watch);
     }
-    if (op->disconnect_with_error != GRPC_ERROR_NONE) {
+    if (!op->disconnect_with_error.ok()) {
         gpr_log(GPR_INFO, "HomaListener::Transport::perform_op got "
                 "disconnect_with_error: %s",
-                grpc_error_string(op->disconnect_with_error));
-        GRPC_ERROR_UNREF(op->disconnect_with_error);
+                op->disconnect_with_error.ToString().c_str());
     }
-    if (op->goaway_error != GRPC_ERROR_NONE) {
+    if (!op->goaway_error.ok()) {
         gpr_log(GPR_INFO, "HomaListener::Transport::perform_op got goaway_error: %s",
-                grpc_error_string(op->goaway_error));
-        GRPC_ERROR_UNREF(op->goaway_error);
+                op->goaway_error.ToString().c_str());
     }
     if (op->set_accept_stream) {
         grpc_core::MutexLock lock(&trans->mutex);
@@ -499,7 +501,7 @@ void HomaListener::Transport::perform_op(grpc_transport* gt, grpc_transport_op* 
                 "reset_connect_backoff");
     }
 
-    grpc_core::ExecCtx::Run(DEBUG_LOCATION, op->on_consumed, GRPC_ERROR_NONE);
+    grpc_core::ExecCtx::Run(DEBUG_LOCATION, op->on_consumed, absl::OkStatus());
 }
 
 void HomaListener::Transport::destroy_stream(grpc_transport* gt, grpc_stream* gs,
@@ -515,8 +517,9 @@ void HomaListener::Transport::destroy_stream(grpc_transport* gt, grpc_stream* gs
         stream->mutex.Unlock();
         trans->activeRpcs.erase(stream->streamId);
         stream->~HomaStream();
+        gpr_log(GPR_INFO, "HomaStream destroyed");
     }
-    grpc_core::ExecCtx::Run(DEBUG_LOCATION, closure, GRPC_ERROR_NONE);
+    grpc_core::ExecCtx::Run(DEBUG_LOCATION, closure, absl::OkStatus());
 }
 
 void HomaListener::Transport::destroy(grpc_transport* gt)

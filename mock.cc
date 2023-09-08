@@ -10,6 +10,47 @@
  * order to enable better unit testing.
  */
 
+/**
+ * This class is used by logMetadata. Its methods are invoked by
+ * grpc_metadata_batch::Encode.
+ */
+class MetadataLogger {
+public:
+    MetadataLogger(const char *separator) : separator(separator) {}
+
+    void Encode(const grpc_core::Slice &key, const grpc_core::Slice &value)
+    {
+        uint32_t keyLength = key.length();
+        uint32_t valueLength = value.length();
+        Mock::logPrintf(separator, "metadata %.*s: %.*s", keyLength,
+                key.data(), valueLength, value.data());
+    }
+
+    template <typename MetadataTrait>
+    void Encode(MetadataTrait, const grpc_core::Slice &value)
+    {
+        absl::string_view key = MetadataTrait::key();
+        uint32_t keyLength = key.length();
+        uint32_t valueLength = value.length();
+        Mock::logPrintf(separator, "metadata %.*s: %.*s", keyLength,
+                key.data(), valueLength, value.data());
+    }
+
+    template <typename MetadataTrait>
+    void Encode(MetadataTrait, const typename MetadataTrait::ValueType& value)
+    {
+        absl::string_view key = MetadataTrait::key();
+        uint32_t keyLength = key.length();
+        const grpc_core::Slice& slice =
+                grpc_core::MetadataValueAsSlice<MetadataTrait>(value);
+        uint32_t valueLength = slice.length();
+        Mock::logPrintf(separator, "metadata %.*s: %.*s", keyLength,
+                key.data(), valueLength, slice.data());
+    }
+
+    const char *separator;
+};
+
 int Mock::errorCode = EIO;
 int Mock::homaReplyErrors = 0;
 int Mock::homaReplyvErrors = 0;
@@ -56,11 +97,11 @@ int Mock::checkError(int *errorMask)
  * \return
  *      The new slice (now owned by caller).
  */
-grpc_slice Mock::dataSlice(size_t length, int firstValue)
+grpc_core::Slice Mock::dataSlice(size_t length, int firstValue)
 {
     grpc_slice slice = grpc_slice_malloc(length);
     fillData(GRPC_SLICE_START_PTR(slice), length, firstValue);
-    return slice;
+    return grpc_core::Slice(slice);
 }
 
 /**
@@ -78,28 +119,15 @@ void Mock::gprLog(gpr_log_func_args* args)
  * Log information about the data in a byte stream.
  * \param separator
  *      Initial separator in the log.
- * \param stream
- *      Stream containing the data to log.
+ * \param sliceBuffer
+ *      SliceBuffer containing the data to log.
  */
-void Mock::logByteStream(const char *separator,
-        grpc_core::ByteStream *byteStream)
+void Mock::logSliceBuffer(const char *separator,
+        const grpc_core::SliceBuffer *sliceBuffer)
 {
-    size_t dataLeft = byteStream->length();
-    grpc_slice slice;
-
-    while (dataLeft > 0) {
-        if (!byteStream->Next(dataLeft, nullptr)) {
-            logPrintf(";", "byteStream->Next failed");
-            return;
-        }
-        if (byteStream->Pull(&slice) != GRPC_ERROR_NONE) {
-            logPrintf(";", "byteStream->Pull failed");
-            return;
-        }
-        logData(separator, GRPC_SLICE_START_PTR(slice),
-                GRPC_SLICE_LENGTH(slice));
-        dataLeft -= GRPC_SLICE_LENGTH(slice);
-        grpc_slice_unref(slice);
+    for (size_t i = 0; i < sliceBuffer->Count(); i++) {
+        const grpc_core::Slice &slice = (*sliceBuffer)[i];
+        logData(separator, slice.data(), slice.length());
     }
 }
 
@@ -114,22 +142,22 @@ void Mock::logByteStream(const char *separator,
  * \param length
  *      Total amount of data, in bytes.
  */
-void Mock::logData(const char *separator, void *data, int length)
+void Mock::logData(const char *separator, const void *data, int length)
 {
     int i, rangeStart, expectedNext;
-    uint8_t* p = static_cast<uint8_t *>(data);
+    const uint8_t* p = static_cast<const uint8_t *>(data);
     if (length == 0) {
         logPrintf(separator, "empty block");
         return;
     }
     if (length >= 4) {
-        rangeStart = *reinterpret_cast<int32_t *>(p);
+        rangeStart = *reinterpret_cast<const int32_t *>(p);
     } else {
         rangeStart = 0;
     }
     expectedNext = rangeStart;
     for (i = 0; i <= length-4; i += 4) {
-        int current = *reinterpret_cast<int32_t *>(p + i);
+        int current = *reinterpret_cast<const int32_t *>(p + i);
         if (current != expectedNext) {
             logPrintf(separator, "%d-%d", rangeStart, expectedNext-1);
             separator = " ";
@@ -155,21 +183,8 @@ void Mock::logData(const char *separator, void *data, int length)
  */
 void Mock::logMetadata(const char *separator, const grpc_metadata_batch *batch)
 {
-    batch->ForEach([&separator](grpc_mdelem& md) {
-        const grpc_slice& key = GRPC_MDKEY(md);
-        const grpc_slice& value = GRPC_MDVALUE(md);
-        int index = GRPC_BATCH_INDEX_OF(key);
-        if (index != GRPC_BATCH_CALLOUTS_COUNT) {
-            logPrintf(separator, "metadata %.*s: %.*s (%d)",
-                    GRPC_SLICE_LENGTH(key), GRPC_SLICE_START_PTR(key),
-                    GRPC_SLICE_LENGTH(value), GRPC_SLICE_START_PTR(value),
-                    index);
-        } else {
-            logPrintf(separator, "metadata %.*s: %.*s",
-                    GRPC_SLICE_LENGTH(key), GRPC_SLICE_START_PTR(key),
-                    GRPC_SLICE_LENGTH(value), GRPC_SLICE_START_PTR(value));
-        }
-    });
+    MetadataLogger logger(separator);
+    batch->Encode(&logger);
 }
 
 /**
@@ -220,27 +235,19 @@ void Mock::logPrintf(const char *separator, const char* format, ...)
  *       Storage for the new element is allocated from here.
  */
 void Mock::metadataBatchAppend(grpc_metadata_batch* batch, const char *key,
-        const char *value, grpc_core::Arena *arena)
+        const char *value)
 {
-    // This must be byte-compatible with grpc_mdelem_data. Need this
-    // hack in order to avoid high overheads (e.g. extra memory allocation)
-    // of the builtin mechanisms for creating metadata.
-    struct ElemData {
-        grpc_slice key;
-        grpc_slice value;
-        ElemData() : key(), value() {}
-    };
-
-    ElemData *elemData = arena->New<ElemData>();
-    grpc_linked_mdelem* lm = arena->New<grpc_linked_mdelem>();
-    elemData->key = grpc_slice_from_static_string(key);
-    elemData->value = grpc_slice_from_static_string(value);
-    lm->md = GRPC_MAKE_MDELEM(elemData, GRPC_MDELEM_STORAGE_EXTERNAL);
-    grpc_error_handle error = grpc_metadata_batch_link_tail(batch, lm);
-    if (error != GRPC_ERROR_NONE) {
-        logPrintf("; ", "grpc_metadata_batch_link_tail returned error: %s",
-                grpc_error_string(error));
-    }
+    auto md = grpc_metadata_batch::Parse(absl::string_view(key),
+            grpc_core::Slice::FromStaticBuffer(value, strlen(value)),
+            false, strlen(key) + strlen(value),
+            [&key, &value] (absl::string_view error,
+                    const grpc_core::Slice& v) -> void {
+                int msgLength = error.length();
+                logPrintf("Mock::metadataBatchAppend couldn't parse value '%s' "
+                        "for metadata key '%s': %.*s",
+                        value, key, msgLength, error.data());
+            });
+    batch->Set(std::move(md));
 }
 
 /**
@@ -248,9 +255,9 @@ void Mock::metadataBatchAppend(grpc_metadata_batch* batch, const char *key,
  */
 void Mock::setUp(void)
 {
-    grpc_init();
     gpr_set_log_function(gprLog);
     gpr_set_log_verbosity(GPR_LOG_SEVERITY_ERROR);
+    grpc_init();
 
     errorCode = EIO;
     recvmsgErrors = 0;

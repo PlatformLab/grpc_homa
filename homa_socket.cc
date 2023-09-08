@@ -127,8 +127,7 @@ void HomaSocket::cleanup()
     }
     if (gfd) {
         // Note: grpc_fd_shutdown will close the fd.
-        grpc_fd_shutdown(gfd, GRPC_ERROR_CREATE_FROM_STATIC_STRING(
-                "Homa socket destroyed"));
+        grpc_fd_shutdown(gfd, GRPC_ERROR_CREATE("Homa socket destroyed"));
         grpc_fd_orphan(gfd, nullptr, nullptr, "goodbye");
         grpc_core::ExecCtx::Get()->Flush();
         gfd = nullptr;

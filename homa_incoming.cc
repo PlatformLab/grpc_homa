@@ -13,9 +13,7 @@
  *      Socket from which to read messages.
  */
 HomaIncoming::HomaIncoming(HomaSocket *sock)
-    : refs()
-    , sliceRefs(grpc_slice_refcount::Type::REGULAR, &refs,
-            HomaIncoming::destroyer, this, nullptr)
+    : sliceRefs(HomaIncoming::destroyer)
     , streamId()
     , sock(sock)
     , recvArgs()
@@ -28,7 +26,6 @@ HomaIncoming::HomaIncoming(HomaSocket *sock)
     , maxStaticMdLength(200)
 {
     memset(&recvArgs, 0, sizeof(recvArgs));
-    sliceRefs.Ref();
 }
 
 /**
@@ -54,9 +51,7 @@ HomaIncoming::HomaIncoming(HomaSocket *sock)
 HomaIncoming::HomaIncoming(HomaSocket *sock, int sequence, bool initMd,
         size_t bodyLength, int firstValue, bool messageComplete,
         bool trailMd)
-    : refs()
-    , sliceRefs(grpc_slice_refcount::Type::REGULAR, &refs,
-            HomaIncoming::destroyer, this, nullptr)
+    : sliceRefs(HomaIncoming::destroyer)
     , streamId(999)
     , sock(sock)
     , recvArgs()
@@ -71,7 +66,6 @@ HomaIncoming::HomaIncoming(HomaSocket *sock, int sequence, bool initMd,
     memset(&recvArgs, 0, sizeof(recvArgs));
     recvArgs.num_bpages = 1;
     recvArgs.bpage_offsets[0] = 1000;
-    sliceRefs.Ref();
     uint8_t *buffer = sock->getBufRegion() + recvArgs.bpage_offsets[0];
     Wire::Header *h = new (buffer) Wire::Header;
     size_t offset = sizeof(Wire::Header);
@@ -123,12 +117,13 @@ HomaIncoming::~HomaIncoming()
 /**
  * This method is invoked when sliceRefs for an Incoming becomes zero;
  * it frees the Incoming.
- * \param arg
- *      Incoming to destroy.
+ * \param sliceRefs
+ *      Pointer to sliceRefs field in the Incoming to destroy.
  */
-void HomaIncoming::destroyer(void *arg)
+void HomaIncoming::destroyer(grpc_slice_refcount *sliceRefs)
 {
-    delete static_cast<HomaIncoming*>(arg);
+    HomaIncoming *incoming = containerOf(sliceRefs, &HomaIncoming::sliceRefs);
+    delete incoming;
 }
 
 /**
@@ -144,13 +139,13 @@ void HomaIncoming::destroyer(void *arg)
  *      needed to provide that info to callers in cases where nullptr
  *      is returned (e.g. because the RPC failed). 0 means no id.
  * \param error
- *      Error information will be stored here, or GRPC_ERROR_NONE
- *      if there was no error. Caller must invoke GRPC_ERROR_UNREF.
+ *      Error information will be stored here, or absl::OkStatus()
+ *      if there was no error.
  *
  * \return
  *      The message that was just read, or nullptr if no message could
- *      be read. If *error == GRPC_ERROR_NONE and the result is empty,
- *      it means no message was available. If *error != GRPC_ERROR_NONE,
+ *      be read. If error->ok() and the result is empty,
+ *      it means no message was available. If !error->ok(),
  *      then there was an error reading a message. In this case, if
  *      *homaId is nonzero, it means that that particular RPC failed.
  */
@@ -162,7 +157,7 @@ HomaIncoming::UniquePtr HomaIncoming::read(HomaSocket *sock, int flags,
     Wire::Header *hdr, aux;
     uint64_t startTime = TimeTrace::rdtsc();
 
-    *error = GRPC_ERROR_NONE;
+    *error = absl::OkStatus();
 
     // The following loop executes multiple times if it receives (and
     // discards) streaming responses.
@@ -196,7 +191,7 @@ HomaIncoming::UniquePtr HomaIncoming::read(HomaSocket *sock, int flags,
             gpr_log(GPR_ERROR, "Homa message contained only %lu bytes "
                     "(need %lu bytes for header)",
                     msg->length, sizeof(Wire::Header));
-            *error = GRPC_ERROR_CREATE_FROM_STATIC_STRING(
+            *error = GRPC_ERROR_CREATE(
                     "Incoming Homa message too short for header");
             return nullptr;
         }
@@ -225,7 +220,7 @@ HomaIncoming::UniquePtr HomaIncoming::read(HomaSocket *sock, int flags,
                 "header length %lu",
                 msg->length, expected, msg->initMdLength, msg->bodyLength,
                 msg->trailMdLength, sizeof(Wire::Header));
-        *error = GRPC_ERROR_CREATE_FROM_STATIC_STRING(
+        *error = GRPC_ERROR_CREATE(
                 "Incoming Homa message length doesn't match header");
         return nullptr;
     }
@@ -273,41 +268,6 @@ void HomaIncoming::copyOut(void *dst, size_t offset, size_t length)
 }
 
 /**
- * Extract part a message as a gRPC slice.
- * \param offset
- *      Offset within the message of the first byte of the slice.
- * \param length
- *      Length of the slice (caller must ensure that offset and length
- *      are within the range of the message).
- * \param arena
- *      Used to allocate storage for data that can't be stored internally
- *      in the slice.
- * \return
- *      A slice containing the desired data, which uses memory that need
- *      not be freed explicitly (data will either be internal to the slice
- *      or in an arena).
- */
-grpc_slice HomaIncoming::getStaticSlice(size_t offset, size_t length,
-        grpc_core::Arena *arena)
-{
-    grpc_slice slice;
-
-    if (length < sizeof(slice.data.inlined.bytes)) {
-        slice.refcount = nullptr;
-        slice.data.inlined.length = length;
-        copyOut(GRPC_SLICE_START_PTR(slice), offset, length);
-        return slice;
-    }
-
-    slice.refcount = &grpc_core::kNoopRefcount;
-    slice.data.refcounted.length = length;
-    slice.data.refcounted.bytes =
-            static_cast<uint8_t*>(arena->Alloc(length));
-    copyOut(slice.data.refcounted.bytes, offset, length);
-    return slice;
-}
-
-/**
  * Extract part a message as a single gRPC slice.
  * \param offset
  *      Offset within the message of the first byte of the slice.
@@ -319,7 +279,7 @@ grpc_slice HomaIncoming::getStaticSlice(size_t offset, size_t length,
  *      it has a non-null reference count that must be used to eventually
  *      release the slice's data).
  */
-grpc_slice HomaIncoming::getSlice(size_t offset, size_t length)
+grpc_core::Slice HomaIncoming::getSlice(size_t offset, size_t length)
 {
     grpc_slice slice;
 
@@ -327,8 +287,8 @@ grpc_slice HomaIncoming::getSlice(size_t offset, size_t length)
         slice.data.refcounted.bytes = get<uint8_t>(offset, nullptr);
         slice.data.refcounted.length = length;
         slice.refcount = &sliceRefs;
-        slice.refcount->Ref();
-        return slice;
+        slice.refcount->Ref({});
+        return grpc_core::Slice(slice);
     }
 
     // The desired range is not contiguous in the message; make a copy to
@@ -336,7 +296,7 @@ grpc_slice HomaIncoming::getSlice(size_t offset, size_t length)
 
     slice = grpc_slice_malloc(length);
     copyOut(slice.data.refcounted.bytes, offset, length);
-    return slice;
+    return grpc_core::Slice(slice);
 }
 
 /**
@@ -347,11 +307,9 @@ grpc_slice HomaIncoming::getSlice(size_t offset, size_t length)
  *      Number of bytes of metadata at @offset.
  * \param batch
  *      Add key-value metadata pairs to this structure.
- * \param arena
- *      Use this for allocating any memory needed for metadata.
  */
 void HomaIncoming::deserializeMetadata(size_t offset, size_t length,
-        grpc_metadata_batch* batch, grpc_core::Arena* arena)
+        grpc_metadata_batch* batch)
 {
     size_t remaining = length;
 
@@ -372,41 +330,19 @@ void HomaIncoming::deserializeMetadata(size_t offset, size_t length,
                     keyLength, valueLength, remaining);
             return;
         }
-
-        // This must be byte-compatible with grpc_mdelem_data. Need this
-        // hack in order to avoid high overheads (e.g. extra memory allocation)
-        // of the builtin mechanisms for creating metadata.
-        struct ElemData {
-            grpc_slice key;
-            grpc_slice value;
-            ElemData() : key(), value() {}
-        };
-
-        ElemData *elemData = arena->New<ElemData>();
-        grpc_linked_mdelem* lm = arena->New<grpc_linked_mdelem>();
-
-        // The contortion below is needed to make sure that StaticMetadataSlices
-        // are generated for keys when appropriate.
-        grpc_slice tmpSlice = getStaticSlice(offset, keyLength, arena);
-        elemData->key = grpc_core::ManagedMemorySlice(&tmpSlice);
-
-        if (valueLength <= maxStaticMdLength) {
-            elemData->value = getStaticSlice(offset+keyLength, valueLength,
-                    arena);
-            lm->md = GRPC_MAKE_MDELEM(elemData, GRPC_MDELEM_STORAGE_EXTERNAL);
-        } else {
-            lm->md = grpc_mdelem_from_slices(elemData->key,
-                    getSlice(offset + keyLength, valueLength));
-        }
-
-        grpc_error_handle error = grpc_metadata_batch_link_tail(batch, lm);
-        if (error != GRPC_ERROR_NONE) {
-            gpr_log(GPR_ERROR, "Error creating metadata for %.*s: %s",
-                    static_cast<int>(GRPC_SLICE_LENGTH(elemData->key)),
-                    GRPC_SLICE_START_PTR(elemData->key),
-                    grpc_error_string(error));
-            GPR_ASSERT(error == GRPC_ERROR_NONE);
-        }
+        char key[keyLength];
+        copyOut(key, offset, keyLength);
+        auto md = grpc_metadata_batch::Parse(absl::string_view(key, keyLength),
+                getSlice(offset+keyLength, valueLength), false,
+                keyLength + valueLength,
+                [keyLength, &key] (absl::string_view error,
+                        const grpc_core::Slice& value) -> void {
+                    int msgLength = error.length();
+                    gpr_log(GPR_ERROR, "Error parsing value for incoming "
+                            "metadata %.*s: %.*s; ignoring this item",
+                            keyLength, key, msgLength, error.data());
+                });
+        batch->Set(std::move(md));
         remaining -= keyLength + valueLength;
         offset += keyLength + valueLength;
     }

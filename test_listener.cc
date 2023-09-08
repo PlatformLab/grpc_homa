@@ -2,11 +2,12 @@
 #include "homa_listener.h"
 #include "mock.h"
 
+#include "src/core/lib/resource_quota/resource_quota.h"
+
 // This file contains unit tests for homa_listener.cc and homa_listener.h.
 
 class TestListener : public ::testing::Test {
 public:
-    grpc_core::Arena *arena;
     HomaListener *lis;
     HomaListener::Transport *trans;
     std::vector<HomaStream *> streams;
@@ -18,17 +19,16 @@ public:
 
     static void closureFunc1(void* arg, grpc_error_handle error) {
         int64_t value = reinterpret_cast<int64_t>(arg);
-        if (error != GRPC_ERROR_NONE) {
+        if (!error.ok()) {
             Mock::logPrintf("; ", "closure1 invoked with %ld, error %s",
-                    value, grpc_error_string(error));
+                    value, error.ToString().c_str());
         } else {
             Mock::logPrintf("; ", "closure1 invoked with %ld", value);
         }
     }
 
     TestListener()
-        : arena(grpc_core::Arena::Create(2000))
-        , lis(nullptr)
+        : lis(nullptr)
         , trans(nullptr)
         , streams()
         , refcount()
@@ -52,10 +52,10 @@ public:
     {
         grpc_core::ExecCtx exec_ctx;
         for (HomaStream *stream: streams) {
-            delete stream;
+            stream->~HomaStream();
+            free(stream);
         }
         delete lis;
-        arena->Destroy();
     }
 
     static void acceptStreamCallback(void* fixture, grpc_transport* transport,
@@ -65,8 +65,12 @@ public:
         HomaListener::Transport::StreamInit *init =
                 static_cast<HomaListener::Transport::StreamInit *>(
                 const_cast<void*>(initInfo));
-        init->stream = new HomaStream(*init->streamId,
-                test->trans->sock.getFd(), &test->refcount, test->arena);
+
+        // This contortion is needed to be consistent with other code that
+        // creates HomaStreams with placement new.
+        init->stream = reinterpret_cast<HomaStream *>(malloc(sizeof(HomaStream)));
+        new (init->stream) HomaStream(false, *init->streamId,
+                test->trans->sock.getFd(), &test->refcount);
         test->streams.push_back(init->stream);
     }
 };

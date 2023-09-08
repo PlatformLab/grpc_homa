@@ -118,15 +118,9 @@ public:
         char data[0];
     } __attribute__((packed));
 
-    // An array of special reference counts used for callout metadata
-    // elements; element i contains a hidden value (same as i) that identifies
-    // the location of its metadata value in grpc_metadata_batch_callouts.
-    static grpc_core::StaticSliceRefcount *calloutRefs[GRPC_BATCH_CALLOUTS_COUNT];
-
     static void       dumpHeader(void *msg, gpr_log_severity severity);
     static void       dumpMetadata(void *buffer, size_t length,
                             gpr_log_severity severity = GPR_LOG_SEVERITY_INFO);
-    static void       init();
 };
 
 #endif // WIRE_H

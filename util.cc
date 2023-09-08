@@ -3,6 +3,47 @@
 #include "util.h"
 
 /**
+ * This class is used by logMetadata. Its methods are invoked by
+ * grpc_metadata_batch::Encode.
+ */
+class MetadataPrinter {
+public:
+    MetadataPrinter(const char *info) : info(info) {}
+
+    void Encode(const grpc_core::Slice &key, const grpc_core::Slice &value)
+    {
+        uint32_t keyLength = key.length();
+        uint32_t valueLength = value.length();
+        gpr_log(GPR_INFO, "%s: %.*s -> %.*s", info, keyLength, key.data(),
+                valueLength, value.data());
+    }
+
+    template <typename MetadataTrait>
+    void Encode(MetadataTrait, const grpc_core::Slice &value)
+    {
+        absl::string_view key = MetadataTrait::key();
+        uint32_t keyLength = key.length();
+        uint32_t valueLength = value.length();
+        gpr_log(GPR_INFO, "%s: %.*s -> %.*s", info, keyLength, key.data(),
+                valueLength, value.data());
+    }
+
+    template <typename MetadataTrait>
+    void Encode(MetadataTrait, const typename MetadataTrait::ValueType& value)
+    {
+        absl::string_view key = MetadataTrait::key();
+        uint32_t keyLength = key.length();
+        const grpc_core::Slice& slice =
+                grpc_core::MetadataValueAsSlice<MetadataTrait>(value);
+        uint32_t valueLength = slice.length();
+        gpr_log(GPR_INFO, "%s: %.*s -> %.*s", info, keyLength, key.data(),
+                valueLength, slice.data());
+    }
+
+    const char *info;
+};
+
+/**
  * Returns a human-readable string containing the bpage indexes in a
  * homa_recvmsg_args structure.
  * \param recvArgs
@@ -57,17 +98,12 @@ void fillData(void *data, int length, int firstValue)
  */
 void logMetadata(const grpc_metadata_batch* mdBatch, const char *info)
 {
+    MetadataPrinter printer(info);
+
     if (mdBatch->empty()) {
         gpr_log(GPR_INFO, "%s: metadata empty", info);
     }
-    mdBatch->ForEach([&](grpc_mdelem& md) {
-        char* key = grpc_slice_to_c_string(GRPC_MDKEY(md));
-        char* value = grpc_slice_to_c_string(GRPC_MDVALUE(md));
-        gpr_log(GPR_INFO, "%s: %s: %s (index %d)", info, key, value,
-                GRPC_BATCH_INDEX_OF(GRPC_MDKEY(md)));
-        gpr_free(key);
-        gpr_free(value);
-    });
+    mdBatch->Encode(&printer);
 }
 
 /**

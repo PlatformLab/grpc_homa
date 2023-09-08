@@ -40,9 +40,6 @@ public:
     // Reference count (owned externally).
     grpc_stream_refcount* refs;
 
-    // For fast memory allocation.
-    grpc_core::Arena* arena;
-
     // Small statically allocated buffer for outgoing messages; holds
     // header plus initial and trailing metadata, if they fit.
     uint8_t xmitBuffer[10000];
@@ -56,9 +53,9 @@ public:
     // This is a variable so it can be changed for unit testing.
     size_t overflowChunkSize;
 
-    // Contains all of the slices (of message data) referred to by vecs;
+    // Contains all of the Slices (of message data) referred to by vecs;
     // keeps them alive and stable until the Homa request is sent.
-    std::vector<grpc_slice> slices;
+    std::vector<grpc_core::Slice> slices;
 
     // Describes all of the pieces of the current outgoing message.
     std::vector<struct iovec> vecs;
@@ -81,16 +78,12 @@ public:
     // have already been processed.
     int nextIncomingSequence;
 
-    // Accumulates slices of incoming message data (potentially from
-    // multiple Homa messages) until they can be passed to gRPC.
-    grpc_slice_buffer messageData;
-
     // Information saved from "receive" stream ops, so that we can
     // fill in message data/metadata and invoke callbacks.
     grpc_metadata_batch* initMd;
     grpc_closure* initMdClosure;
     bool *initMdTrailMdAvail;
-    grpc_core::OrphanablePtr<grpc_core::ByteStream>* messageStream;
+    absl::optional<grpc_core::SliceBuffer>* messageBody;
     grpc_closure* messageClosure;
     grpc_metadata_batch* trailMd;
     grpc_closure* trailMdClosure;
@@ -103,6 +96,13 @@ public:
     // any more Homa messages.
     bool cancelled;
 
+    // True means that trailing metadata has been sent for this stream.
+    bool trailMdSent;
+
+    // True means that this stream is for the server side of an RPC;
+    // false means client.
+    bool isServer;
+
     // Error that has occurred on this stream, if any.
     grpc_error_handle error;
 
@@ -110,8 +110,8 @@ public:
     // is a variable so it can be modified for unit testing).
     size_t maxMessageLength;
 
-    HomaStream(StreamId streamId, int fd, grpc_stream_refcount* refcount,
-            grpc_core::Arena* arena);
+    HomaStream(bool isServer, StreamId streamId, int fd,
+            grpc_stream_refcount* refcount);
 
     Wire::Header *hdr()
     {
@@ -126,7 +126,9 @@ public:
     void    resetXmit(void);
     void    saveCallbacks(grpc_transport_stream_op_batch* op);
     void    sendDummyResponse();
-    void    serializeMetadata(grpc_metadata_batch* batch);
+    void    serializeMetadata(const void *key, uint32_t keyLength,
+                const void *value, uint32_t valueLength);
+    void    serializeMetadataBatch(grpc_metadata_batch *batch);
     void    transferData();
     void    xmit(grpc_transport_stream_op_batch* op);
 

@@ -1,6 +1,49 @@
 Miscellaneous notes about a Homa plugin for gRPC:
 -------------------------------------------------
 
+* Notes for 1.57.0 upgrade:
+  * Try to remove abort calls.
+  * Metadata operations:
+    * Use batch->Encode to extract metadata for encoding, batch->Append
+      when deserializing input messages?
+    * see hpack_encoder.cc around line 370 for specialized encoders
+    * Deserialize from message to metadata in HomaIncoming::deserializeMetadata
+    * Serialize into outgoing message: HomaStream::metadataLength
+      and HomaStream::serializeMetadata
+  * Debugging failure to invoke server method:
+    * Path is read at server.cc:1626
+    * Method is looked up at server.cc:1564
+    * PublishNewRpc gets invoked after message data is received
+    * Then MatchOrQueue is called to find waiting thread (?)
+    * Then Server::CallData::Publish (server.cc:1493)
+  * Info about why server triggers error after RPC completes:
+    * FilterStackCall::ExecuteBatch (call.cc:994, then 995 closure)
+    * grpc_core::FilterStackCall::CancelWithError (call.cc:1047)
+    * send_trailing_state_ is kCancelled in ServerCallData::StartBatch
+
+1       breakpoint     keep y   0x0000555555b15c0c in grpc_core::FilterStackCall::StartBatch(grpc_op const*, unsigned long, void*, bool) at /ouster/grpc/src/core/lib/surface/call.cc:1871
+3       breakpoint     keep y   0x0000555555b119bc in grpc_core::FilterStackCall::CancelWithError(absl::lts_20230125::Status)
+                                                   at /ouster/grpc/src/core/lib/surface/call.cc:1047
+5       breakpoint     keep y   0x0000555555e61b75 in grpc_core::promise_filter_detail::ServerCallData::StartBatch(grpc_transport_stream_op_batch*) at /ouster/grpc/src/core/lib/channel/promise_based_filter.cc:2162
+        breakpoint already hit 2 times
+7       breakpoint     keep n   0x0000555555aa3f15 in grpc_core::ExecCtx::Run(grpc_core::DebugLocation const&, grpc_closure*, absl::lts_20230125::Status) at /ouster/grpc/src/core/lib/iomgr/exec_ctx.cc:86
+        breakpoint already hit 1 time
+8       breakpoint     keep n   0x0000555555e667d6 in grpc_core::promise_filter_detail::BaseCallData::Flusher::AddClosure(grpc_closure*, absl::lts_20230125::Status, char const*) at /ouster/grpc/src/core/lib/channel/promise_based_filter.h:247
+9       breakpoint     keep n   0x0000555555e59ae4 in grpc_core::promise_filter_detail::BaseCallData::Flusher::~Flusher()
+                                                   at /ouster/grpc/src/core/lib/channel/promise_based_filter.cc:262
+10      breakpoint     keep y   0x0000555555e60f78 in grpc_core::promise_filter_detail::ServerCallData::StartBatch(grpc_transport_stream_op_batch*) at /ouster/grpc/src/core/lib/channel/promise_based_filter.cc:2032
+        breakpoint already hit 2 times
+11      breakpoint     keep n   0x00005555559611d0 in grpc_core::CallCombinerClosureList::Add(grpc_closure*, absl::lts_20230125::Status, char const*) at /ouster/grpc/src/core/lib/iomgr/call_combiner.h:151
+12      breakpoint     keep y   0x0000555555e60b2b in grpc_core::promise_filter_detail::ServerCallData::ServerCallData(grpc_call_element*, grpc_call_element_args const*, unsigned char) at /ouster/grpc/src/core/lib/channel/promise_based_filter.cc:1994
+        breakpoint already hit 2 times
+13      breakpoint     keep y   0x00005555556343cb in TestImpl::Sum(grpc::ServerContext*, test::SumArgs const*, test::SumResult*) at test_server.cc:19
+15      breakpoint     keep y   0x0000555555b1c3f9 in grpc_call_start_batch(grpc_call*, grpc_op const*, size_t, void*, void*)
+                                                   at /ouster/grpc/src/core/lib/surface/call.cc:3601
+16      breakpoint     keep y   0x0000555555a9f35f in grpc_core::CallCombiner::Start(grpc_closure*, absl::lts_20230125::Status, char const*, int, char const*) at /ouster/grpc/src/core/lib/iomgr/call_combiner.cc:135
+        breakpoint already hit 2 times
+
+
+
 * Notes about java implementation:
   * Support long messages.
   * Need to keep track of many outstanding requests
@@ -15,6 +58,9 @@ Miscellaneous notes about a Homa plugin for gRPC:
   * Need to eventually invoke onReady to send client messages?
 
 * TODO list:
+  * Replace HomaClient::createInsecureChannel with
+    HomaClient::insecureChannelCredentials() for consistency with
+    the rest of gRPC.
   * Add proper channelz support
   * Deal with recv_initial_metadata.recv_flags
   * Make HomaStream instance variables protected
@@ -233,67 +279,96 @@ Other notes from phone call on 12/8:
     NettyChannelBuilder.buildTransportFactory
     which creates a NettyTransportFactory
 
-Modules to read:
-   553   1308  14046 AbstractHttp2Headers.java
-   249    772   8191 AbstractNettyHandler.java
-    45    176   1410 CancelClientStreamCommand.java
-    71    226   1978 CancelServerStreamCommand.java
-    95    295   2612 ClientTransportLifecycleManager.java
-    57    204   1751 CreateStreamCommand.java
-    53    190   1800 FixedKeyManagerFactory.java
-    53    188   1833 FixedTrustManagerFactory.java
-    35    153   1031 ForcefulCloseCommand.java
-    35    149   1009 GracefulCloseCommand.java
-    53    194   1634 GracefulServerCloseCommand.java
-   110    403   3693 GrpcHttp2ConnectionHandler.java
-   520   1749  17125 GrpcHttp2HeadersUtils.java
-   157    513   5125 GrpcHttp2OutboundHeaders.java
-   305   1028  11288 GrpcSslContexts.java
-   118    466   5287 Http2ControlFrameLimitEncoder.java
-    31    158   1192 InsecureFromHttp1ChannelCredentials.java
-    36    148   1192 InternalGracefulServerCloseCommand.java
-   107    366   3806 InternalNettyChannelBuilder.java
-    63    244   2215 InternalNettyChannelCredentials.java
-    83    292   3068 InternalNettyServerBuilder.java
-    69    280   2682 InternalNettyServerCredentials.java
-    46    163   1383 InternalNettySocketSupport.java
-    53    178   1615 InternalProtocolNegotiationEvent.java
-    67    204   2091 InternalProtocolNegotiator.java
-   171    510   5643 InternalProtocolNegotiators.java
-    35    148   1146 InternalWriteBufferingAndExceptionHandlerUtils.java
-   113    355   3423 JettyTlsUtil.java
-   117    441   3682 KeepAliveEnforcer.java
-   130    414   3967 MaxConnectionIdleManager.java
-    41    171   1187 NegotiationType.java
-   763   2612  30239 NettyChannelBuilder.java
-    42    160   1383 NettyChannelCredentials.java
-    55    187   1711 NettyChannelProvider.java
-  1034   3549  41188 NettyClientHandler.java
-   349   1126  12693 NettyClientStream.java
-   432   1504  17263 NettyClientTransport.java
-   133    373   3135 NettyReadableBuffer.java
-   475   1346  18360 NettyServer.java
-   692   2979  29920 NettyServerBuilder.java
-    37    152   1291 NettyServerCredentials.java
-  1073   3069  40867 NettyServerHandler.java
-    53    176   1568 NettyServerProvider.java
-   244    650   7978 NettyServerStream.java
-   282    760   9720 NettyServerTransport.java
-    74    278   2338 NettySocketSupport.java
-    39    189   1616 NettySslContextChannelCredentials.java
-    39    188   1603 NettySslContextServerCredentials.java
-    61    183   1407 NettyWritableBuffer.java
-    53    279   2039 NettyWritableBufferAllocator.java
-    90    262   2572 ProtocolNegotiationEvent.java
-    66    289   2193 ProtocolNegotiator.java
-  1093   3526  43414 ProtocolNegotiators.java
-   132    365   3236 SendGrpcFrameCommand.java
-    41    159   1176 SendPingCommand.java
-    85    284   2585 SendResponseHeadersCommand.java
-    29    122    771 StreamIdHolder.java
-    31    153   1072 UnhelpfulSecurityProvider.java
-   514   1704  20618 Utils.java
-   257   1015   9503 WriteBufferingAndExceptionHandler.java
-   240    838   6861 WriteQueue.java
-    22    121    805 package-info.java
- 12201  40684 439230 total
+* Code for setting up HTTP channels:
+
+insecure_credentials.cc:
+------------------------
+
+class InsecureChannelCredentialsImpl final : public ChannelCredentials {
+ public:
+  std::shared_ptr<Channel> CreateChannelImpl(
+      const std::string& target, const ChannelArguments& args) override {
+    return CreateChannelWithInterceptors(
+        target, args,
+        std::vector<std::unique_ptr<
+            grpc::experimental::ClientInterceptorFactoryInterface>>());
+  }
+
+  std::shared_ptr<Channel> CreateChannelWithInterceptors(
+      const std::string& target, const ChannelArguments& args,
+      std::vector<std::unique_ptr<
+          grpc::experimental::ClientInterceptorFactoryInterface>>
+          interceptor_creators) override {
+    grpc_channel_args channel_args;
+    args.SetChannelArgs(&channel_args);
+    grpc_channel_credentials* creds = grpc_insecure_credentials_create();
+    std::shared_ptr<Channel> channel = grpc::CreateChannelInternal(
+        "", grpc_channel_create(target.c_str(), creds, &channel_args),
+        std::move(interceptor_creators));
+    grpc_channel_credentials_release(creds);
+    return channel;
+  }
+
+  SecureChannelCredentials* AsSecureCredentials() override { return nullptr; }
+
+ private:
+  bool IsInsecure() const override { return true; }
+};
+
+chttp2_connector.cc:
+--------------------
+
+grpc_channel* grpc_channel_create(const char* target,
+                                  grpc_channel_credentials* creds,
+                                  const grpc_channel_args* c_args) {
+  grpc_core::ExecCtx exec_ctx;
+  GRPC_API_TRACE("grpc_secure_channel_create(target=%s, creds=%p, args=%p)", 3,
+                 (target, (void*)creds, (void*)c_args));
+  grpc_channel* channel = nullptr;
+  grpc_error_handle error;
+  if (creds != nullptr) {
+    // Add channel args containing the client channel factory and channel
+    // credentials.
+    gpr_once_init(&g_factory_once, FactoryInit);
+    grpc_core::ChannelArgs args =
+        creds->update_arguments(grpc_core::CoreConfiguration::Get()
+                                    .channel_args_preconditioning()
+                                    .PreconditionChannelArgs(c_args)
+                                    .SetObject(creds->Ref())
+                                    .SetObject(g_factory));
+    // Create channel.
+    auto r = grpc_core::CreateChannel(target, args);
+    if (r.ok()) {
+      channel = r->release()->c_ptr();
+    } else {
+      error = absl_status_to_grpc_error(r.status());
+    }
+  }
+  if (channel == nullptr) {
+    intptr_t integer;
+    grpc_status_code status = GRPC_STATUS_INTERNAL;
+    if (grpc_error_get_int(error, grpc_core::StatusIntProperty::kRpcStatus,
+                           &integer)) {
+      status = static_cast<grpc_status_code>(integer);
+    }
+    channel = grpc_lame_client_channel_create(
+        target, status, "Failed to create secure client channel");
+  }
+  return channel;
+}
+
+absl::StatusOr<RefCountedPtr<Channel>> CreateChannel(const char* target,
+                                                     const ChannelArgs& args) {
+  if (target == nullptr) {
+    gpr_log(GPR_ERROR, "cannot create channel with NULL target name");
+    return absl::InvalidArgumentError("channel target is NULL");
+  }
+  // Add channel arg containing the server URI.
+  std::string canonical_target =
+      CoreConfiguration::Get().resolver_registry().AddDefaultPrefixIfNeeded(
+          target);
+  return Channel::Create(target,
+                         args.Set(GRPC_ARG_SERVER_URI, canonical_target),
+                         GRPC_CLIENT_CHANNEL, nullptr);
+}
+

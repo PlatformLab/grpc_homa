@@ -7,12 +7,12 @@ Homa instead of TCP for transport.
 - Please contact me if you have any problems; I'm happy to provide
   advice and support.
 
-- The head is currently based on gRPC v. 1.43.0 (and there is a branch
-  named grpc-1.43.0 that will track this version of gRPC). There is
-  also a branch grpc-1.41.0, which is the most recent code to work
-  on gRPC 1.41.0; this branch is not being actively
-  maintained.
-  
+- The head is currently based on gRPC v. 1.57.0 (and there is a branch
+  named grpc-1.57.0 that will track this version of gRPC). There are
+  also branches grpc-1.43.0 and grpc-1.41.0, which represent the
+  most recent code to work on those branches. Older branches are not
+  actively maintained.
+
 - Known limitations:
   - grpc_homa currently supports only insecure channels.
 
@@ -25,7 +25,7 @@ Homa instead of TCP for transport.
   [Linux kernel driver for Homa](https://github.com/PlatformLab/HomaModule).
   Compile it as described in that repo and install it on all the machines
   where you plan to use gRPC.
-  
+
 - Configure the Makefile as described in the comments at the top (sorry...
   I know this shouldn't need to be done manually).
 

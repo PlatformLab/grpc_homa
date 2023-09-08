@@ -7,9 +7,6 @@
 
 #include <grpcpp/grpcpp.h>
 #include "src/core/lib/surface/server.h"
-#include "src/core/lib/channel/channelz.h"
-#include "src/core/lib/iomgr/ev_posix.h"
-#include "src/core/lib/transport/transport_impl.h"
 
 #include "homa_socket.h"
 #include "homa_stream.h"
@@ -70,7 +67,7 @@ PROTECTED:
         static int      init_stream(grpc_transport* gt, grpc_stream* gs,
                                 grpc_stream_refcount* refcount,
                                 const void* init_info, grpc_core::Arena* arena);
-        static void     onRead(void* arg, grpc_error* error);
+        static void     onRead(void* arg, grpc_error_handle error);
         static void     perform_op(grpc_transport* gt, grpc_transport_op* op);
         static void     perform_stream_op(grpc_transport* gt, grpc_stream* gs,
                                 grpc_transport_stream_op_batch* op);
@@ -111,7 +108,7 @@ PROTECTED:
         // Must be held when accessing @activeRpcs. Must not be acquired while
         // holding a stream lock.
         grpc_core::Mutex mutex;
-        
+
         // Manages the Homa socket, including buffer space.
         HomaSocket sock;
 

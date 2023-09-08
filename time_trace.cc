@@ -26,6 +26,8 @@ thread_local TimeTrace::BufferPtr TimeTrace::tb;
 std::vector<TimeTrace::Buffer*> TimeTrace::threadBuffers;
 std::vector<TimeTrace::Buffer*> TimeTrace::freeBuffers;
 int TimeTrace::frozen = 0;
+void (*recordFunc)(const char* format, uint64_t arg0,
+            uint64_t arg1, uint64_t arg2, uint64_t arg3) = TimeTrace::record2;
 
 // Synchronizes accesses to Buffers.
 static std::mutex mutex;

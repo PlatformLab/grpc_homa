@@ -6,46 +6,115 @@
 #include "util.h"
 
 /**
- * This class is needed because grpc_core::SliceBufferByteStream::Orphan
- * doesn't actually delete the object; this class is identical to
- * grpc_core::SliceBufferByteStream except that its Orphan method
- * finishes the job.
+ * This class is used for serializing metadata into an output message.
+ * Its methods are invoked by grpc_metadata_batch::Encode.
  */
-class HomaSliceBufferByteStream : public grpc_core::SliceBufferByteStream {
+class MetadataEncoder {
 public:
-    HomaSliceBufferByteStream(grpc_slice_buffer* slice_buffer, uint32_t flags)
-            : grpc_core::SliceBufferByteStream(slice_buffer, flags)
-    {}
+    /**
+     * Constructor for MetadataEncoders.
+     * \param stream
+     *      Serialized data is appended to the output message for
+     *      this HomaStream.
+     */
+    MetadataEncoder(HomaStream *stream) : stream(stream) {}
 
-    void Orphan() override
+    void Encode(const grpc_core::Slice &key, const grpc_core::Slice &value)
     {
-        grpc_core::SliceBufferByteStream::Orphan();
-        delete this;
+        stream->serializeMetadata(key.data(), key.length(), value.data(),
+                value.length());
     }
+
+    template <typename MetadataTrait>
+    void Encode(MetadataTrait, const grpc_core::Slice &value)
+    {
+        absl::string_view key = MetadataTrait::key();
+        uint32_t keyLength = key.length();
+        stream->serializeMetadata(key.data(), keyLength, value.data(),
+                value.length());
+    }
+
+    template <typename MetadataTrait>
+    void Encode(MetadataTrait, const typename MetadataTrait::ValueType& value)
+    {
+        absl::string_view key = MetadataTrait::key();
+        uint32_t keyLength = key.length();
+        const grpc_core::Slice& slice =
+                grpc_core::MetadataValueAsSlice<MetadataTrait>(value);
+        stream->serializeMetadata(key.data(), keyLength, slice.data(),
+                slice.length());
+    }
+
+    HomaStream *stream;
+};
+
+/**
+ * This class is used to compute the length of metadata. Its methods are
+ * invoked by grpc_metadata_batch::Encode.
+ */
+class MetadataSizer {
+public:
+    static int metadataLength(grpc_metadata_batch* batch) {
+        MetadataSizer sizer;
+        batch->Encode(&sizer);
+        return sizer.length;
+    }
+
+    /**
+     * Constructor for MetadataSizers.
+     */
+    MetadataSizer() : length(0) { }
+
+    void Encode(const void *key, uint32_t keyLength, const void *value,
+            uint32_t valueLength)
+    {
+        length += keyLength + valueLength + sizeof(Wire::Mdata);
+    }
+
+    void Encode(const grpc_core::Slice &key, const grpc_core::Slice &value)
+    {
+        length += key.length() + value.length() + sizeof(Wire::Mdata);
+    }
+
+    template <typename MetadataTrait>
+    void Encode(MetadataTrait, const grpc_core::Slice &value)
+    {
+        length += MetadataTrait::key().length() + value.length()
+                + sizeof(Wire::Mdata);
+    }
+
+    template <typename MetadataTrait>
+    void Encode(MetadataTrait, const typename MetadataTrait::ValueType& value)
+    {
+        const grpc_core::Slice& slice =
+                grpc_core::MetadataValueAsSlice<MetadataTrait>(value);
+        length += MetadataTrait::key().length() + slice.length()
+                + sizeof(Wire::Mdata);
+    }
+
+    int length;
 };
 
 /**
  * Constructor for HomaStreams.
+ * \param isServer
+ *      True means this stream will be used for the server side of an RPC;
+ *      false means client side.
  * \param streamId
  *      Identifies a particular gRPC RPC.
  * \param fd
  *      Use this file descriptor to send and receive Homa messages.
  * \param refcount
  *      Used to determine when the stream can be destroyed.
- * \param arena
- *      Can be used for storage allocation by the stream; anything
- *      allocated here will persist for the life of the stream and be
- *      automatically garbage collected when the stream is destroyed.
  */
-HomaStream::HomaStream(StreamId streamId, int fd,
-        grpc_stream_refcount* refcount, grpc_core::Arena* arena)
+HomaStream::HomaStream(bool isServer, StreamId streamId, int fd,
+        grpc_stream_refcount* refcount)
     : mutex()
     , fd(fd)
     , streamId(streamId)
     , sentHomaId(0)
     , homaRequestId(0)
     , refs(refcount)
-    , arena(arena)
     , xmitBuffer()
     , xmitOverflows()
     , overflowChunkSize(10000)
@@ -55,19 +124,20 @@ HomaStream::HomaStream(StreamId streamId, int fd,
     , nextXmitSequence(1)
     , incoming()
     , nextIncomingSequence(1)
-    , messageData()
     , initMd(nullptr)
     , initMdClosure(nullptr)
-    , messageStream(nullptr)
+    , initMdTrailMdAvail(nullptr)
+    , messageBody(nullptr)
     , messageClosure(nullptr)
     , trailMd(nullptr)
     , trailMdClosure(nullptr)
     , eof(false)
     , cancelled(false)
-    , error(GRPC_ERROR_NONE)
+    , trailMdSent(false)
+    , isServer(isServer)
+    , error(absl::OkStatus())
     , maxMessageLength(HOMA_MAX_MESSAGE_LENGTH)
 {
-    grpc_slice_buffer_init(&messageData);
     resetXmit();
 }
 
@@ -76,11 +146,6 @@ HomaStream::~HomaStream()
     if (homaRequestId != 0) {
         sendDummyResponse();
     }
-    for (grpc_slice &slice: slices) {
-        grpc_slice_unref(slice);
-    }
-    grpc_slice_buffer_destroy(&messageData);
-    GRPC_ERROR_UNREF(error);
 }
 
 /**
@@ -128,7 +193,6 @@ void HomaStream::flush()
         gpr_log(GPR_ERROR, "Couldn't send Homa %s: %s",
                 (isRequest) ? "request" : "response",
                 strerror(errno));
-        GRPC_ERROR_UNREF(error);
         error = GRPC_OS_ERROR(errno, "Couldn't send Homa request/response");
     }
     tt("Homa message sent");
@@ -137,9 +201,6 @@ void HomaStream::flush()
     // message data has been transmitted: otherwise, the last slice
     // may be needed for the next Homa message.
     if (hdr()->flags & Wire::Header::messageComplete) {
-        for (grpc_slice &slice: slices) {
-            grpc_slice_unref(slice);
-        }
         slices.clear();
     }
     resetXmit();
@@ -176,7 +237,7 @@ void HomaStream::saveCallbacks(grpc_transport_stream_op_batch* op)
                 op->payload->recv_initial_metadata.trailing_metadata_available;
     }
     if (op->recv_message) {
-        messageStream = op->payload->recv_message.recv_message;
+        messageBody = op->payload->recv_message.recv_message;
         messageClosure = op->payload->recv_message.recv_message_ready;
     }
     if (op->recv_trailing_metadata) {
@@ -185,8 +246,8 @@ void HomaStream::saveCallbacks(grpc_transport_stream_op_batch* op)
                 op->payload->recv_trailing_metadata.recv_trailing_metadata_ready;
     }
 
-    if (error != GRPC_ERROR_NONE) {
-        notifyError(GRPC_ERROR_REF(error));
+    if (!error.ok()) {
+        notifyError(error);
     }
 }
 
@@ -198,59 +259,65 @@ void HomaStream::saveCallbacks(grpc_transport_stream_op_batch* op)
  */
 size_t HomaStream::metadataLength(grpc_metadata_batch* batch)
 {
-    size_t length = 0;
-    batch->ForEach([&length](grpc_mdelem& md) {
-        uint32_t keyLength = GRPC_SLICE_LENGTH(GRPC_MDKEY(md));
-        uint32_t valueLength = GRPC_SLICE_LENGTH(GRPC_MDVALUE(md));
-        length += keyLength + valueLength + sizeof(Wire::Mdata);
-    });
-    return length;
+    return MetadataSizer::metadataLength(batch);
 }
 
 /**
- * Serialize a batch of metadata and append it to the output message
- * currently being formed.
- * \param batch
- *      All of the key-value pairs here will be appended.
+ * Serialize a metadata value into the current output message for the stream.
+ * \param key
+ *      First byte of key (not necessarily null-terminated).
+ * \param keyLength
+ *      Number of bytes in key.
+ * \param value
+ *      First byte of value corresponding to @name (not necessarily
+ *      null-terminated).
+ * \param valueLength
+ *      Number of bytes in value.
  */
-void HomaStream::serializeMetadata(grpc_metadata_batch* batch)
+void HomaStream::serializeMetadata(const void *key, uint32_t keyLength,
+        const void *value, uint32_t valueLength)
 {
     struct iovec *vec = &vecs.back();
     uint8_t *cur = static_cast<uint8_t *>(vec->iov_base) + vec->iov_len;
-    batch->ForEach([&](grpc_mdelem &md) {
-        const grpc_slice& key = GRPC_MDKEY(md);
-        const grpc_slice& value = GRPC_MDVALUE(md);
-        uint32_t keyLength = GRPC_SLICE_LENGTH(key);
-        uint32_t valueLength = GRPC_SLICE_LENGTH(value);
-        uint32_t elemLength = keyLength + valueLength + sizeof(Wire::Mdata);
-        if (elemLength > lastVecAvail) {
-            // Add an overflow chunk to the outgoing Homa message.
-            size_t newSize = overflowChunkSize;
-            if (elemLength > newSize) {
-                newSize = elemLength;
-            }
-            cur = new uint8_t[newSize];
-            xmitOverflows.push_back(cur);
-            vecs.push_back({cur, 0});
-            vec = &vecs.back();
-            lastVecAvail = newSize;
+    uint32_t elemLength = keyLength + valueLength + sizeof(Wire::Mdata);
+    if (elemLength > lastVecAvail) {
+        // Add an overflow chunk to the outgoing Homa message.
+        size_t newSize = overflowChunkSize;
+        if (elemLength > newSize) {
+            newSize = elemLength;
         }
+        cur = new uint8_t[newSize];
+        xmitOverflows.push_back(cur);
+        vecs.push_back({cur, 0});
+        vec = &vecs.back();
+        lastVecAvail = newSize;
+    }
 
-        Wire::Mdata* msgMd = reinterpret_cast<Wire::Mdata*>(cur);
-        gpr_log(GPR_INFO, "Outgoing metadata: key %.*s, value %.*s",
-                keyLength, GRPC_SLICE_START_PTR(key),
-                valueLength, GRPC_SLICE_START_PTR(value));
-        msgMd->keyLength = htonl(keyLength);
-        msgMd->valueLength = htonl(valueLength);
-        cur += sizeof(*msgMd);
-        memcpy(cur, GRPC_SLICE_START_PTR(key), keyLength);
-        cur += keyLength;
-        memcpy(cur, GRPC_SLICE_START_PTR(value), valueLength);
-        cur += valueLength;
-        vec->iov_len += elemLength;
-        lastVecAvail -= elemLength;
-        xmitSize += elemLength;
-    });
+    Wire::Mdata* msgMd = reinterpret_cast<Wire::Mdata*>(cur);
+    gpr_log(GPR_INFO, "Outgoing metadata: key %.*s, value %.*s",
+            keyLength, static_cast<const char *>(key), valueLength,
+            static_cast<const char *>(value));
+    msgMd->keyLength = htonl(keyLength);
+    msgMd->valueLength = htonl(valueLength);
+    cur += sizeof(*msgMd);
+    memcpy(cur, key, keyLength);
+    cur += keyLength;
+    memcpy(cur, value, valueLength);
+    cur += valueLength;
+    vec->iov_len += elemLength;
+    lastVecAvail -= elemLength;
+    xmitSize += elemLength;
+}
+
+/**
+ * Serialize a metadata batch into the current output message for the stream.
+ * \param batch
+ *      Collection of metadata entries to serialize.
+ */
+void HomaStream::serializeMetadataBatch(grpc_metadata_batch *batch)
+{
+    MetadataEncoder encoder(this);
+    batch->Encode(&encoder);
 }
 
 /**
@@ -267,17 +334,15 @@ void HomaStream::xmit(grpc_transport_stream_op_batch* op)
             flush();
         }
         size_t oldLength = xmitSize;
-        serializeMetadata(
-                op->payload->send_initial_metadata.send_initial_metadata);
+        serializeMetadataBatch(op->payload->send_initial_metadata
+                .send_initial_metadata);
         hdr()->initMdBytes = htonl(xmitSize - oldLength);
         hdr()->flags |= Wire::Header::initMdPresent;
         if (xmitSize > maxMessageLength) {
             gpr_log(GPR_ERROR, "Too much initial metadata (%lu bytes): "
                     "limit is %lu bytes", xmitSize - sizeof(Wire::Header),
                     maxMessageLength - sizeof(Wire::Header));
-            GRPC_ERROR_UNREF(error);
-            error = GRPC_ERROR_CREATE_FROM_STATIC_STRING(
-                    "Too much initial metadata");
+            error = GRPC_ERROR_CREATE("Too much initial metadata");
             return;
         }
     }
@@ -291,9 +356,7 @@ void HomaStream::xmit(grpc_transport_stream_op_batch* op)
         gpr_log(GPR_ERROR, "Too much trailing metadata (%lu bytes): "
                 "limit is %lu bytes", trailMdLength,
                 maxMessageLength - sizeof(Wire::Header));
-        GRPC_ERROR_UNREF(error);
-        error = GRPC_ERROR_CREATE_FROM_STATIC_STRING(
-                "Too much trailing metadata");
+        error = GRPC_ERROR_CREATE("Too much trailing metadata");
         return;
     }
 
@@ -302,13 +365,13 @@ void HomaStream::xmit(grpc_transport_stream_op_batch* op)
     // Homa messages with just message data. Then, in the final message, we
     // append the metadata *before* any final chunk of data (so it can use
     // the same iovec as the header.
-    grpc_core::ByteStream *data = op->payload->send_message.send_message.get();
+    grpc_core::SliceBuffer *data = op->payload->send_message.send_message;
     size_t msgDataLeft = 0;
     size_t bytesInSlice = 0;
     size_t sliceOffset = 0;
     if (op->send_message) {
         tt("send_message stream op invoked");
-        msgDataLeft = data->length();
+        msgDataLeft = data->Length();
     }
     while ((trailMdLength + msgDataLeft) > 0) {
         if ((xmitSize == maxMessageLength)
@@ -319,31 +382,24 @@ void HomaStream::xmit(grpc_transport_stream_op_batch* op)
         if (((xmitSize + trailMdLength + msgDataLeft) < maxMessageLength)
                 && (trailMdLength > 0)) {
             // This will be the last Homa message, so output trailing metadata.
-            serializeMetadata(
-                    op->payload->send_trailing_metadata.send_trailing_metadata);
+            serializeMetadataBatch(op->payload->send_trailing_metadata
+                    .send_trailing_metadata);
             hdr()->trailMdBytes = htonl(trailMdLength);
             trailMdLength = 0;
         }
         if (msgDataLeft > 0) {
             if (bytesInSlice == 0) {
-                if (!data->Next(msgDataLeft, nullptr)) {
-                    /* Should never reach here */
-                    GPR_ASSERT(false);
-                }
-                slices.resize(slices.size()+1);
-                if (data->Pull(&slices.back()) != GRPC_ERROR_NONE) {
-                    /* Should never reach here */
-                    GPR_ASSERT(false);
-                }
-                bytesInSlice = GRPC_SLICE_LENGTH(slices.back());
+                GPR_ASSERT(data->Count() > 0);
+                slices.emplace_back(data->TakeFirst());
+                bytesInSlice = slices.back().length();
                 sliceOffset = 0;
             }
             size_t chunkSize = maxMessageLength - xmitSize;
             if (chunkSize >= bytesInSlice) {
                 chunkSize = bytesInSlice;
             }
-            vecs.push_back({GRPC_SLICE_START_PTR(slices.back()) + sliceOffset,
-                    chunkSize});
+            vecs.push_back({const_cast<uint8_t *>(slices.back().data()
+                    + sliceOffset), chunkSize});
             lastVecAvail = 0;
             bytesInSlice -= chunkSize;
             sliceOffset += chunkSize;
@@ -356,7 +412,6 @@ void HomaStream::xmit(grpc_transport_stream_op_batch* op)
 
     if (op->send_message) {
         hdr()->flags |= Wire::Header::messageComplete;
-        op->payload->send_message.send_message.reset();
     }
 
     if (op->send_trailing_metadata) {
@@ -367,6 +422,13 @@ void HomaStream::xmit(grpc_transport_stream_op_batch* op)
     // until it can be combined with something else.
     if (op->send_message || op->send_trailing_metadata) {
         flush();
+    }
+
+    if (op->send_trailing_metadata) {
+        trailMdSent = true;
+        if (isServer) {
+            transferData();
+        }
     }
 }
 
@@ -416,8 +478,8 @@ void HomaStream::transferData()
             if (h->flags & Wire::Header::initMdPresent) {
                 tt("calling deserializeMetadata");
                 msg->deserializeMetadata(sizeof(Wire::Header),
-                        msg->initMdLength, initMd, arena);
-                logMetadata(initMd, "incoming initial metadata");
+                        msg->initMdLength, initMd);
+                logMetadata(initMd, "Incoming initial metadata");
                 if (initMdTrailMdAvail && (h->flags
                         & h->trailMdPresent)) {
                     *initMdTrailMdAvail = true;
@@ -426,7 +488,7 @@ void HomaStream::transferData()
                 initMdClosure = nullptr;
                 h->flags &= ~Wire::Header::initMdPresent;
                 tt("Invoking initial metadata closure");
-                grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_NONE);
+                grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, absl::OkStatus());
             }
         }
 
@@ -443,44 +505,43 @@ void HomaStream::transferData()
                 if (sliceLength > bytesLeft) {
                     sliceLength = bytesLeft;
                 }
-                grpc_slice_buffer_add(&messageData, msg->getSlice(
-                        msgOffset, sliceLength));
+                if (!messageBody->has_value()) {
+                    messageBody->emplace();
+                }
+                messageBody->value().Append(msg->getSlice(msgOffset, sliceLength));
                 msgOffset += sliceLength;
                 bytesLeft -= sliceLength;
             }
             msg->bodyLength = 0;
 
             if (h->flags & Wire::Header::messageComplete) {
-                messageStream->reset(new HomaSliceBufferByteStream(
-                        &messageData, 0));
-                grpc_slice_buffer_destroy(&messageData);
-                grpc_slice_buffer_init(&messageData);
-
                 grpc_closure *c = messageClosure;
                 messageClosure = nullptr;
                 h->flags &= ~Wire::Header::messageComplete;
                 tt("Invoking message closure");
-                grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_NONE);
+                grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, absl::OkStatus());
                 gpr_log(GPR_INFO, "Invoked message closure for stream id %d",
                         streamId.id);
             }
         }
 
-        // Transfer trailing metadata, if possible.
+        // Transfer trailing metadata, if possible. On the server side we
+        // mustn't transfer the metadata until outgoing trailing metadata
+        // has been sent (don't know why).
         if (h->flags & Wire::Header::trailMdPresent) {
             eof = true;
-            if (trailMdClosure) {
+            if (trailMdClosure && (trailMdSent || !isServer)) {
                 msg->deserializeMetadata(
                         sizeof(Wire::Header) + msg->initMdLength,
-                        msg->trailMdLength, trailMd, arena);
-                logMetadata(trailMd, "incoming trailing metadata");
+                        msg->trailMdLength, trailMd);
+                logMetadata(trailMd, "Incoming trailing metadata");
                 grpc_closure *c = trailMdClosure;
                 trailMdClosure = nullptr;
                 h->flags &= ~Wire::Header::trailMdPresent;
                 tt("Invoking trailing metadata closure");
                 gpr_log(GPR_INFO, "Invoked trailing metadata closure for "
                         "stream id %d", streamId.id);
-                grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_NONE);
+                grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, absl::OkStatus());
             }
         }
 
@@ -500,10 +561,9 @@ void HomaStream::transferData()
     if (eof && messageClosure) {
         // gRPC has asked for another message but there aren't going to
         // be any; signal that.
-        *messageStream = nullptr;
         grpc_closure *c = messageClosure;
         messageClosure = nullptr;
-        grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_NONE);
+        grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, absl::OkStatus());
         gpr_log(GPR_INFO, "Invoked message closure (eof)");
     }
 }
@@ -532,7 +592,7 @@ void HomaStream::handleIncoming(HomaIncoming::UniquePtr msg, uint64_t homaId)
     if (msg->hdr()->flags & Wire::Header::cancelled) {
         gpr_log(GPR_INFO, "RPC id %d cancelled by peer", streamId.id);
         cancelled = true;
-        notifyError(GRPC_ERROR_CANCELLED);
+        notifyError(absl::CancelledError());
         return;
     }
 
@@ -573,25 +633,24 @@ duplicate:
  */
 void HomaStream::notifyError(grpc_error_handle errorInfo)
 {
-    GRPC_ERROR_UNREF(error);
     error = errorInfo;
     gpr_log(GPR_INFO, "Recording error for stream id %u: %s",
-        streamId.id, grpc_error_string(error));
+        streamId.id, error.ToString().c_str());
 
     if (initMdClosure) {
         grpc_closure *c = initMdClosure;
         initMdClosure = nullptr;
-        grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_REF(error));
+        grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, error);
     }
     if (messageClosure) {
         grpc_closure *c = messageClosure;
         messageClosure = nullptr;
-        grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_REF(error));
+        grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, error);
     }
     if (trailMdClosure) {
         grpc_closure *c = trailMdClosure;
         trailMdClosure = nullptr;
-        grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, GRPC_ERROR_REF(error));
+        grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, error);
     }
 }
 

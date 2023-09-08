@@ -8,8 +8,8 @@
 #include "homa.h"
 
 /**
- * An instance of this class doors state associated with an open Homa
- * socket. It particular, it manages the  buffer region used for
+ * An instance of this class stores state associated with an open Homa
+ * socket. It particular, it manages the buffer region used for
  * incoming messages.
  */
 class HomaSocket {

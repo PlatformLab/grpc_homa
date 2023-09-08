@@ -47,17 +47,18 @@ public:
     static uint8_t *bufRegion;
 
     static int        checkError(int *errorMask);
-    static grpc_slice dataSlice(size_t length, int firstValue);
+    static grpc_core::Slice
+                      dataSlice(size_t length, int firstValue);
     static void       gprLog(gpr_log_func_args* args);
-    static void       logByteStream(const char *separator,
-                        grpc_core::ByteStream *byteStream);
-    static void       logData(const char *separator, void *data, int length);
+    static void       logData(const char *separator, const void *data,
+                        int length);
     static void       logMetadata(const char *separator,
                         const grpc_metadata_batch *batch);
     static void       logPrintf(const char *separator, const char* format, ...);
+    static void       logSliceBuffer(const char *separator,
+                        const grpc_core::SliceBuffer *sliceBuffer);
     static void       metadataBatchAppend(grpc_metadata_batch* batch,
-                        const char *key, const char *value,
-                        grpc_core::Arena *arena);
+                        const char *key, const char *value);
     static void       setUp(void);
     static ::testing::AssertionResult
                         substr(const std::string& s,
@@ -65,5 +66,6 @@ public:
 };
 
 #define EXPECT_SUBSTR(sub, str) EXPECT_TRUE(Mock::substr((str), (sub)))
+#define EXPECT_NSUBSTR(sub, str) EXPECT_FALSE(Mock::substr((str), (sub)))
 
 #endif // MOCK_H

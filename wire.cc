@@ -7,21 +7,6 @@
 #include "util.h"
 #include "wire.h"
 
-grpc_core::StaticSliceRefcount *Wire::calloutRefs[GRPC_BATCH_CALLOUTS_COUNT];
-
-/**
- * Invoked once to initialize static information for this class.
- */
-void Wire::init()
-{
-    if (calloutRefs[0] != nullptr) {
-        return;
-    }
-    for (int i = 0; i < GRPC_BATCH_CALLOUTS_COUNT; i++) {
-        calloutRefs[i] = new grpc_core::StaticSliceRefcount(i);
-    }
-}
-
 /**
  * Print to the log the contents of a block of metadata, as serialized
  * by appendMetadata.

@@ -12,7 +12,7 @@
 #     enabled (must "make clean" after changing this).
 
 HOMA_DIR := /users/ouster/homaModule
-DEBUG := no
+DEBUG := yes
 ifeq ($(DEBUG),no)
     GRPC_INSTALL_DIR := /ouster/install.release
     DEBUG_FLAGS := -O3 -DNDEBUG
@@ -22,7 +22,8 @@ else
 endif
 
 GRPC_LIBS := $(shell export PKG_CONFIG_PATH=$(GRPC_INSTALL_DIR)/lib/pkgconfig; \
-	pkg-config --libs protobuf grpc++)
+	pkg-config --libs protobuf grpc++) -lupb -lcares -lre2 -lz \
+	-laddress_sorting -lssl -lcrypto -lsystemd
 ifeq ($(DEBUG),yes)
     GRPC_LIBS := $(subst -lprotobuf,-lprotobufd,$(GRPC_LIBS))
 endif
@@ -38,8 +39,8 @@ INCLUDES = -I $(GRPC_INSTALL_DIR)/include \
            -I $(GRPC_DIR) \
            -I $(GRPC_DIR)/third_party/abseil-cpp \
            -I $(GTEST_INCLUDE_PATH)
-CXXFLAGS += $(DEBUG_FLAGS) -std=c++17 -Wall -Werror -fno-strict-aliasing \
-         $(INCLUDES) -MD
+CXXFLAGS += $(DEBUG_FLAGS) -std=c++17 -Wall -Werror -Wno-comment \
+	-fno-strict-aliasing $(INCLUDES) -MD
 CFLAGS = -Wall -Werror -fno-strict-aliasing $(DEBUG_FLAGS) -MD
 
 OBJS =      homa_client.o \
@@ -82,7 +83,7 @@ test_client: test.grpc.pb.o test.pb.o test_client.o libhoma.a
 test_server: test.grpc.pb.o test.pb.o test_server.o libhoma.a
 	$(CXX) $^ $(LDFLAGS) -o $@
 
-tcp_test: test.grpc.pb.o test.pb.o tcp_test.o
+tcp_test: test.grpc.pb.o test.pb.o tcp_test.o time_trace.o
 	$(CXX) $^ $(LDFLAGS) -o $@
 
 unit: $(OBJS) $(TEST_OBJS) $(GTEST_LIB_PATH)/libgtest_main.a \

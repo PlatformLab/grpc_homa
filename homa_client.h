@@ -8,8 +8,6 @@
 #include <grpcpp/grpcpp.h>
 
 #include "src/core/ext/filters/client_channel/client_channel.h"
-#include "src/core/ext/filters/client_channel/client_channel_factory.h"
-#include "src/core/ext/filters/client_channel/resolver_registry.h"
 
 #include "homa_socket.h"
 #include "homa_stream.h"
@@ -28,7 +26,7 @@ protected:
     HomaClient(bool ipv6);
     ~HomaClient();
     static void init();
-    static grpc_channel *createChannel(const char* target,
+    static grpc_channel* createChannel(const char* target,
             const grpc_channel_args* args);
 
     /**
@@ -53,7 +51,7 @@ protected:
     public:
         grpc_core::RefCountedPtr<grpc_core::Subchannel> CreateSubchannel(
             const grpc_resolved_address& address,
-            const grpc_channel_args* args) override;
+            const grpc_core::ChannelArgs& args) override;
     };
 
     /**
@@ -94,7 +92,7 @@ protected:
     static int      init_stream(grpc_transport* gt, grpc_stream* gs,
                             grpc_stream_refcount* refcount,
                             const void* server_data, grpc_core::Arena* arena);
-    static void     onRead(void* arg, grpc_error* error);
+    static void     onRead(void* arg, grpc_error_handle error);
     static void     perform_op(grpc_transport* gt, grpc_transport_op* op);
     static void     perform_stream_op(grpc_transport* gt, grpc_stream* gs,
                             grpc_transport_stream_op_batch* op);

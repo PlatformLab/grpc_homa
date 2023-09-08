@@ -22,7 +22,7 @@ public:
     struct UnrefIncoming {
         void operator()(HomaIncoming* msg)
         {
-            msg->sliceRefs.Unref();
+            msg->sliceRefs.Unref({});
         }
     };
 
@@ -36,11 +36,8 @@ public:
     size_t            addMetadata(size_t offset, ...);
     void              copyOut(void *dst, size_t offset, size_t length);
     void              deserializeMetadata(size_t offset, size_t length,
-                            grpc_metadata_batch* batch,
-                            grpc_core::Arena* arena);
-    grpc_slice        getSlice(size_t offset, size_t length);
-    grpc_slice        getStaticSlice(size_t offset, size_t length,
-                            grpc_core::Arena *arena);
+                            grpc_metadata_batch* batch);
+    grpc_core::Slice  getSlice(size_t offset, size_t length);
 
     static UniquePtr  read(HomaSocket *sock, int flags, uint64_t *homaId,
                             grpc_error_handle *error);
@@ -120,8 +117,6 @@ public:
         return streamId;
     }
 
-    // Used by sliceRefs. Don't access directly.
-    std::atomic<size_t> refs{1};
 
     // Keeps track of all outstanding references to this message
     // (such as a std::unique_ptr for the entire message, and metadata
@@ -163,7 +158,7 @@ public:
     // static slice. This is a variable so it can be modified for testing.
     size_t maxStaticMdLength;
 
-    static void destroyer(void* arg);
+    static void destroyer(grpc_slice_refcount *sliceRefs);
 
     Wire::Header *hdr()
     {
