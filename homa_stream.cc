@@ -115,9 +115,10 @@ HomaStream::HomaStream(bool isServer, StreamId streamId, int fd,
     , sentHomaId(0)
     , homaRequestId(0)
     , refs(refcount)
-    , xmitBuffer()
+//    , xmitBuffer()            This isn't needed and seems to take a long time?
     , xmitOverflows()
     , overflowChunkSize(10000)
+    , slices()
     , vecs()
     , lastVecAvail(0)
     , xmitSize(0)
@@ -166,6 +167,7 @@ void HomaStream::flush()
     // request. This makes the most efficient use of Homa messages.
     if (isRequest) {
         hdr()->flags |= Wire::Header::request;
+        tt("Invoking homa_sendv");
         status = homa_sendv(fd, vecs.data(), vecs.size(),
                 &streamId.addr, &sentHomaId, 0);
         if (gpr_should_log(GPR_LOG_SEVERITY_INFO)) {
@@ -176,6 +178,7 @@ void HomaStream::flush()
                     sentHomaId, ntohl(hdr()->initMdBytes),
                     ntohl(hdr()->messageBytes), ntohl(hdr()->trailMdBytes));
         }
+        tt("homa_sendv returned");
     } else {
         if (gpr_should_log(GPR_LOG_SEVERITY_INFO)) {
             gpr_log(GPR_INFO, "Sending Homa response to %s, "
@@ -185,8 +188,10 @@ void HomaStream::flush()
                     homaRequestId, ntohl(hdr()->initMdBytes),
                     ntohl(hdr()->messageBytes), ntohl(hdr()->trailMdBytes));
         }
+        tt("Invoking homa_replyv");
         status = homa_replyv(fd, vecs.data(), vecs.size(), &streamId.addr,
                 homaRequestId);
+        tt("homa_replyv returned");
         homaRequestId = 0;
     }
     if (status < 0) {
@@ -195,7 +200,6 @@ void HomaStream::flush()
                 strerror(errno));
         error = GRPC_OS_ERROR(errno, "Couldn't send Homa request/response");
     }
-    tt("Homa message sent");
 
     // It isn't safe to free the slices for message data until all
     // message data has been transmitted: otherwise, the last slice
@@ -370,7 +374,6 @@ void HomaStream::xmit(grpc_transport_stream_op_batch* op)
     size_t bytesInSlice = 0;
     size_t sliceOffset = 0;
     if (op->send_message) {
-        tt("send_message stream op invoked");
         msgDataLeft = data->Length();
     }
     while ((trailMdLength + msgDataLeft) > 0) {
@@ -476,7 +479,6 @@ void HomaStream::transferData()
         // Transfer initial metadata, if possible.
         if (initMdClosure) {
             if (h->flags & Wire::Header::initMdPresent) {
-                tt("calling deserializeMetadata");
                 msg->deserializeMetadata(sizeof(Wire::Header),
                         msg->initMdLength, initMd);
                 logMetadata(initMd, "Incoming initial metadata");
@@ -487,7 +489,6 @@ void HomaStream::transferData()
                 grpc_closure *c = initMdClosure;
                 initMdClosure = nullptr;
                 h->flags &= ~Wire::Header::initMdPresent;
-                tt("Invoking initial metadata closure");
                 grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, absl::OkStatus());
             }
         }
@@ -518,7 +519,6 @@ void HomaStream::transferData()
                 grpc_closure *c = messageClosure;
                 messageClosure = nullptr;
                 h->flags &= ~Wire::Header::messageComplete;
-                tt("Invoking message closure");
                 grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, absl::OkStatus());
                 gpr_log(GPR_INFO, "Invoked message closure for stream id %d",
                         streamId.id);
@@ -538,7 +538,6 @@ void HomaStream::transferData()
                 grpc_closure *c = trailMdClosure;
                 trailMdClosure = nullptr;
                 h->flags &= ~Wire::Header::trailMdPresent;
-                tt("Invoking trailing metadata closure");
                 gpr_log(GPR_INFO, "Invoked trailing metadata closure for "
                         "stream id %d", streamId.id);
                 grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, absl::OkStatus());

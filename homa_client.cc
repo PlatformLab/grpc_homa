@@ -204,6 +204,7 @@ int HomaClient::init_stream(grpc_transport* gt, grpc_stream* gs,
     grpc_core::MutexLock lock(&hc->mutex);
     uint32_t id = hc->nextId;
     hc->nextId++;
+    tt("Invoking HomaStream constructor");
     new (stream) HomaStream(false, StreamId(&peer->addr, id), hc->sock.getFd(),
             refcount);
     hc->streams.emplace(stream->streamId, stream);
@@ -414,6 +415,7 @@ void HomaClient::onRead(void* arg, grpc_error_handle sockError)
                 sockError.ToString().c_str());
         return;
     }
+    tt("HomaClient::onRead starting");
     while (true) {
         grpc_error_handle error;
         HomaIncoming::UniquePtr msg = HomaIncoming::read(&hc->sock,
@@ -452,4 +454,5 @@ void HomaClient::onRead(void* arg, grpc_error_handle sockError)
         stream->handleIncoming(std::move(msg), homaId);
     }
     grpc_fd_notify_on_read(hc->sock.getGfd(), &hc->readClosure);
+    tt("HomaClient::onRead finished");
 }

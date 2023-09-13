@@ -343,6 +343,7 @@ void HomaListener::Transport::onRead(void* arg, grpc_error_handle error)
                 error.ToString().c_str());
         return;
     }
+    tt("HomaListener::onRead starting");
     while (true) {
         std::optional<grpc_core::MutexLock> streamLock;
         grpc_error_handle error;
@@ -357,6 +358,7 @@ void HomaListener::Transport::onRead(void* arg, grpc_error_handle error)
         stream->handleIncoming(std::move(msg), homaId);
     }
     grpc_fd_notify_on_read(trans->sock.getGfd(), &trans->read_closure);
+    tt("HomaListener::onRead finished");
 }
 
 /**

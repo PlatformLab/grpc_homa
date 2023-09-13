@@ -12,7 +12,7 @@
 #     enabled (must "make clean" after changing this).
 
 HOMA_DIR := /users/ouster/homaModule
-DEBUG := yes
+DEBUG := no
 ifeq ($(DEBUG),no)
     GRPC_INSTALL_DIR := /ouster/install.release
     DEBUG_FLAGS := -O3 -DNDEBUG

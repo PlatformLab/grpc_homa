@@ -231,6 +231,7 @@ void measureRtt(TestClient *client)
         client->Sum(1, 2);
         tt("Request %d finished", i);
         tt("TimeTrace::record completed");
+        tt("Second TimeTrace::record completed");
     }
     uint64_t end = TimeTrace::rdtsc();
     printf("Round-trip time for Sum requests: %.1f us\n",

@@ -14,8 +14,8 @@ public:
     grpc::Status Sum(grpc::ServerContext* context, const test::SumArgs *args,
             test::SumResult *result) override
     {
-        printf("Sum invoked with arguments %d and %d\n",
-                args->op1(), args->op2());
+//        printf("Sum invoked with arguments %d and %d\n",
+//                args->op1(), args->op2());
         tt("Sum service method invoked");
 //        printf("%lu metadata values from client\n",
 //                context->client_metadata().size());

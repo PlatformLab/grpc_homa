@@ -175,6 +175,7 @@ HomaIncoming::UniquePtr HomaIncoming::read(HomaSocket *sock, int flags,
         sock->getSavedBuffers(&msg->recvArgs);
 //        gpr_log(GPR_INFO, "Returning %d bpages to Homa: %s",
 //               msg->recvArgs.num_bpages, bpagesToString(&msg->recvArgs).c_str());
+        startTime = TimeTrace::rdtsc();
         result = recvmsg(sock->getFd(), &recvHdr, 0);
         *homaId = msg->recvArgs.id;
         if (result < 0) {
@@ -186,6 +187,8 @@ HomaIncoming::UniquePtr HomaIncoming::read(HomaSocket *sock, int flags,
             *error = GRPC_OS_ERROR(errno, "recvmsg");
             return nullptr;
         }
+        TimeTrace::record(startTime, "HomaIncoming::read invoking recvmsg");
+        tt("recvmsg returned");
         msg->length = result;
         if (msg->length < sizeof(Wire::Header)) {
             gpr_log(GPR_ERROR, "Homa message contained only %lu bytes "
@@ -233,8 +236,6 @@ HomaIncoming::UniquePtr HomaIncoming::read(HomaSocket *sock, int flags,
                 msg->initMdLength, msg->bodyLength, msg->trailMdLength,
                 msg->hdr()->flags, msg->recvArgs.bpage_offsets[0]>>HOMA_BPAGE_SHIFT);
     }
-    TimeTrace::record(startTime, "HomaIncoming::read starting");
-    tt("HomaIncoming::read returning");
     return msg;
 }
 
