@@ -19,8 +19,8 @@
  */
 class HomaClient {
 public:
-    static std::shared_ptr<grpc::Channel> createInsecureChannel(
-            const char* target);
+    static std::shared_ptr<grpc::ChannelCredentials>
+            insecureChannelCredentials();
 
 protected:
     HomaClient(bool ipv6);

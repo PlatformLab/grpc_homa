@@ -162,19 +162,13 @@ grpc_channel *HomaClient::createChannel(const char* target,
 }
 
 /**
- * Create an insecure client channel. This is the primary exported
- * API for this class.
- * \param target
- *      hostName:port for the server that will handle requests on this
- *      channel.
- * \return
- *      A new channel.
+ * Returns credentials that can be used to create an insecure channel
+ * using Homa. This is the primary exported API for the class.
  */
-std::shared_ptr<grpc::Channel> HomaClient::createInsecureChannel(
-        const char* target)
+std::shared_ptr<grpc::ChannelCredentials> HomaClient::insecureChannelCredentials()
 {
-    std::shared_ptr<InsecureCredentials> creds(new InsecureCredentials());
-    return grpc::CreateChannel(target, creds);
+    std::shared_ptr<InsecureCredentials> result(new InsecureCredentials());
+    return result;
 }
 
 /**

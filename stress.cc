@@ -276,11 +276,11 @@ public:
         snprintf(server, sizeof(server), "node%d:%d",
                 serverIndex, serverPort);
         if (useHoma) {
-            stub = basic::Basic::NewStub(
-                    HomaClient::createInsecureChannel(server));
+            stub = basic::Basic::NewStub(grpc::CreateChannel(server,
+                    HomaClient::insecureChannelCredentials()));
         } else {
             stub = basic::Basic::NewStub(grpc::CreateChannel(server,
-                grpc::InsecureChannelCredentials()));
+                    grpc::InsecureChannelCredentials()));
         }
     }
 

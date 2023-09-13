@@ -269,7 +269,8 @@ int main(int argc, char** argv)
 
     std::optional<TestClient> client;
     if (useHoma) {
-        client.emplace(HomaClient::createInsecureChannel(server));
+        client.emplace(grpc::CreateChannel(server,
+                HomaClient::insecureChannelCredentials()));
     } else {
         ttFile = "tcp.tt";
         ttServerFile = "tcpServer.tt";

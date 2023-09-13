@@ -36,13 +36,13 @@ Homa instead of TCP for transport.
   then `#include homa_client.h` as needed for clients and
   `#include homa_listener.h` as needed for servers.
 
-- On clients, invoke `HomaClient::createInsecureChannel` to create
-  channels instead of `grpc::CreateChannel`. It takes a single argument,
-  which is a string of the form host:port identifying the Homa server.
-  For an example of a simple but complete client, see `test_client.cc`
+- On clients, pass `HomaClient::insecureChannelCredentials()` to
+  `grpc::CreateChannel` instead of `grpc::InsecureChannelCredentials()`
+  to create a channel that uses Homa.
+  For an example of a simple but complete client, see `test_client.cc`.
 
 - On servers, pass `HomaListener::insecureCredentials()` to
-  `AddListeningPort` instead of `grpc::InsecureServerCredentials()`.
+  `grpc::AddListeningPort` instead of `grpc::InsecureServerCredentials()`.
   For an example of a simple but complete server, see `test_server.cc`.
 
 - Once you have done this, all your existing gRPC-based code should
