@@ -664,7 +664,7 @@ TEST_F(TestStream, transferData_messageData_multipleChunks) {
             Mock::log.c_str());
     EXPECT_EQ(0U, stream.incoming.size());
 }
-TEST_F(TestStream, transferData_messageDataDataInMultipleIncomings) {
+TEST_F(TestStream, transferData_messageDataInMultipleIncomings) {
     stream.messageClosure = &closure1;
     absl::optional<grpc_core::SliceBuffer> message;
     stream.messageBody = &message;
@@ -690,6 +690,23 @@ TEST_F(TestStream, transferData_messageDataDataInMultipleIncomings) {
     Mock::logSliceBuffer("; ", &message.value());
     EXPECT_STREQ("1000-1099; 2000-2199", Mock::log.c_str());
     EXPECT_EQ(0U, stream.incoming.size());
+    message.reset();      // Ensures proper order of memory freeing.
+}
+TEST_F(TestStream, transferData_zeroLengthMessage) {
+    stream.messageClosure = &closure1;
+    absl::optional<grpc_core::SliceBuffer> message;
+    stream.messageBody = &message;
+    stream.incoming.emplace_back(new HomaIncoming(&sock, 1, false,
+            0, 1000, true, false));
+    grpc_core::ExecCtx execCtx;
+    stream.transferData();
+    execCtx.Flush();
+    EXPECT_STREQ("closure1 invoked with 123", Mock::log.c_str());
+    Mock::log.clear();
+    Mock::logSliceBuffer("; ", &message.value());
+    EXPECT_STREQ("empty block", Mock::log.c_str());
+    EXPECT_EQ(0U, stream.incoming.size());
+    EXPECT_EQ(0U, message->Length());
     message.reset();      // Ensures proper order of memory freeing.
 }
 TEST_F(TestStream, transferData_setEof) {

@@ -501,13 +501,13 @@ void HomaStream::transferData()
 
             // Each iteration of this loop creates a slice for one
             // contiguous range of the message.
+            if (!messageBody->has_value()) {
+                messageBody->emplace();
+            }
             while (bytesLeft > 0) {
                 size_t sliceLength = msg->contiguous(msgOffset);
                 if (sliceLength > bytesLeft) {
                     sliceLength = bytesLeft;
-                }
-                if (!messageBody->has_value()) {
-                    messageBody->emplace();
                 }
                 messageBody->value().Append(msg->getSlice(msgOffset, sliceLength));
                 msgOffset += sliceLength;
@@ -516,6 +516,16 @@ void HomaStream::transferData()
             msg->bodyLength = 0;
 
             if (h->flags & Wire::Header::messageComplete) {
+                if (messageBody->value().Count() == 0) {
+                    // This is a zero-length message; must create a
+                    // zero-length slice.
+                    grpc_slice slice;
+
+                    slice.refcount = grpc_slice_refcount::NoopRefcount();
+                    slice.data.refcounted.bytes =  NULL;
+                    slice.data.refcounted.length = 0;
+                    messageBody->value().Append(grpc_core::Slice(slice));
+                }
                 grpc_closure *c = messageClosure;
                 messageClosure = nullptr;
                 h->flags &= ~Wire::Header::messageComplete;
