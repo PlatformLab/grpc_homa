@@ -1,49 +1,6 @@
 Miscellaneous notes about a Homa plugin for gRPC:
 -------------------------------------------------
 
-* Notes for 1.57.0 upgrade:
-  * Try to remove abort calls.
-  * Metadata operations:
-    * Use batch->Encode to extract metadata for encoding, batch->Append
-      when deserializing input messages?
-    * see hpack_encoder.cc around line 370 for specialized encoders
-    * Deserialize from message to metadata in HomaIncoming::deserializeMetadata
-    * Serialize into outgoing message: HomaStream::metadataLength
-      and HomaStream::serializeMetadata
-  * Debugging failure to invoke server method:
-    * Path is read at server.cc:1626
-    * Method is looked up at server.cc:1564
-    * PublishNewRpc gets invoked after message data is received
-    * Then MatchOrQueue is called to find waiting thread (?)
-    * Then Server::CallData::Publish (server.cc:1493)
-  * Info about why server triggers error after RPC completes:
-    * FilterStackCall::ExecuteBatch (call.cc:994, then 995 closure)
-    * grpc_core::FilterStackCall::CancelWithError (call.cc:1047)
-    * send_trailing_state_ is kCancelled in ServerCallData::StartBatch
-
-1       breakpoint     keep y   0x0000555555b15c0c in grpc_core::FilterStackCall::StartBatch(grpc_op const*, unsigned long, void*, bool) at /ouster/grpc/src/core/lib/surface/call.cc:1871
-3       breakpoint     keep y   0x0000555555b119bc in grpc_core::FilterStackCall::CancelWithError(absl::lts_20230125::Status)
-                                                   at /ouster/grpc/src/core/lib/surface/call.cc:1047
-5       breakpoint     keep y   0x0000555555e61b75 in grpc_core::promise_filter_detail::ServerCallData::StartBatch(grpc_transport_stream_op_batch*) at /ouster/grpc/src/core/lib/channel/promise_based_filter.cc:2162
-        breakpoint already hit 2 times
-7       breakpoint     keep n   0x0000555555aa3f15 in grpc_core::ExecCtx::Run(grpc_core::DebugLocation const&, grpc_closure*, absl::lts_20230125::Status) at /ouster/grpc/src/core/lib/iomgr/exec_ctx.cc:86
-        breakpoint already hit 1 time
-8       breakpoint     keep n   0x0000555555e667d6 in grpc_core::promise_filter_detail::BaseCallData::Flusher::AddClosure(grpc_closure*, absl::lts_20230125::Status, char const*) at /ouster/grpc/src/core/lib/channel/promise_based_filter.h:247
-9       breakpoint     keep n   0x0000555555e59ae4 in grpc_core::promise_filter_detail::BaseCallData::Flusher::~Flusher()
-                                                   at /ouster/grpc/src/core/lib/channel/promise_based_filter.cc:262
-10      breakpoint     keep y   0x0000555555e60f78 in grpc_core::promise_filter_detail::ServerCallData::StartBatch(grpc_transport_stream_op_batch*) at /ouster/grpc/src/core/lib/channel/promise_based_filter.cc:2032
-        breakpoint already hit 2 times
-11      breakpoint     keep n   0x00005555559611d0 in grpc_core::CallCombinerClosureList::Add(grpc_closure*, absl::lts_20230125::Status, char const*) at /ouster/grpc/src/core/lib/iomgr/call_combiner.h:151
-12      breakpoint     keep y   0x0000555555e60b2b in grpc_core::promise_filter_detail::ServerCallData::ServerCallData(grpc_call_element*, grpc_call_element_args const*, unsigned char) at /ouster/grpc/src/core/lib/channel/promise_based_filter.cc:1994
-        breakpoint already hit 2 times
-13      breakpoint     keep y   0x00005555556343cb in TestImpl::Sum(grpc::ServerContext*, test::SumArgs const*, test::SumResult*) at test_server.cc:19
-15      breakpoint     keep y   0x0000555555b1c3f9 in grpc_call_start_batch(grpc_call*, grpc_op const*, size_t, void*, void*)
-                                                   at /ouster/grpc/src/core/lib/surface/call.cc:3601
-16      breakpoint     keep y   0x0000555555a9f35f in grpc_core::CallCombiner::Start(grpc_closure*, absl::lts_20230125::Status, char const*, int, char const*) at /ouster/grpc/src/core/lib/iomgr/call_combiner.cc:135
-        breakpoint already hit 2 times
-
-
-
 * Notes about java implementation:
   * Support long messages.
   * Need to keep track of many outstanding requests
