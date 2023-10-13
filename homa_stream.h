@@ -119,6 +119,7 @@ public:
     }
 
     virtual ~HomaStream(void);
+    void    addPeerToMetadata(grpc_metadata_batch *md);
     void    cancelPeer(void);
     void    flush(void);
     void    handleIncoming(HomaIncoming::UniquePtr msg, uint64_t homaId);

@@ -1,5 +1,8 @@
 #include <memory>
 
+#include "src/core/lib/address_utils/sockaddr_utils.h"
+#include "src/core/lib/slice/slice.h"
+
 #include "homa.h"
 #include "homa_stream.h"
 #include "time_trace.h"
@@ -481,6 +484,9 @@ void HomaStream::transferData()
             if (h->flags & Wire::Header::initMdPresent) {
                 msg->deserializeMetadata(sizeof(Wire::Header),
                         msg->initMdLength, initMd);
+                if (isServer) {
+                    addPeerToMetadata(initMd);
+                }
                 logMetadata(initMd, "Incoming initial metadata");
                 if (initMdTrailMdAvail && (h->flags
                         & h->trailMdPresent)) {
@@ -575,6 +581,22 @@ void HomaStream::transferData()
         grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, absl::OkStatus());
         gpr_log(GPR_INFO, "Invoked message closure (eof)");
     }
+}
+
+/**
+ * Invoked on servers to add the peer address to initial metadata.
+ * \param md
+ *      The address of the stream's peer should get added here.
+ */
+void HomaStream::addPeerToMetadata(grpc_metadata_batch *md)
+{
+    struct grpc_resolved_address addr;
+    static_assert(GRPC_MAX_SOCKADDR_SIZE >= sizeof(streamId.addr));
+    memcpy(addr.addr, &streamId.addr, sizeof(streamId.addr));
+    addr.len = sizeof(streamId.addr);
+    absl::StatusOr<std::string> peerString = grpc_sockaddr_to_uri(&addr);
+    md->Set(grpc_core::PeerString(),
+                        grpc_core::Slice::FromCopiedString(peerString.value()));
 }
 
 /**
