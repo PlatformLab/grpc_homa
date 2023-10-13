@@ -10,47 +10,6 @@
  * order to enable better unit testing.
  */
 
-/**
- * This class is used by logMetadata. Its methods are invoked by
- * grpc_metadata_batch::Encode.
- */
-class MetadataLogger {
-public:
-    MetadataLogger(const char *separator) : separator(separator) {}
-
-    void Encode(const grpc_core::Slice &key, const grpc_core::Slice &value)
-    {
-        uint32_t keyLength = key.length();
-        uint32_t valueLength = value.length();
-        Mock::logPrintf(separator, "metadata %.*s: %.*s", keyLength,
-                key.data(), valueLength, value.data());
-    }
-
-    template <typename MetadataTrait>
-    void Encode(MetadataTrait, const grpc_core::Slice &value)
-    {
-        absl::string_view key = MetadataTrait::key();
-        uint32_t keyLength = key.length();
-        uint32_t valueLength = value.length();
-        Mock::logPrintf(separator, "metadata %.*s: %.*s", keyLength,
-                key.data(), valueLength, value.data());
-    }
-
-    template <typename MetadataTrait>
-    void Encode(MetadataTrait, const typename MetadataTrait::ValueType& value)
-    {
-        absl::string_view key = MetadataTrait::key();
-        uint32_t keyLength = key.length();
-        const grpc_core::Slice& slice =
-                grpc_core::MetadataValueAsSlice<MetadataTrait>(value);
-        uint32_t valueLength = slice.length();
-        Mock::logPrintf(separator, "metadata %.*s: %.*s", keyLength,
-                key.data(), valueLength, slice.data());
-    }
-
-    const char *separator;
-};
-
 int Mock::errorCode = EIO;
 int Mock::homaReplyErrors = 0;
 int Mock::homaReplyvErrors = 0;
@@ -183,8 +142,10 @@ void Mock::logData(const char *separator, const void *data, int length)
  */
 void Mock::logMetadata(const char *separator, const grpc_metadata_batch *batch)
 {
-    MetadataLogger logger(separator);
-    batch->Encode(&logger);
+    batch->Log([separator] (absl::string_view key, absl::string_view value) {
+        Mock::logPrintf(separator, "metadata %.*s: %.*s", key.length(),
+                key.data(), value.length(), value.data());
+    });
 }
 
 /**

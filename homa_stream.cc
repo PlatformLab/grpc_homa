@@ -9,96 +9,6 @@
 #include "util.h"
 
 /**
- * This class is used for serializing metadata into an output message.
- * Its methods are invoked by grpc_metadata_batch::Encode.
- */
-class MetadataEncoder {
-public:
-    /**
-     * Constructor for MetadataEncoders.
-     * \param stream
-     *      Serialized data is appended to the output message for
-     *      this HomaStream.
-     */
-    MetadataEncoder(HomaStream *stream) : stream(stream) {}
-
-    void Encode(const grpc_core::Slice &key, const grpc_core::Slice &value)
-    {
-        stream->serializeMetadata(key.data(), key.length(), value.data(),
-                value.length());
-    }
-
-    template <typename MetadataTrait>
-    void Encode(MetadataTrait, const grpc_core::Slice &value)
-    {
-        absl::string_view key = MetadataTrait::key();
-        uint32_t keyLength = key.length();
-        stream->serializeMetadata(key.data(), keyLength, value.data(),
-                value.length());
-    }
-
-    template <typename MetadataTrait>
-    void Encode(MetadataTrait, const typename MetadataTrait::ValueType& value)
-    {
-        absl::string_view key = MetadataTrait::key();
-        uint32_t keyLength = key.length();
-        const grpc_core::Slice& slice =
-                grpc_core::MetadataValueAsSlice<MetadataTrait>(value);
-        stream->serializeMetadata(key.data(), keyLength, slice.data(),
-                slice.length());
-    }
-
-    HomaStream *stream;
-};
-
-/**
- * This class is used to compute the length of metadata. Its methods are
- * invoked by grpc_metadata_batch::Encode.
- */
-class MetadataSizer {
-public:
-    static int metadataLength(grpc_metadata_batch* batch) {
-        MetadataSizer sizer;
-        batch->Encode(&sizer);
-        return sizer.length;
-    }
-
-    /**
-     * Constructor for MetadataSizers.
-     */
-    MetadataSizer() : length(0) { }
-
-    void Encode(const void *key, uint32_t keyLength, const void *value,
-            uint32_t valueLength)
-    {
-        length += keyLength + valueLength + sizeof(Wire::Mdata);
-    }
-
-    void Encode(const grpc_core::Slice &key, const grpc_core::Slice &value)
-    {
-        length += key.length() + value.length() + sizeof(Wire::Mdata);
-    }
-
-    template <typename MetadataTrait>
-    void Encode(MetadataTrait, const grpc_core::Slice &value)
-    {
-        length += MetadataTrait::key().length() + value.length()
-                + sizeof(Wire::Mdata);
-    }
-
-    template <typename MetadataTrait>
-    void Encode(MetadataTrait, const typename MetadataTrait::ValueType& value)
-    {
-        const grpc_core::Slice& slice =
-                grpc_core::MetadataValueAsSlice<MetadataTrait>(value);
-        length += MetadataTrait::key().length() + slice.length()
-                + sizeof(Wire::Mdata);
-    }
-
-    int length;
-};
-
-/**
  * Constructor for HomaStreams.
  * \param isServer
  *      True means this stream will be used for the server side of an RPC;
@@ -266,7 +176,11 @@ void HomaStream::saveCallbacks(grpc_transport_stream_op_batch* op)
  */
 size_t HomaStream::metadataLength(grpc_metadata_batch* batch)
 {
-    return MetadataSizer::metadataLength(batch);
+    size_t length = 0;
+    batch->Log([&length] (absl::string_view key, absl::string_view value) {
+        length += key.length() + value.length() + sizeof(Wire::Mdata);
+    });
+    return length;
 }
 
 /**
@@ -323,8 +237,10 @@ void HomaStream::serializeMetadata(const void *key, uint32_t keyLength,
  */
 void HomaStream::serializeMetadataBatch(grpc_metadata_batch *batch)
 {
-    MetadataEncoder encoder(this);
-    batch->Encode(&encoder);
+    batch->Log([this] (absl::string_view key, absl::string_view value) {
+        serializeMetadata(key.data(), key.length(), value.data(),
+                value.length());
+    });
 }
 
 /**

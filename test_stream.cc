@@ -80,34 +80,6 @@ public:
     }
 };
 
-TEST_F(TestStream, MetadataEncoder) {
-    // This test exercises all three of the Encode methods in the
-    // MetadataEncoder class.
-    Mock::metadataBatchAppend(&batch, ":path", "a/b/c");
-    Mock::metadataBatchAppend(&batch, "grpc-status", "13");
-    Mock::metadataBatchAppend(&batch, "key3", "value3");
-    size_t initialSize = stream.xmitSize;
-    stream.serializeMetadataBatch(&batch);
-    size_t length = stream.xmitSize - initialSize;
-    Wire::dumpMetadata(stream.xmitBuffer + initialSize, length,
-            GPR_LOG_SEVERITY_ERROR);
-    EXPECT_STREQ("gpr_log: Key: :path, value: a/b/c; "
-            "gpr_log: Key: grpc-status, value: 13; "
-            "gpr_log: Key: key3, value: value3",
-            Mock::log.c_str());
-}
-
-TEST_F(TestStream, MetadataSizer) {
-    // This test exercises all three of the Encode methods in the
-    // MetadataSizer class.
-    Mock::metadataBatchAppend(&batch, ":path", "a/b/c");
-    EXPECT_EQ(18U, HomaStream::metadataLength(&batch));
-    Mock::metadataBatchAppend(&batch, "grpc-status", "13");
-    EXPECT_EQ(39U, HomaStream::metadataLength(&batch));
-    Mock::metadataBatchAppend(&batch, "key3", "value3");
-    EXPECT_EQ(57U, HomaStream::metadataLength(&batch));
-}
-
 TEST_F(TestStream, flush_noMessage) {
     stream.flush();
     EXPECT_STREQ("", Mock::log.c_str());
@@ -581,6 +553,27 @@ TEST_F(TestStream, transferData_initialMetadata) {
     EXPECT_EQ(0U, stream.incoming.size());
     EXPECT_FALSE(trailMdAvail);
 }
+TEST_F(TestStream, transferData_initialMetadataAddPeerString) {
+    stream.initMdClosure = &closure1;
+    stream.initMd = &batch;
+    stream.streamId.addr.in4.sin_family=AF_INET;
+    stream.streamId.addr.in4.sin_addr.s_addr = htonl(0x01020304);
+    stream.streamId.addr.in4.sin_port = htons(66);
+    stream.isServer = 1;
+
+    stream.incoming.emplace_back(new HomaIncoming(&sock, 1, true,
+            0, 0, false, false));
+    grpc_core::ExecCtx execCtx;
+    stream.transferData();
+    execCtx.Flush();
+    Mock::log.clear();
+    Mock::logMetadata("; ", &batch);
+    EXPECT_STREQ("metadata PeerString: ipv4:1.2.3.4:66; "
+            "metadata :path: /x/y; "
+            "metadata initMd1: value1",
+            Mock::log.c_str());
+    EXPECT_EQ(0U, stream.incoming.size());
+}
 TEST_F(TestStream, transferData_initialMetadataSetTrailMdAvail) {
     bool trailMdAvail = false;
     stream.initMdClosure = &closure1;
@@ -829,6 +822,23 @@ TEST_F(TestStream, transferData_useEof) {
     EXPECT_STREQ("closure1 invoked with 123", Mock::log.c_str());
     EXPECT_EQ(nullptr, stream.messageClosure);
     EXPECT_FALSE(message.has_value());
+}
+
+TEST_F(TestStream, addPeerToMetadata) {
+    stream.streamId.addr.in4.sin_family=AF_INET;
+    stream.streamId.addr.in4.sin_addr.s_addr = htonl(0x01020304);
+    stream.streamId.addr.in4.sin_port = htons(66);
+    Mock::metadataBatchAppend(&batch, "key1", "Two words");
+    Mock::metadataBatchAppend(&batch, "key2", "value2");
+
+    EXPECT_TRUE(batch.get_pointer(grpc_core::PeerString()) == NULL);
+    stream.addPeerToMetadata(&batch);
+    Mock::log.clear();
+    Mock::logMetadata("; ", &batch);
+    EXPECT_STREQ("metadata PeerString: ipv4:1.2.3.4:66; "
+            "metadata key1: Two words; "
+            "metadata key2: value2", Mock::log.c_str());
+    batch.Clear();
 }
 
 TEST_F(TestStream, handleIncoming_respondToOldRequest) {

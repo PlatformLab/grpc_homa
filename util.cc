@@ -3,47 +3,6 @@
 #include "util.h"
 
 /**
- * This class is used by logMetadata. Its methods are invoked by
- * grpc_metadata_batch::Encode.
- */
-class MetadataPrinter {
-public:
-    MetadataPrinter(const char *info) : info(info) {}
-
-    void Encode(const grpc_core::Slice &key, const grpc_core::Slice &value)
-    {
-        uint32_t keyLength = key.length();
-        uint32_t valueLength = value.length();
-        gpr_log(GPR_INFO, "%s: %.*s -> %.*s", info, keyLength, key.data(),
-                valueLength, value.data());
-    }
-
-    template <typename MetadataTrait>
-    void Encode(MetadataTrait, const grpc_core::Slice &value)
-    {
-        absl::string_view key = MetadataTrait::key();
-        uint32_t keyLength = key.length();
-        uint32_t valueLength = value.length();
-        gpr_log(GPR_INFO, "%s: %.*s -> %.*s", info, keyLength, key.data(),
-                valueLength, value.data());
-    }
-
-    template <typename MetadataTrait>
-    void Encode(MetadataTrait, const typename MetadataTrait::ValueType& value)
-    {
-        absl::string_view key = MetadataTrait::key();
-        uint32_t keyLength = key.length();
-        const grpc_core::Slice& slice =
-                grpc_core::MetadataValueAsSlice<MetadataTrait>(value);
-        uint32_t valueLength = slice.length();
-        gpr_log(GPR_INFO, "%s: %.*s -> %.*s", info, keyLength, key.data(),
-                valueLength, slice.data());
-    }
-
-    const char *info;
-};
-
-/**
  * Returns a human-readable string containing the bpage indexes in a
  * homa_recvmsg_args structure.
  * \param recvArgs
@@ -98,12 +57,14 @@ void fillData(void *data, int length, int firstValue)
  */
 void logMetadata(const grpc_metadata_batch* mdBatch, const char *info)
 {
-    MetadataPrinter printer(info);
-
     if (mdBatch->empty()) {
         gpr_log(GPR_INFO, "%s: metadata empty", info);
     }
-    mdBatch->Encode(&printer);
+    mdBatch->Log([info] (absl::string_view key, absl::string_view value) {
+        gpr_log(GPR_INFO, "%s: %.*s -> %.*s", info,
+                static_cast<int>(key.length()), key.data(),
+                static_cast<int>(value.length()), value.data());
+    });
 }
 
 /**
