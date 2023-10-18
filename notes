@@ -15,9 +15,6 @@ Miscellaneous notes about a Homa plugin for gRPC:
   * Need to eventually invoke onReady to send client messages?
 
 * TODO list:
-  * Replace HomaClient::createInsecureChannel with
-    HomaClient::insecureChannelCredentials() for consistency with
-    the rest of gRPC.
   * Add proper channelz support
   * Deal with recv_initial_metadata.recv_flags
   * Make HomaStream instance variables protected
