@@ -283,30 +283,38 @@ void HomaListener::Transport::shutdown()
 /**
  * Find the stream corresponding to an incoming message, or create a new
  * stream if there is no existing one.
- * \param msg
- *      Incoming message for which a HomaStream is needed
+ * \param streamId
+ *      Identifier for the desired stream.
  * \param lock
  *      This object will be constructed to lock the stream.
+ * \param create
+ *      If true, create a new stream if there isn't already one
+ *      corresponding to streamId. If false, return nullptr if there isn't
+ *      a matching stream.
  * \return
- *      The stream that corresponds to @msg. The stream will be locked.
- *      If there was an error creating the stream, then nullptr is returned
- *      and streamLock isn't locked.
+ *      The stream that corresponds to @streamId. The stream will be locked.
+ *      If there was an error creating the stream, or if there was
+ *      no stream corresponding to @streamId and @create was false, then
+ *      nullptr is returned and streamLock isn't locked.
  */
-HomaStream *HomaListener::Transport::getStream(HomaIncoming *msg,
-        std::optional<grpc_core::MutexLock>& streamLock)
+HomaStream *HomaListener::Transport::getStream(StreamId *streamId,
+        std::optional<grpc_core::MutexLock>& streamLock, bool create)
 {
     HomaStream *stream;
     grpc_core::MutexLock lock(&mutex);
 
-    ActiveIterator it = activeRpcs.find(msg->streamId);
+    ActiveIterator it = activeRpcs.find(*streamId);
     if (it != activeRpcs.end()) {
         stream = it->second;
         goto done;
     }
+    if (!create) {
+        return nullptr;
+    }
 
     // Must create a new HomaStream.
     StreamInit init;
-    init.streamId = &msg->streamId;
+    init.streamId = streamId;
     init.stream = nullptr;
     if (accept_stream_cb) {
         tt("Calling accept_stream_cb");
@@ -318,7 +326,7 @@ HomaStream *HomaListener::Transport::getStream(HomaIncoming *msg,
         return nullptr;
     }
     stream = init.stream;
-    activeRpcs[msg->streamId] = stream;
+    activeRpcs[*streamId] = stream;
 
 done:
     streamLock.emplace(&stream->mutex);
@@ -336,7 +344,8 @@ done:
 void HomaListener::Transport::onRead(void* arg, grpc_error_handle error)
 {
     Transport *trans = static_cast<Transport*>(arg);
-    uint64_t homaId;
+    HomaIncoming::ReadResults results;
+    HomaStream *stream;
 
     if (!error.ok()) {
         gpr_log(GPR_DEBUG, "OnRead invoked with error: %s",
@@ -346,16 +355,24 @@ void HomaListener::Transport::onRead(void* arg, grpc_error_handle error)
     tt("HomaListener::onRead starting");
     while (true) {
         std::optional<grpc_core::MutexLock> streamLock;
-        grpc_error_handle error;
         HomaIncoming::UniquePtr msg = HomaIncoming::read(&trans->sock,
                 HOMA_RECVMSG_REQUEST|HOMA_RECVMSG_RESPONSE|HOMA_RECVMSG_NONBLOCKING,
-                &homaId, &error);
-        if (!error.ok() || !msg) {
+                &results);
+        if (!results.error.ok()) {
+            if (results.homaId != 0) {
+                stream = trans->getStream(&results.streamId, streamLock, false);
+                if (stream != nullptr) {
+                    stream->notifyError(results.error);
+                }
+            }
+            break;
+        }
+        if (!msg) {
             break;
         }
 
-        HomaStream *stream = trans->getStream(msg.get(), streamLock);
-        stream->handleIncoming(std::move(msg), homaId);
+        stream = trans->getStream(&results.streamId, streamLock, true);
+        stream->handleIncoming(std::move(msg), results.homaId);
     }
     grpc_fd_notify_on_read(trans->sock.getGfd(), &trans->read_closure);
     tt("HomaListener::onRead finished");

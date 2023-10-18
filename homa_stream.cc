@@ -81,8 +81,11 @@ void HomaStream::flush()
     if (isRequest) {
         hdr()->flags |= Wire::Header::request;
         tt("Invoking homa_sendv");
+
+        // Use the stream id as the cookie: this allows us to find
+        // the stream after errors.
         status = homa_sendv(fd, vecs.data(), vecs.size(),
-                &streamId.addr, &sentHomaId, 0);
+                &streamId.addr, &sentHomaId, streamId.id);
         if (gpr_should_log(GPR_LOG_SEVERITY_INFO)) {
             gpr_log(GPR_INFO, "Sent Homa request to %s, "
                     "sequence %d with homaId %lu, %d initial metadata bytes, "
@@ -599,6 +602,7 @@ void HomaStream::notifyError(grpc_error_handle errorInfo)
         trailMdClosure = nullptr;
         grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, error);
     }
+    cancelled = true;
 }
 
 /**

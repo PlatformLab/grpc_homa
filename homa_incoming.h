@@ -26,6 +26,22 @@ public:
         }
     };
 
+    // This struct is used to return multiple results from HomaIncoming::read.
+    struct ReadResults {
+        // Returns success/failure information about the call.
+        grpc_error_handle error;
+
+        // Homa's RPC id associated with the incoming message. This may
+        // be nonzero even when !error.ok(), in which case the error
+        // was related to a specific Homa RPC.
+        uint64_t homaId;
+
+        // Identifies the gRPC stream that this message belongs to. If
+        // homaId is nonzero after an error, then this can be used to
+        // identify a stream to abort.
+        StreamId streamId;
+    };
+
     typedef std::unique_ptr<HomaIncoming, UnrefIncoming> UniquePtr;
 
     explicit          HomaIncoming(HomaSocket *sock);
@@ -39,8 +55,7 @@ public:
                             grpc_metadata_batch* batch);
     grpc_core::Slice  getSlice(size_t offset, size_t length);
 
-    static UniquePtr  read(HomaSocket *sock, int flags, uint64_t *homaId,
-                            grpc_error_handle *error);
+    static UniquePtr  read(HomaSocket *sock, int flags, ReadResults *results);
 
     /**
      * Return a count of the number of contiguous bytes available at a
@@ -109,22 +124,11 @@ public:
         return auxSpace;
     }
 
-    /**
-     * Returns the unique identifier for this message's stream.
-     */
-    StreamId& getStreamId()
-    {
-        return streamId;
-    }
-
 
     // Keeps track of all outstanding references to this message
     // (such as a std::unique_ptr for the entire message, and metadata
     // keys and values).
     grpc_slice_refcount sliceRefs;
-
-    // Information about stream (gRPC RPC) associated with the message.
-    StreamId streamId;
 
     // Information about the Homa socket from which the message was read.
     HomaSocket *sock;

@@ -994,6 +994,7 @@ TEST_F(TestStream, notifyError) {
     EXPECT_SUBSTR("closure1 invoked with 777, error", Mock::log.c_str());
     EXPECT_SUBSTR("closure2 invoked with 456, error", Mock::log.c_str());
     EXPECT_SUBSTR("testing notifyError", Mock::log.c_str());
+    EXPECT_TRUE(stream.cancelled);
 }
 
 TEST_F(TestStream, cancelPeer_peerCancelled) {

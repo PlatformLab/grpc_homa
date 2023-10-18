@@ -54,8 +54,9 @@ PROTECTED:
     public:
         Transport(grpc_server* server, int *port, bool ipv6);
         ~Transport();
-        HomaStream *    getStream(HomaIncoming *msg,
-                                std::optional<grpc_core::MutexLock>& streamLock);
+        HomaStream *    getStream(StreamId *streamId,
+                                std::optional<grpc_core::MutexLock>& streamLock,
+                                bool create);
         void            shutdown();
         void            start(grpc_core::Server* server,
                                 const std::vector<grpc_pollset*>* pollsets);

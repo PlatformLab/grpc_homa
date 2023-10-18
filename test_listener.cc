@@ -77,32 +77,42 @@ public:
 
 TEST_F(TestListener, getStream_basics) {
     std::optional<grpc_core::MutexLock> lockGuard;
+    StreamId streamId(100);
 
     // Id 100: add new stream
-    msg.streamId.id = 100;
-    HomaStream *stream1 = lis->transport->getStream(&msg, lockGuard);
+    HomaStream *stream1 = lis->transport->getStream(&streamId, lockGuard, true);
     EXPECT_EQ(1U, trans->activeRpcs.size());
     EXPECT_EQ(100U, stream1->streamId.id);
     lockGuard.reset();
 
     // Id 200: add new stream
-    msg.streamId.id = 200;
-    HomaStream *stream2 = trans->getStream(&msg, lockGuard);
+    streamId.id = 200;
+    HomaStream *stream2 = trans->getStream(&streamId, lockGuard, true);
     EXPECT_EQ(2U, trans->activeRpcs.size());
     EXPECT_EQ(200U, stream2->streamId.id);
     lockGuard.reset();
 
     // Id 100 again
-    msg.streamId.id = 100;
-    HomaStream *stream3 = trans->getStream(&msg, lockGuard);
+    streamId.id = 100;
+    HomaStream *stream3 = trans->getStream(&streamId, lockGuard, true);
     EXPECT_EQ(2U, trans->activeRpcs.size());
     EXPECT_EQ(100U, stream3->streamId.id);
     EXPECT_EQ(stream1, stream3);
 }
+TEST_F(TestListener, getStream_dontCreate) {
+    std::optional<grpc_core::MutexLock> lockGuard;
+    StreamId streamId(100);
+
+    // Id 100: add new stream
+    HomaStream *stream = lis->transport->getStream(&streamId, lockGuard, false);
+    EXPECT_EQ(nullptr, stream);
+    EXPECT_EQ(0U, trans->activeRpcs.size());
+}
 TEST_F(TestListener, getStream_noCallback) {
     std::optional<grpc_core::MutexLock> lockGuard;
+    StreamId streamId(100);
     trans->accept_stream_cb = nullptr;
-    HomaStream *stream1 = trans->getStream(&msg, lockGuard);
+    HomaStream *stream1 = trans->getStream(&streamId, lockGuard, true);
     EXPECT_EQ(0U, trans->activeRpcs.size());
     EXPECT_EQ(nullptr, stream1);
 }
@@ -110,12 +120,12 @@ TEST_F(TestListener, getStream_noCallback) {
 TEST_F(TestListener, destroy_stream) {
     HomaStream *stream;
     grpc_core::ExecCtx execCtx;
+    StreamId streamId(100);
     {
         std::optional<grpc_core::MutexLock> lockGuard;
-        msg.streamId.id = 100;
-        stream = trans->getStream(&msg, lockGuard);
+        stream = trans->getStream(&streamId, lockGuard, true);
         EXPECT_EQ(1U, trans->activeRpcs.size());
-        EXPECT_EQ(100U, stream->streamId.id);
+        EXPECT_EQ(100U, streamId.id);
         ASSERT_EQ(1U, streams.size());
         ASSERT_EQ(stream, streams[0]);
     }

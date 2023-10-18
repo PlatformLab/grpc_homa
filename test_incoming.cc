@@ -12,7 +12,6 @@ public:
     grpc_core::MemoryAllocator allocator;
     grpc_core::Arena *arena;
     HomaSocket sock;
-    uint64_t homaId;
     uint8_t bigBuf[4*HOMA_BPAGE_SIZE];
 
     TestIncoming()
@@ -20,7 +19,6 @@ public:
                 CreateMemoryAllocator("test"))
         , arena(grpc_core::Arena::Create(2000, &allocator))
         , sock(Mock::bufRegion)
-        , homaId(0)
         , bigBuf()
     {
         Mock::setUp();
@@ -60,9 +58,9 @@ public:
 };
 
 TEST_F(TestIncoming, destructor_saveBuffers) {
-    grpc_error_handle error;
-    HomaIncoming::UniquePtr msg = HomaIncoming::read(&sock, 5, &homaId, &error);
-    ASSERT_TRUE(error.ok());
+    HomaIncoming::ReadResults results;
+    HomaIncoming::UniquePtr msg = HomaIncoming::read(&sock, 5, &results);
+    ASSERT_TRUE(results.error.ok());
     msg->recvArgs.num_bpages = 2;
     msg->recvArgs.bpage_offsets[0] = 123;
     msg->recvArgs.bpage_offsets[1] = 456;
@@ -73,80 +71,81 @@ TEST_F(TestIncoming, destructor_saveBuffers) {
 }
 
 TEST_F(TestIncoming, read_basics) {
-    grpc_error_handle error;
+    HomaIncoming::ReadResults results;
     sock.savedBuffers.push_back(111);
     sock.savedBuffers.push_back(222);
     sock.savedBuffers.push_back(333);
-    HomaIncoming::UniquePtr msg = HomaIncoming::read(&sock, 5, &homaId, &error);
+    HomaIncoming::UniquePtr msg = HomaIncoming::read(&sock, 5, &results);
     ASSERT_TRUE(msg);
-    EXPECT_EQ(44U, msg->streamId.id);
+    EXPECT_EQ(44U, results.streamId.id);
+    EXPECT_EQ(333U, results.homaId);
     EXPECT_EQ(1000U, msg->bodyLength);
     EXPECT_EQ(1051U, msg->length);
     EXPECT_EQ(44444U, msg->recvArgs.completion_cookie);
     EXPECT_EQ(1U, msg->recvArgs.num_bpages);
-    EXPECT_TRUE(error.ok());
+    EXPECT_TRUE(results.error.ok());
     EXPECT_EQ(3, Mock::buffersReturned);
     EXPECT_EQ(0U, sock.savedBuffers.size());
 }
 TEST_F(TestIncoming, read_noMessageAvailable) {
-    grpc_error_handle error;
+    HomaIncoming::ReadResults results;
     Mock::recvmsgErrors = 1;
     Mock::errorCode = EAGAIN;
-    HomaIncoming::UniquePtr msg = HomaIncoming::read(&sock, 5, &homaId, &error);
-    EXPECT_TRUE(error.ok());
+    HomaIncoming::UniquePtr msg = HomaIncoming::read(&sock, 5, &results);
+    EXPECT_TRUE(results.error.ok());
     EXPECT_EQ(nullptr, msg.get());
     EXPECT_STREQ("", Mock::log.c_str());
 }
 TEST_F(TestIncoming, read_recvmsgFails) {
-    grpc_error_handle error;
+    HomaIncoming::ReadResults results;
     Mock::recvmsgErrors = 1;
     gpr_set_log_verbosity(GPR_LOG_SEVERITY_DEBUG);
-    HomaIncoming::UniquePtr msg = HomaIncoming::read(&sock, 5, &homaId, &error);
-    EXPECT_FALSE(error.ok());
+    HomaIncoming::UniquePtr msg = HomaIncoming::read(&sock, 5, &results);
+    EXPECT_FALSE(results.error.ok());
     EXPECT_EQ(nullptr, msg.get());
     EXPECT_SUBSTR("gpr_log: Error in recvmsg", Mock::log.c_str());
-    EXPECT_SUBSTR("os_error", error.ToString().c_str());
+    EXPECT_SUBSTR("os_error", results.error.ToString().c_str());
 }
 TEST_F(TestIncoming, read_messageTooShort) {
-    grpc_error_handle error;
+    HomaIncoming::ReadResults results;
     Mock::recvmsgLengths.push_back(4);
-    HomaIncoming::UniquePtr msg = HomaIncoming::read(&sock, 5, &homaId, &error);
-    EXPECT_FALSE(error.ok());
+    HomaIncoming::UniquePtr msg = HomaIncoming::read(&sock, 5, &results);
+    EXPECT_FALSE(results.error.ok());
     EXPECT_EQ(nullptr, msg.get());
     EXPECT_SUBSTR("gpr_log: Homa message contained only 4 bytes",
             Mock::log.c_str());
     EXPECT_SUBSTR("Incoming Homa message too short for header",
-            error.ToString().c_str());
+            results.error.ToString().c_str());
 }
 TEST_F(TestIncoming, read_discardStreamingResponses) {
+    HomaIncoming::ReadResults results;
     Mock::recvmsgHeaders.emplace_back(1, 2);
     Mock::recvmsgHeaders.emplace_back(1, 3);
     Mock::recvmsgHeaders.emplace_back(2, 1);
     Mock::recvmsgHeaders[0].flags |= Wire::Header::emptyResponse;
     Mock::recvmsgHeaders[1].flags |= Wire::Header::emptyResponse;
-    grpc_error_handle error;
-    HomaIncoming::UniquePtr msg = HomaIncoming::read(&sock, 5, &homaId, &error);
-    EXPECT_TRUE(error.ok());
-    EXPECT_EQ(2U, msg->streamId.id);
+    HomaIncoming::UniquePtr msg = HomaIncoming::read(&sock, 5, &results);
+    EXPECT_TRUE(results.error.ok());
+    EXPECT_EQ(2U, results.streamId.id);
     EXPECT_EQ(1, msg->sequence);
     EXPECT_EQ(0U, Mock::recvmsgHeaders.size());
 }
 TEST_F(TestIncoming, read_lengthsInconsistent) {
-    grpc_error_handle error;
+    HomaIncoming::ReadResults results;
     Mock::recvmsgLengths.push_back(1000);
-    HomaIncoming::UniquePtr msg = HomaIncoming::read(&sock, 5, &homaId, &error);
-    EXPECT_FALSE(error.ok());
+    HomaIncoming::UniquePtr msg = HomaIncoming::read(&sock, 5, &results);
+    EXPECT_FALSE(results.error.ok());
     EXPECT_EQ(nullptr, msg.get());
     EXPECT_SUBSTR("gpr_log: Bad message length 1000",
             Mock::log.c_str());
     EXPECT_SUBSTR("Incoming Homa message length doesn't match header",
-            error.ToString().c_str());
+            results.error.ToString().c_str());
 }
 
 TEST_F(TestIncoming, copyOut) {
-    grpc_error_handle error;
-    HomaIncoming::UniquePtr msg = HomaIncoming::read(&sock, 5, &homaId, &error);
-    EXPECT_TRUE(error.ok());
+    HomaIncoming::ReadResults results;
+    HomaIncoming::UniquePtr msg = HomaIncoming::read(&sock, 5, &results);
+    EXPECT_TRUE(results.error.ok());
     setBigBuf(msg.get(), 2*HOMA_BPAGE_SIZE + 10000);
 
     // First block is entirely within a bpage.
@@ -178,10 +177,10 @@ TEST_F(TestIncoming, copyOut) {
 }
 
 TEST_F(TestIncoming, getSlice) {
-    grpc_error_handle error;
+    HomaIncoming::ReadResults results;
     int destroyCounter = 0;
-    HomaIncoming::UniquePtr msg = HomaIncoming::read(&sock, 5, &homaId, &error);
-    EXPECT_TRUE(error.ok());
+    HomaIncoming::UniquePtr msg = HomaIncoming::read(&sock, 5, &results);
+    EXPECT_TRUE(results.error.ok());
     msg->destroyCounter = &destroyCounter;
     setBigBuf(msg.get(), HOMA_BPAGE_SIZE + 10000);
 
@@ -207,9 +206,9 @@ TEST_F(TestIncoming, getSlice) {
 }
 
 TEST_F(TestIncoming, deserializeMetadata_basics) {
-    grpc_error_handle error;
-    HomaIncoming::UniquePtr msg = HomaIncoming::read(&sock, 5, &homaId, &error);
-    EXPECT_TRUE(error.ok());
+    HomaIncoming::ReadResults results;
+    HomaIncoming::UniquePtr msg = HomaIncoming::read(&sock, 5, &results);
+    EXPECT_TRUE(results.error.ok());
     ASSERT_TRUE(msg);
     int destroyCounter = 0;
     msg->destroyCounter = &destroyCounter;
@@ -229,9 +228,9 @@ TEST_F(TestIncoming, deserializeMetadata_basics) {
     EXPECT_EQ(1, destroyCounter);
 }
 TEST_F(TestIncoming, deserializeMetadata_metadataOverrunsSpace) {
-    grpc_error_handle error;
-    HomaIncoming::UniquePtr msg = HomaIncoming::read(&sock, 5, &homaId, &error);
-    EXPECT_TRUE(error.ok());
+    HomaIncoming::ReadResults results;
+    HomaIncoming::UniquePtr msg = HomaIncoming::read(&sock, 5, &results);
+    EXPECT_TRUE(results.error.ok());
     ASSERT_TRUE(msg);
     size_t length = msg->addMetadata(75,
             "name1", "value1",
@@ -245,9 +244,9 @@ TEST_F(TestIncoming, deserializeMetadata_metadataOverrunsSpace) {
     batch.Clear();
 }
 TEST_F(TestIncoming, deserializeMetadata_useSpecialTraits) {
-    grpc_error_handle error;
-    HomaIncoming::UniquePtr msg = HomaIncoming::read(&sock, 5, &homaId, &error);
-    EXPECT_TRUE(error.ok());
+    HomaIncoming::ReadResults results;
+    HomaIncoming::UniquePtr msg = HomaIncoming::read(&sock, 5, &results);
+    EXPECT_TRUE(results.error.ok());
     ASSERT_TRUE(msg);
 
     // :path will be processed using a special trait in grpc_metadata_batch.)
@@ -262,9 +261,9 @@ TEST_F(TestIncoming, deserializeMetadata_useSpecialTraits) {
     batch.Clear();
 }
 TEST_F(TestIncoming, deserializeMetadata_incompleteHeader) {
-    grpc_error_handle error;
-    HomaIncoming::UniquePtr msg = HomaIncoming::read(&sock, 5, &homaId, &error);
-    EXPECT_TRUE(error.ok());
+    HomaIncoming::ReadResults results;
+    HomaIncoming::UniquePtr msg = HomaIncoming::read(&sock, 5, &results);
+    EXPECT_TRUE(results.error.ok());
     ASSERT_TRUE(msg);
     size_t length = msg->addMetadata(75,
             "name1", "value1",
@@ -277,9 +276,9 @@ TEST_F(TestIncoming, deserializeMetadata_incompleteHeader) {
 }
 
 TEST_F(TestIncoming, contiguous) {
-    grpc_error_handle error;
-    HomaIncoming::UniquePtr msg = HomaIncoming::read(&sock, 5, &homaId, &error);
-    EXPECT_TRUE(error.ok());
+    HomaIncoming::ReadResults results;
+    HomaIncoming::UniquePtr msg = HomaIncoming::read(&sock, 5, &results);
+    EXPECT_TRUE(results.error.ok());
     msg->recvArgs.num_bpages = 3;
     msg->length = 2*HOMA_BPAGE_SIZE + 1000;
     EXPECT_EQ(200U, msg->contiguous(HOMA_BPAGE_SIZE-200));
@@ -289,11 +288,11 @@ TEST_F(TestIncoming, contiguous) {
 }
 
 TEST_F(TestIncoming, getBytes) {
-    grpc_error_handle error;
+    HomaIncoming::ReadResults results;
     struct Bytes100 {uint8_t data[100];};
     Bytes100 buffer;
-    HomaIncoming::UniquePtr msg = HomaIncoming::read(&sock, 5, &homaId, &error);
-    EXPECT_TRUE(error.ok());
+    HomaIncoming::UniquePtr msg = HomaIncoming::read(&sock, 5, &results);
+    EXPECT_TRUE(results.error.ok());
     setBigBuf(msg.get(), 2*HOMA_BPAGE_SIZE + 40000);
 
     // First extraction is contiguous in a bpage.

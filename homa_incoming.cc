@@ -14,7 +14,6 @@
  */
 HomaIncoming::HomaIncoming(HomaSocket *sock)
     : sliceRefs(HomaIncoming::destroyer)
-    , streamId()
     , sock(sock)
     , recvArgs()
     , length()
@@ -52,7 +51,6 @@ HomaIncoming::HomaIncoming(HomaSocket *sock, int sequence, bool initMd,
         size_t bodyLength, int firstValue, bool messageComplete,
         bool trailMd)
     : sliceRefs(HomaIncoming::destroyer)
-    , streamId(999)
     , sock(sock)
     , recvArgs()
     , length(0)
@@ -134,36 +132,30 @@ void HomaIncoming::destroyer(grpc_slice_refcount *sliceRefs)
  *      Homa socket from which to read message.
  * \param flags
  *      Flags to pass to homa_recv, such as HOMA_RECV_RESPONSE.
- * \param homaId
- *      Homa's id for the received message is stored here. This is
- *      needed to provide that info to callers in cases where nullptr
- *      is returned (e.g. because the RPC failed). 0 means no id.
- * \param error
- *      Error information will be stored here, or absl::OkStatus()
- *      if there was no error.
+ * \param results
+ *      Used to return multiple values to the caller.
  *
  * \return
  *      The message that was just read, or nullptr if no message could
- *      be read. If error->ok() and the result is empty,
- *      it means no message was available. If !error->ok(),
- *      then there was an error reading a message. In this case, if
- *      *homaId is nonzero, it means that that particular RPC failed.
+ *      be read. Additional information is returned in @results. If
+ *      results->error.ok() and the return value is empty, it means no message
+ *      was available.
  */
 HomaIncoming::UniquePtr HomaIncoming::read(HomaSocket *sock, int flags,
-        uint64_t *homaId, grpc_error_handle *error)
+        ReadResults *results)
 {
     UniquePtr msg(new HomaIncoming(sock));
-    ssize_t result;
+    ssize_t status;
     Wire::Header *hdr, aux;
     uint64_t startTime = TimeTrace::rdtsc();
 
-    *error = absl::OkStatus();
+    results->error = absl::OkStatus();
 
     // The following loop executes multiple times if it receives (and
     // discards) streaming responses.
     struct msghdr recvHdr;
-    recvHdr.msg_name = &msg->streamId.addr;
-    recvHdr.msg_namelen = sizeof(msg->streamId.addr);
+    recvHdr.msg_name = &results->streamId.addr;
+    recvHdr.msg_namelen = sizeof(results->streamId.addr);
     recvHdr.msg_iov = nullptr;
     recvHdr.msg_iovlen = 0;
     recvHdr.msg_control = &msg->recvArgs;
@@ -176,25 +168,27 @@ HomaIncoming::UniquePtr HomaIncoming::read(HomaSocket *sock, int flags,
 //        gpr_log(GPR_INFO, "Returning %d bpages to Homa: %s",
 //               msg->recvArgs.num_bpages, bpagesToString(&msg->recvArgs).c_str());
         startTime = TimeTrace::rdtsc();
-        result = recvmsg(sock->getFd(), &recvHdr, 0);
-        *homaId = msg->recvArgs.id;
-        if (result < 0) {
+        status = recvmsg(sock->getFd(), &recvHdr, 0);
+        results->homaId = msg->recvArgs.id;
+        if (status < 0) {
+            results->streamId.addr = msg->recvArgs.peer_addr;
+            results->streamId.id = msg->recvArgs.completion_cookie;
             if (errno == EAGAIN) {
                 return nullptr;
             }
             gpr_log(GPR_ERROR, "Error in recvmsg (homaId %lu): %s",
-                    *homaId, strerror(errno));
-            *error = GRPC_OS_ERROR(errno, "recvmsg");
+                    results->homaId, strerror(errno));
+            results->error = GRPC_OS_ERROR(errno, "recvmsg");
             return nullptr;
         }
         TimeTrace::record(startTime, "HomaIncoming::read invoking recvmsg");
         tt("recvmsg returned");
-        msg->length = result;
+        msg->length = status;
         if (msg->length < sizeof(Wire::Header)) {
             gpr_log(GPR_ERROR, "Homa message contained only %lu bytes "
                     "(need %lu bytes for header)",
                     msg->length, sizeof(Wire::Header));
-            *error = GRPC_ERROR_CREATE(
+            results->error = GRPC_ERROR_CREATE(
                     "Incoming Homa message too short for header");
             return nullptr;
         }
@@ -204,13 +198,13 @@ HomaIncoming::UniquePtr HomaIncoming::read(HomaSocket *sock, int flags,
         }
         gpr_log(GPR_INFO,
                 "Discarding dummy response for homaId %lu, stream id %d",
-                *homaId, ntohl(msg->hdr()->streamId));
+                results->homaId, ntohl(msg->hdr()->streamId));
 //        gpr_log(GPR_INFO, "Received %u bpages from Homa in dummy response: %s",
 //                msg->recvArgs.num_bpages, bpagesToString(&msg->recvArgs).c_str());
     }
 
     // We now have a message suitable for returning to the caller.
-    msg->streamId.id = ntohl(hdr->streamId);
+    results->streamId.id = ntohl(hdr->streamId);
     msg->sequence = ntohl(hdr->sequenceNum);
     msg->initMdLength = ntohl(hdr->initMdBytes);
     msg->bodyLength = ntohl(hdr->messageBytes);
@@ -223,7 +217,7 @@ HomaIncoming::UniquePtr HomaIncoming::read(HomaSocket *sock, int flags,
                 "header length %lu",
                 msg->length, expected, msg->initMdLength, msg->bodyLength,
                 msg->trailMdLength, sizeof(Wire::Header));
-        *error = GRPC_ERROR_CREATE(
+        results->error = GRPC_ERROR_CREATE(
                 "Incoming Homa message length doesn't match header");
         return nullptr;
     }
@@ -232,9 +226,10 @@ HomaIncoming::UniquePtr HomaIncoming::read(HomaSocket *sock, int flags,
         gpr_log(GPR_INFO, "Received Homa message from %s, sequence %d "
                 "with homaId %lu, %u initMd bytes, %u message bytes, "
                 "%u trailMd bytes, flags 0x%x, bpage[0] %u",
-                msg->streamId.toString().c_str(), msg->sequence, *homaId,
-                msg->initMdLength, msg->bodyLength, msg->trailMdLength,
-                msg->hdr()->flags, msg->recvArgs.bpage_offsets[0]>>HOMA_BPAGE_SHIFT);
+                results->streamId.toString().c_str(), msg->sequence,
+                results->homaId, msg->initMdLength, msg->bodyLength,
+                msg->trailMdLength, msg->hdr()->flags,
+                msg->recvArgs.bpage_offsets[0]>>HOMA_BPAGE_SHIFT);
     }
     return msg;
 }

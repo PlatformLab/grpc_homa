@@ -61,7 +61,7 @@ protected:
      */
     class Connector : public grpc_core::SubchannelConnector {
     public:
-        void Connect(const Args& args, Result* result, grpc_closure* notify)
+        void Connect(const Args& args, Result* status, grpc_closure* notify)
             override;
         void Shutdown(grpc_error_handle error) override;
     };
