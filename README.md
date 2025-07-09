@@ -1,11 +1,11 @@
 This project adds Homa support to gRPC, so that gRPC applications can use
 Homa instead of TCP for transport.
 
-- This project is still in a relatively early stage of development, but C++
-  support is functional as of November 2021. Next up is Java support.
-
-- Please contact me if you have any problems; I'm happy to provide
-  advice and support.
+- This project is no longer under active development. At the time development
+  was suspended (late 2023) C++ support was functional and Java support
+  was partially implemented. I can't promise support for the existing
+  code, but if you wish to continue development of this I may be able
+  to provide some advice.
 
 - The head is currently based on gRPC v. 1.57.0 (and there is a branch
   named grpc-1.57.0 that will track this version of gRPC). There are
