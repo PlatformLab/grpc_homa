@@ -69,9 +69,13 @@ void HomaClient::Connector::Connect(
         }
         sharedClient->numPeers++;
     }
-    result->transport = &(new HomaClient::Peer(HomaClient::sharedClient,
-            *args.address))->transport;
-    result->channel_args = args.channel_args;
+    if (sharedClient->sock.getFd() != -1) {
+        result->transport = &(new HomaClient::Peer(HomaClient::sharedClient,
+                *args.address))->transport;
+        result->channel_args = args.channel_args;
+    } else {
+        result->transport = nullptr;
+    }
 
     // Notify immediately, since there's no connection to create.
     grpc_core::ExecCtx::Run(DEBUG_LOCATION, notify, absl::OkStatus());
@@ -121,9 +125,11 @@ HomaClient::HomaClient(bool ipv6)
     vtable.destroy =             destroy;
     vtable.get_endpoint =        get_endpoint;
 
-    GRPC_CLOSURE_INIT(&readClosure, onRead, this,
-            grpc_schedule_on_exec_ctx);
-    grpc_fd_notify_on_read(sock.getGfd(), &readClosure);
+    if (sock.getFd() != -1) {
+        GRPC_CLOSURE_INIT(&readClosure, onRead, this,
+                grpc_schedule_on_exec_ctx);
+        grpc_fd_notify_on_read(sock.getGfd(), &readClosure);
+    }
 }
 
 HomaClient::~HomaClient()
