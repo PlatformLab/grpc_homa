@@ -87,20 +87,20 @@ TEST_F(TestStream, flush_noMessage) {
 TEST_F(TestStream, flush_sendRequest) {
     stream.hdr()->flags |= Wire::Header::initMdPresent;
     stream.flush();
-    EXPECT_SUBSTR("homa_sendv: 1 iovecs", Mock::log.c_str());
+    EXPECT_SUBSTR("sendmsg request: 1 iovecs", Mock::log.c_str());
     EXPECT_EQ(123U, stream.sentHomaId);
 }
 TEST_F(TestStream, flush_sendReply) {
     stream.hdr()->flags |= Wire::Header::trailMdPresent;
     stream.homaRequestId = 999;
     stream.flush();
-    EXPECT_SUBSTR("homa_replyv: 1 iovecs", Mock::log.c_str());
+    EXPECT_SUBSTR("sendmsg reply to id 999: 1 iovecs", Mock::log.c_str());
     EXPECT_EQ(0U, stream.homaRequestId);
 }
 TEST_F(TestStream, flush_error) {
     stream.hdr()->flags |= Wire::Header::trailMdPresent;
     stream.homaRequestId = 999;
-    Mock::homaReplyvErrors = 1;
+    Mock::sendmsgErrors = 1;
     stream.flush();
     EXPECT_SUBSTR("gpr_log: Couldn't send Homa response: Input/output error",
             Mock::log.c_str());
@@ -232,7 +232,7 @@ TEST_F(TestStream, xmit_initialMetadata) {
     stream.xmit(&op);
     ASSERT_EQ(1U, Mock::homaMessages.size());
     Wire::dumpHeader(Mock::homaMessages[0].data(), GPR_LOG_SEVERITY_ERROR);
-    EXPECT_STREQ("homa_sendv: 1 iovecs, 60 bytes; "
+    EXPECT_STREQ("sendmsg request: 1 iovecs, 60 bytes; "
             "gpr_log: Header: id: 33, sequence 1, initMdBytes 39, "
             "initMdPresent, request",
             Mock::log.c_str());
@@ -255,7 +255,7 @@ TEST_F(TestStream, xmit_initialMetadata) {
 
     ASSERT_EQ(2U, Mock::homaMessages.size());
     Wire::dumpHeader(Mock::homaMessages[1].data(), GPR_LOG_SEVERITY_ERROR);
-    EXPECT_STREQ("homa_sendv: 2 iovecs, 143 bytes; "
+    EXPECT_STREQ("sendmsg request: 2 iovecs, 143 bytes; "
             "gpr_log: Header: id: 33, sequence 2, initMdBytes 22, "
             "messageBytes 100, initMdPresent, messageComplete, request",
             Mock::log.c_str());
@@ -311,7 +311,7 @@ TEST_F(TestStream, xmit_onlyTrailingMetadata) {
     stream.xmit(&op);
     ASSERT_EQ(1U, Mock::homaMessages.size());
     Wire::dumpHeader(Mock::homaMessages[0].data(), GPR_LOG_SEVERITY_ERROR);
-    EXPECT_STREQ("homa_replyv: 1 iovecs, 60 bytes; "
+    EXPECT_STREQ("sendmsg reply to id 999: 1 iovecs, 60 bytes; "
             "gpr_log: Header: id: 33, sequence 1, trailMdBytes 39, "
             "trailMdPresent",
             Mock::log.c_str());
@@ -333,7 +333,7 @@ TEST_F(TestStream, xmit_onlyMessageData) {
     stream.xmit(&op);
     ASSERT_EQ(1U, Mock::homaMessages.size());
     Wire::dumpHeader(Mock::homaMessages[0].data(), GPR_LOG_SEVERITY_ERROR);
-    EXPECT_STREQ("homa_sendv: 4 iovecs, 621 bytes; "
+    EXPECT_STREQ("sendmsg request: 4 iovecs, 621 bytes; "
             "gpr_log: Header: id: 33, sequence 1, messageBytes 600, "
             "messageComplete, request",
             Mock::log.c_str());
@@ -364,7 +364,7 @@ TEST_F(TestStream, xmit_everything) {
     stream.xmit(&op);
     ASSERT_EQ(1U, Mock::homaMessages.size());
     Wire::dumpHeader(Mock::homaMessages[0].data(), GPR_LOG_SEVERITY_ERROR);
-    EXPECT_STREQ("homa_replyv: 4 iovecs, 660 bytes; "
+    EXPECT_STREQ("sendmsg reply to id 999: 4 iovecs, 660 bytes; "
             "gpr_log: Header: id: 33, sequence 1, initMdBytes 19, "
             "messageBytes 600, trailMdBytes 20, initMdPresent, "
             "messageComplete, trailMdPresent",
@@ -407,9 +407,9 @@ TEST_F(TestStream, xmit_multipleHomaMessages) {
     stream.maxMessageLength = 301;
     stream.xmit(&op);
     ASSERT_EQ(3U, Mock::homaMessages.size());
-    EXPECT_STREQ("homa_replyv: 3 iovecs, 301 bytes; "
-            "homa_sendv: 2 iovecs, 301 bytes; "
-            "homa_sendv: 3 iovecs, 202 bytes",
+    EXPECT_STREQ("sendmsg reply to id 999: 3 iovecs, 301 bytes; "
+            "sendmsg request: 2 iovecs, 301 bytes; "
+            "sendmsg request: 3 iovecs, 202 bytes",
             Mock::log.c_str());
 
     // First Homa message: initial metadata plus some message data.
@@ -462,7 +462,7 @@ TEST_F(TestStream, xmit_emptyMessage) {
     stream.xmit(&op);
     ASSERT_EQ(1U, Mock::homaMessages.size());
     Wire::dumpHeader(Mock::homaMessages[0].data(), GPR_LOG_SEVERITY_ERROR);
-    EXPECT_STREQ("homa_sendv: 1 iovecs, 21 bytes; gpr_log: Header: id: 33, "
+    EXPECT_STREQ("sendmsg request: 1 iovecs, 21 bytes; gpr_log: Header: id: 33, "
             "sequence 1, messageComplete, request",
             Mock::log.c_str());
     Mock::log.clear();
@@ -510,12 +510,13 @@ TEST_F(TestStream, sendDummyResponse) {
     stream.homaRequestId = 999;
     stream.sendDummyResponse();
     ASSERT_EQ(1U, Mock::homaMessages.size());
+    Mock::log.clear();
     Wire::dumpHeader(Mock::homaMessages[0].data(), GPR_LOG_SEVERITY_ERROR);
     EXPECT_STREQ("gpr_log: Header: id: 33, sequence 0, emptyResponse",
             Mock::log.c_str());
 }
 TEST_F(TestStream, sendDummyResponse_errorSendingResponse) {
-    Mock::homaReplyErrors = 1;
+    Mock::sendmsgErrors = 1;
     stream.homaRequestId = 999;
     stream.sendDummyResponse();
     EXPECT_SUBSTR("Couldn't send dummy Homa response", Mock::log.c_str());
@@ -1006,7 +1007,7 @@ TEST_F(TestStream, cancelPeer) {
     stream.cancelPeer();
     ASSERT_EQ(1U, Mock::homaMessages.size());
     Wire::dumpHeader(Mock::homaMessages[0].data(), GPR_LOG_SEVERITY_ERROR);
-    EXPECT_STREQ("homa_sendv: 1 iovecs, 21 bytes; "
+    EXPECT_STREQ("sendmsg request: 1 iovecs, 21 bytes; "
             "gpr_log: Header: id: 33, sequence 1, request, cancelled",
             Mock::log.c_str());
 }

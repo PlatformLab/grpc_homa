@@ -24,14 +24,12 @@ public:
     // to simulate error returns from various functions. If bit 0 is set to 1,
     // the next call to the function will fail; bit 1 corresponds to the next
     // call after that, and so on.
-    static int homaReplyErrors;
-    static int homaReplyvErrors;
-    static int homaSendvErrors;
     static int recvmsgErrors;
+    static int sendmsgErrors;
 
     static int buffersReturned;
 
-    // Holds all messages sent by homa_sendv and homa_replyv.
+    // Holds all messages sent by sendmsg.
     static std::deque<std::vector<uint8_t>> homaMessages;
 
     // Return info for upcoming invocations of homa_recv.

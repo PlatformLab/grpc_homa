@@ -4,6 +4,7 @@
 
 #include "homa.h"
 #include "mock.h"
+#include "stream_id.h"
 #include "util.h"
 
 /* This file provides simplified substitutes for various features, in
@@ -11,10 +12,8 @@
  */
 
 int Mock::errorCode = EIO;
-int Mock::homaReplyErrors = 0;
-int Mock::homaReplyvErrors = 0;
-int Mock::homaSendvErrors = 0;
 int Mock::recvmsgErrors = 0;
+int Mock::sendmsgErrors = 0;
 
 std::deque<std::vector<uint8_t>> Mock::homaMessages;
 std::deque<Wire::Header>         Mock::recvmsgHeaders;
@@ -222,9 +221,7 @@ void Mock::setUp(void)
 
     errorCode = EIO;
     recvmsgErrors = 0;
-    homaReplyErrors = 0;
-    homaReplyvErrors = 0;
-    homaSendvErrors = 0;
+    sendmsgErrors = 0;
 
     buffersReturned = 0;
 
@@ -300,66 +297,37 @@ ssize_t recvmsg(int fd, struct msghdr *msg, int flags)
     return result;
 }
 
-ssize_t homa_reply(int sockfd, const void *buffer, size_t length,
-        const sockaddr_in_union *addr, uint64_t id)
-{
-    Mock::homaMessages.emplace_back(length);
-    memcpy(Mock::homaMessages.back().data(), buffer, length);
-
-    if (Mock::checkError(&Mock::homaReplyErrors)) {
-        errno = Mock::errorCode;
-        return -1;
-    }
-    return length;
-}
-
-ssize_t homa_replyv(int sockfd, const struct iovec *iov, int iovcnt,
-        const sockaddr_in_union *addr, uint64_t id)
+ssize_t sendmsg(int fd, const struct msghdr *msg, int flags)
 {
     size_t totalLength = 0;
-    for (int i = 0; i < iovcnt; i++) {
-        totalLength += iov[i].iov_len;
+    struct homa_sendmsg_args *args =
+            static_cast<homa_sendmsg_args *>(msg->msg_control);
+
+    for (size_t i = 0; i < msg->msg_iovlen; i++) {
+        totalLength += msg->msg_iov[i].iov_len;
     }
-    Mock::logPrintf("; ", "homa_replyv: %d iovecs, %lu bytes", iovcnt,
-            totalLength);
+    if (args->id != 0) {
+        Mock::logPrintf("; ", "sendmsg reply to id %lu: %d iovecs, %lu bytes",
+                args->id, msg->msg_iovlen, totalLength);
+    } else {
+        Mock::logPrintf("; ", "sendmsg request: %d iovecs, %lu bytes",
+                msg->msg_iovlen, totalLength);
+    }
 
     Mock::homaMessages.emplace_back();
     Mock::homaMessages.back().resize(totalLength);
     uint8_t *dst = Mock::homaMessages.back().data();
-    for (int i = 0; i < iovcnt; i++) {
-        memcpy(dst, iov[i].iov_base, iov[i].iov_len);
-        dst += iov[i].iov_len;
+    for (size_t i = 0; i < msg->msg_iovlen; i++) {
+        memcpy(dst, msg->msg_iov[i].iov_base, msg->msg_iov[i].iov_len);
+        dst += msg->msg_iov[i].iov_len;
     }
 
-    if (Mock::checkError(&Mock::homaReplyvErrors)) {
+    if (Mock::checkError(&Mock::sendmsgErrors)) {
         errno = Mock::errorCode;
         return -1;
     }
-    return totalLength;
-}
-
-int homa_sendv(int sockfd, const struct iovec *iov, int iovcnt,
-        const sockaddr_in_union *addr, uint64_t *id, uint64_t cookie)
-{
-    size_t totalLength = 0;
-    for (int i = 0; i < iovcnt; i++) {
-        totalLength += iov[i].iov_len;
+    if (args->id == 0) {
+        args->id = 123;
     }
-    Mock::logPrintf("; ", "homa_sendv: %d iovecs, %lu bytes", iovcnt,
-            totalLength);
-
-    Mock::homaMessages.emplace_back();
-    Mock::homaMessages.back().resize(totalLength);
-    uint8_t *dst = Mock::homaMessages.back().data();
-    for (int i = 0; i < iovcnt; i++) {
-        memcpy(dst, iov[i].iov_base, iov[i].iov_len);
-        dst += iov[i].iov_len;
-    }
-
-    if (Mock::checkError(&Mock::homaSendvErrors)) {
-        errno = Mock::errorCode;
-        return -1;
-    }
-    *id = 123;
     return totalLength;
 }

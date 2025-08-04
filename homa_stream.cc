@@ -68,6 +68,8 @@ HomaStream::~HomaStream()
  */
 void HomaStream::flush()
 {
+    struct homa_sendmsg_args args;
+    struct msghdr msghdr;
     int status;
     if (((xmitSize <= sizeof(Wire::Header)) && (hdr()->flags == 0))
             || cancelled) {
@@ -75,17 +77,27 @@ void HomaStream::flush()
     }
     bool isRequest = (homaRequestId == 0);
 
+    memset(&args, 0, sizeof(args));
+    msghdr.msg_name = (void *)&streamId.addr;
+    msghdr.msg_namelen = sizeof(streamId.addr);
+    msghdr.msg_iov = (struct iovec *)vecs.data();
+    msghdr.msg_iovlen = vecs.size();
+    msghdr.msg_control = &args;
+    msghdr.msg_controllen = 0;
+
     // When transmitting data, send a response message if there is a
     // request we haven't yet responded to; otherwise start a fresh
     // request. This makes the most efficient use of Homa messages.
     if (isRequest) {
         hdr()->flags |= Wire::Header::request;
-        tt("Invoking homa_sendv");
+        tt("Invoking sendmsg for request");
 
         // Use the stream id as the cookie: this allows us to find
         // the stream after errors.
-        status = homa_sendv(fd, vecs.data(), vecs.size(),
-                &streamId.addr, &sentHomaId, streamId.id);
+        args.completion_cookie = streamId.id;
+
+        status = sendmsg(fd, &msghdr, 0);
+        sentHomaId = args.id;
         if (gpr_should_log(GPR_LOG_SEVERITY_INFO)) {
             gpr_log(GPR_INFO, "Sent Homa request to %s, "
                     "sequence %d with homaId %lu, %d initial metadata bytes, "
@@ -94,8 +106,9 @@ void HomaStream::flush()
                     sentHomaId, ntohl(hdr()->initMdBytes),
                     ntohl(hdr()->messageBytes), ntohl(hdr()->trailMdBytes));
         }
-        tt("homa_sendv returned");
+        tt("sendmsg returned");
     } else {
+        args.id = homaRequestId;
         if (gpr_should_log(GPR_LOG_SEVERITY_INFO)) {
             gpr_log(GPR_INFO, "Sending Homa response to %s, "
                     "sequence %d with homaId %lu, %d initial metadata bytes, "
@@ -104,10 +117,9 @@ void HomaStream::flush()
                     homaRequestId, ntohl(hdr()->initMdBytes),
                     ntohl(hdr()->messageBytes), ntohl(hdr()->trailMdBytes));
         }
-        tt("Invoking homa_replyv");
-        status = homa_replyv(fd, vecs.data(), vecs.size(), &streamId.addr,
-                homaRequestId);
-        tt("homa_replyv returned");
+        tt("Invoking sendmsg to reply");
+        status = sendmsg(fd, &msghdr, 0);
+        tt("sendmsg returned");
         homaRequestId = 0;
     }
     if (status < 0) {
@@ -364,12 +376,26 @@ void HomaStream::xmit(grpc_transport_stream_op_batch* op)
  */
 void HomaStream::sendDummyResponse()
 {
+    struct homa_sendmsg_args args;
+    struct msghdr msghdr;
+    struct iovec vec;
     Wire::Header response(streamId.id, 0);
+
     response.flags |= Wire::Header::emptyResponse;
+	vec.iov_base = &response;
+	vec.iov_len = sizeof(response);
+    memset(&args, 0, sizeof(args));
+    args.id = homaRequestId;
+    msghdr.msg_name = (void *)&streamId.addr;
+    msghdr.msg_namelen = sizeof(streamId.addr);
+    msghdr.msg_iov = &vec;
+    msghdr.msg_iovlen = 1;
+    msghdr.msg_control = &args;
+    msghdr.msg_controllen = 0;
+
     gpr_log(GPR_INFO, "Sending dummy response for homaId %lu, stream id %d",
             homaRequestId, streamId.id);
-    if (homa_reply(fd, &response, sizeof(response), &streamId.addr,
-            homaRequestId) < 0) {
+    if (sendmsg(fd, &msghdr, 0) < 0) {
         gpr_log(GPR_ERROR, "Couldn't send dummy Homa response: %s",
                 strerror(errno));
     }
@@ -462,7 +488,11 @@ void HomaStream::transferData()
 
         // Transfer trailing metadata, if possible. On the server side we
         // mustn't transfer the metadata until outgoing trailing metadata
-        // has been sent (don't know why).
+        // has been sent. This appears to be a bug in 1.57.0, where
+        // ServerCallData::RecvTrailingMetadataReady invokes
+        // ServerCallData::Completed, and Completed sets send_trailing_state_
+        // to kCancelled. This is then seen later by ServerCallData::StartBatch,
+        // which cancels the RPC before sending the results.
         if (h->flags & Wire::Header::trailMdPresent) {
             eof = true;
             if (trailMdClosure && (trailMdSent || !isServer)) {
@@ -497,6 +527,7 @@ void HomaStream::transferData()
         // be any; signal that.
         grpc_closure *c = messageClosure;
         messageClosure = nullptr;
+        messageBody->reset();
         grpc_core::ExecCtx::Run(DEBUG_LOCATION, c, absl::OkStatus());
         gpr_log(GPR_INFO, "Invoked message closure (eof)");
     }

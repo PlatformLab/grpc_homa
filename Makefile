@@ -53,8 +53,6 @@ OBJS =      homa_client.o \
 	    util.o \
 	    wire.o
 
-HOMA_OBJS = homa_api.o
-
 TEST_OBJS = mock.o \
             test_incoming.o \
             test_listener.o \
@@ -71,7 +69,7 @@ PROTOS_PATH = .
 
 all: libhoma.a stress test_client test_server tcp_test
 
-libhoma.a: $(OBJS) $(HOMA_OBJS)
+libhoma.a: $(OBJS)
 	ar rcs libhoma.a $(OBJS) $^
 
 stress: basic.grpc.pb.o basic.pb.o stress.o libhoma.a
@@ -92,9 +90,6 @@ unit: $(OBJS) $(TEST_OBJS) $(GTEST_LIB_PATH)/libgtest_main.a \
 
 test: unit
 	./unit --gtest_brief=1
-
-homa_api.o: $(HOMA_DIR)/homa_api.c
-	cc -c $(CFLAGS) $< -o $@
 
 clean:
 	rm -f test_client test_server unit tcp_test *.a *.o *.pb.* .deps

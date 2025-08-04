@@ -243,6 +243,39 @@ HomaListener::Transport::~Transport()
     // Nothing to do here: shutdown did it all.
 }
 
+void PrintChannelArgs(const grpc_core::ChannelArgs& args) {
+    std::vector<std::string> names;
+    names.push_back("grpc.compression_enabled_algorithms_bitset");
+    names.push_back("grpc.internal.event_engine");
+    names.push_back("grpc.primary_user_agent");
+    names.push_back("grpc.resource_quota");
+
+    for (const auto& name : names) {
+        printf("Printing channel arg %s\n", name.c_str());
+        auto *v = args.Get(name);
+        if (v == nullptr) {
+            printf("There is no channel arg %s\n", name.c_str());
+            continue;
+        }
+        const auto i = v->GetIfInt();
+        if (i != nullptr) {
+            printf("%s is an integer: %d\n", name.c_str(), *i);
+            continue;
+        }
+        const auto s = v->GetIfString();
+        if (s != nullptr) {
+            printf("%s is a string: %s\n", name.c_str(), s->c_str());
+            continue;
+        }
+        const auto p = v->GetIfPointer();
+        if (p != nullptr) {
+            printf("%s is a pointer\n", name.c_str());
+            continue;
+        }
+        printf("%s has unknown type\n", name.c_str());
+    }
+}
+
 /**
  * Implements the listener's start functionality.
  * \param server
@@ -355,8 +388,7 @@ void HomaListener::Transport::onRead(void* arg, grpc_error_handle error)
     tt("HomaListener::onRead starting");
     while (true) {
         std::optional<grpc_core::MutexLock> streamLock;
-        HomaIncoming::UniquePtr msg = HomaIncoming::read(&trans->sock,
-                HOMA_RECVMSG_REQUEST|HOMA_RECVMSG_RESPONSE|HOMA_RECVMSG_NONBLOCKING,
+        HomaIncoming::UniquePtr msg = HomaIncoming::read(&trans->sock, true,
                 &results);
         if (!results.error.ok()) {
             if (results.homaId != 0) {

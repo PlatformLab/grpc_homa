@@ -55,7 +55,8 @@ public:
                             grpc_metadata_batch* batch);
     grpc_core::Slice  getSlice(size_t offset, size_t length);
 
-    static UniquePtr  read(HomaSocket *sock, int flags, ReadResults *results);
+    static UniquePtr  read(HomaSocket *sock, bool nonBlocking,
+                            ReadResults *results);
 
     /**
      * Return a count of the number of contiguous bytes available at a

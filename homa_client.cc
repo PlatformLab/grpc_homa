@@ -417,8 +417,7 @@ void HomaClient::onRead(void* arg, grpc_error_handle sockError)
     }
     tt("HomaClient::onRead starting");
     while (true) {
-        HomaIncoming::UniquePtr msg = HomaIncoming::read(&hc->sock,
-                HOMA_RECVMSG_RESPONSE|HOMA_RECVMSG_REQUEST|HOMA_RECVMSG_NONBLOCKING,
+        HomaIncoming::UniquePtr msg = HomaIncoming::read(&hc->sock, true,
                 &results);
         if (!results.error.ok()) {
             if (results.homaId != 0) {

@@ -130,7 +130,7 @@ void HomaIncoming::destroyer(grpc_slice_refcount *sliceRefs)
  * discarding those responses.
  * \param sock
  *      Homa socket from which to read message.
- * \param flags
+ * \param nonBlocking
  *      Flags to pass to homa_recv, such as HOMA_RECV_RESPONSE.
  * \param results
  *      Used to return multiple values to the caller.
@@ -141,7 +141,7 @@ void HomaIncoming::destroyer(grpc_slice_refcount *sliceRefs)
  *      results->error.ok() and the return value is empty, it means no message
  *      was available.
  */
-HomaIncoming::UniquePtr HomaIncoming::read(HomaSocket *sock, int flags,
+HomaIncoming::UniquePtr HomaIncoming::read(HomaSocket *sock, bool nonBlocking,
         ReadResults *results)
 {
     UniquePtr msg(new HomaIncoming(sock));
@@ -160,18 +160,18 @@ HomaIncoming::UniquePtr HomaIncoming::read(HomaSocket *sock, int flags,
     recvHdr.msg_iovlen = 0;
     recvHdr.msg_control = &msg->recvArgs;
     recvHdr.msg_controllen = sizeof(msg->recvArgs);
-    msg->recvArgs.flags = flags;
     msg->recvArgs.num_bpages = 0;
     while (true) {
         msg->recvArgs.id = 0;
+        recvHdr.msg_controllen = sizeof(msg->recvArgs);
         sock->getSavedBuffers(&msg->recvArgs);
 //        gpr_log(GPR_INFO, "Returning %d bpages to Homa: %s",
 //               msg->recvArgs.num_bpages, bpagesToString(&msg->recvArgs).c_str());
         startTime = TimeTrace::rdtsc();
-        status = recvmsg(sock->getFd(), &recvHdr, 0);
+        status = recvmsg(sock->getFd(), &recvHdr,
+                nonBlocking ? MSG_DONTWAIT : 0);
         results->homaId = msg->recvArgs.id;
         if (status < 0) {
-            results->streamId.addr = msg->recvArgs.peer_addr;
             results->streamId.id = msg->recvArgs.completion_cookie;
             if (errno == EAGAIN) {
                 return nullptr;

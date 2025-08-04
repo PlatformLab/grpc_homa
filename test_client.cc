@@ -246,6 +246,7 @@ int main(int argc, char** argv)
     bool useHoma = true;
     std::vector<std::string> args;
     unsigned nextArg;
+    std::string test = "sum";
 
     for (int i = 0; i < argc; i++) {
         args.emplace_back(argv[i]);
@@ -259,13 +260,15 @@ int main(int argc, char** argv)
         }
         break;
     }
-    if (nextArg != args.size()) {
-        if (nextArg != (args.size() - 1)) {
-            fprintf(stderr, "Usage: test_client [--tcp] [host::port]\n");
-            exit(1);
-        }
-        server = args.back().c_str();
+    if (nextArg < (args.size() - 1)) {
+        server = args[nextArg].c_str();
+        nextArg++;
     }
+    if (nextArg != (args.size() - 1)) {
+        fprintf(stderr, "Usage: test_client [--tcp] [host::port] test\n");
+        exit(1);
+    }
+    test = args[nextArg];
 
     std::optional<TestClient> client;
     if (useHoma) {
@@ -277,14 +280,24 @@ int main(int argc, char** argv)
         client.emplace(grpc::CreateChannel(server,
                 grpc::InsecureChannelCredentials()));
     }
-//    int sum;
-//    sum = client->Sum(22, 33);
-//    printf("Sum of 22 and 33 is %d\n", sum);
-//    client->Sum3Async();
-//    printf("SumMany of 1..5 is %d\n", client->SumMany(1, 2, 3, 4, 5, -1));
-//    client->PrintValues(21);
-//    client->IncMany(3, 4);
-    measureRtt(&client.value());
+    if (test == "sum") {
+        int sum;
+        sum = client->Sum(22, 33);
+        printf("Sum of 22 and 33 is %d\n", sum);
+    } else if (test == "sum3async") {
+        client->Sum3Async();
+    } else if (test == "summany") {
+        printf("SumMany of 1..5 is %d\n", client->SumMany(1, 2, 3, 4, 5, -1));
+    } else if (test == "print") {
+        client->PrintValues(21);
+    } else if (test == "incmany") {
+        client->IncMany(3, 4);
+    } else if (test == "rtt") {
+        measureRtt(&client.value());
+    } else {
+        fprintf(stderr, "Bad test name \"%s\"; must be sum, sum3async, "
+                "summany, print, incmany, or rtt\n", test.c_str());
+    }
 
     return 0;
 }

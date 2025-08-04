@@ -314,7 +314,8 @@ TEST_F(TestIncoming, getBytes) {
     memset(buffer2, 0, sizeof(buffer2));
     Bytes90000 *p2 = msg->get<Bytes90000>(60000,
             reinterpret_cast<Bytes90000 *>(buffer2));
-    ASSERT_EQ(buffer2, p2->data);
+    ASSERT_EQ(reinterpret_cast<void *>(buffer2),
+              reinterpret_cast<void *>(p2->data));
     Mock::log.clear();
     Mock::logData("; ", buffer2, 90000);
     EXPECT_STREQ("60000-149999",

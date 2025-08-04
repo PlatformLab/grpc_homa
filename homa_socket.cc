@@ -5,10 +5,11 @@
 #include "homa.h"
 
 #include "homa_socket.h"
+#include "stream_id.h"
 
 /**
  * Constructor for HomaSockets; opens the socket and sets up buffer space.
- * If an error occurs in setting up the socket then winter information will
+ * If an error occurs in setting up the socket then error information will
  * be logged and getFd() will return -1.
  * \param domain
  *      Communication domain for the socket; must be AF_INET for IPv4 or
@@ -29,7 +30,7 @@ HomaSocket::HomaSocket(int domain, int port)
 {
     sockaddr_in_union addr{};
     socklen_t addr_size = sizeof(addr);
-    int status;
+    int status, value;
 
     fd = socket(domain, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_HOMA);
     if (fd < 0) {
@@ -69,14 +70,24 @@ HomaSocket::HomaSocket(int domain, int port)
         bufSize = 0;
         goto error;
     }
-    struct homa_set_buf_args setBufArgs;
-    setBufArgs.start = bufRegion;
-    setBufArgs.length = bufSize;
-    status = setsockopt(fd, IPPROTO_HOMA, SO_HOMA_SET_BUF, &setBufArgs,
-            sizeof(setBufArgs));
+    struct homa_rcvbuf_args rcvBufArgs;
+    rcvBufArgs.start = reinterpret_cast<__u64>(bufRegion);
+    rcvBufArgs.length = bufSize;
+    status = setsockopt(fd, IPPROTO_HOMA, SO_HOMA_RCVBUF, &rcvBufArgs,
+            sizeof(rcvBufArgs));
     if (status < 0) {
         gpr_log(GPR_ERROR,
                 "Error in setsockopt(SO_HOMA_SET_BUF) for port %d: %s\n",
+                port, strerror(errno));
+        goto error;
+    }
+
+    value = 1;
+    status = setsockopt(fd, IPPROTO_HOMA, SO_HOMA_SERVER, &value,
+            sizeof(value));
+    if (status < 0) {
+        gpr_log(GPR_ERROR,
+                "Error in setsockopt(SO_HOMA_SERVER) for port %d: %s\n",
                 port, strerror(errno));
         goto error;
     }

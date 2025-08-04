@@ -20,7 +20,7 @@
 #include <vector>
 
 // Change 1 -> 0 in the following line to disable time tracing globally.
-#define ENABLE_TIME_TRACE 0
+#define ENABLE_TIME_TRACE 1
 
 /**
  * This class implements a circular buffer of entries, each of which

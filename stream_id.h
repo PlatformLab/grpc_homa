@@ -9,6 +9,21 @@
 #include "src/core/lib/iomgr/resolve_address.h"
 
 /**
+ * union sockaddr_in_union - Holds either an IPv4 or IPv6 address (smaller
+ * and easier to use than sockaddr_storage).
+ */
+union sockaddr_in_union {
+	/** @sa: Used to access as a generic sockaddr. */
+	struct sockaddr sa;
+
+	/** @in4: Used to access as IPv4 socket. */
+	struct sockaddr_in in4;
+
+	/** @in6: Used to access as IPv6 socket.  */
+	struct sockaddr_in6 in6;
+};
+
+/**
  * Holds information identifying a stream (which represents a gRPC RPC)
  * in a form that can be used as a key in std::unordered_map.
  */
@@ -59,7 +74,7 @@ struct StreamId {
             return hash ^ streamId.id;
         }
     };
-    
+
     struct Pred {
         bool operator()(const StreamId& a, const StreamId& b) const
         {
