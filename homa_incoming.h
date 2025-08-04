@@ -110,6 +110,9 @@ public:
 
         // Must copy the object to make it contiguous; it could span any
         // number of buffers.
+        if (auxSpace == nullptr) {
+            return nullptr;
+        }
         uint8_t *p = reinterpret_cast<uint8_t *>(auxSpace);
         memcpy(p, start, cbytes);
         for (size_t offsetInObj = cbytes; offsetInObj < sizeof(T);
